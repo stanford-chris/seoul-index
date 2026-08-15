@@ -38,6 +38,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import net_guard
+
 HERE = Path(__file__).parent
 CONFIG = HERE / 'seoul_index_config.json'
 HISTORY = HERE / 'crowd_history.jsonl'
@@ -162,6 +164,13 @@ def main():
     if STATS:
         show_stats()
         return
+
+    # Sampling runs hourly, so wait ten minutes at most: an hour of readings is
+    # worth saving, but a run must never still be waiting when the next fires.
+    # Without this the August 2026 outage wrote 89 hours of "logged 0/26 spots;
+    # 26 problem(s)" lines, one per spot, in place of the readings.
+    net_guard.require_network(600)
+
     api_key = json.loads(CONFIG.read_text())['api_key']
     records, problems = sample(api_key)
     if records:

@@ -43,6 +43,8 @@ import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+import net_guard
+
 HERE = Path(__file__).parent
 CONFIG = HERE / 'seoul_index_config.json'
 OUT = HERE / 'books_agg.json'
@@ -102,6 +104,10 @@ def _one_day():
 
 
 def main():
+    # Monthly, on the 4th: a skipped run waits a month, so give the network a
+    # generous half hour before giving up on the harvest.
+    net_guard.require_network(1800)
+
     try:
         cfg = json.loads(CONFIG.read_text())
     except (OSError, ValueError) as e:

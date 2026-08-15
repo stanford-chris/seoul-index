@@ -35,6 +35,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+import net_guard
+
 HERE = Path(__file__).parent
 CONFIG = HERE / 'seoul_index_config.json'
 OUT = HERE / 'sales_agg.json'
@@ -59,6 +61,10 @@ def http_get_json(url):
 
 
 def main():
+    # Monthly, on the 3rd: a skipped run waits a month, so give the network a
+    # generous half hour before giving up on the scan.
+    net_guard.require_network(1800)
+
     api_key = json.loads(CONFIG.read_text())['api_key']
     base = f'http://openapi.seoul.go.kr:8088/{api_key}/json/{SERVICE}'
 

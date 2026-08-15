@@ -52,6 +52,7 @@ from zoneinfo import ZoneInfo
 
 from atproto import Client, client_utils, models
 
+import net_guard
 from seoul_index_card import render_card, CardRenderError, curly
 
 HERE = Path(__file__).parent
@@ -3106,6 +3107,12 @@ def main():
     # Timestamp every run: the log had none, which made the back-to-back
     # spotlight incident of 22 Jul 2026 needlessly hard to reconstruct.
     print(f'--- run at {datetime.now(SEOUL_TZ):%Y-%m-%d %H:%M:%S} KST ---')
+
+    # Wait for the machine to have a path out before harvesting or selecting.
+    # Posts fire 8:30/12:30/20:30, so half an hour of waiting still lands the
+    # post and cannot collide with the next firing. Inside the lock, so a run
+    # that is waiting turns its successor away rather than stacking up.
+    net_guard.require_network(1800)
 
     config = json.loads(CONFIG.read_text())
     api_key = config['api_key']
