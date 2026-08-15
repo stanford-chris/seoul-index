@@ -2387,6 +2387,27 @@ def _valid_emoji(s):
     return s
 
 
+def strip_emoji(text):
+    """`text` with emoji removed, for use as image ALT text.
+
+    Emoji earn their place on the card and in the plaintext fallback post, but
+    in alt text they are announced aloud by name, putting a spoken glyph in
+    front of the content on the opener and on every tagged line. Uses the same
+    ranges _valid_emoji() accepts, so what the selector can put in is exactly
+    what comes back out, and tidies the space each one leaves behind.
+    """
+    def is_emoji(ch):
+        o = ord(ch)
+        return (0x1F000 <= o <= 0x1FAFF or 0x2600 <= o <= 0x27BF or
+                0x2B00 <= o <= 0x2BFF or 0x1F1E6 <= o <= 0x1F1FF or
+                0x1F3FB <= o <= 0x1F3FF or o in (0x200D, 0xFE0F))
+
+    out = ''.join('' if is_emoji(ch) else ch for ch in text)
+    # Collapse the gap a stripped leading emoji leaves, per line, without
+    # touching the blank lines that separate the card's blocks.
+    return '\n'.join(ln.strip() if ln.strip() else ln for ln in out.split('\n'))
+
+
 def _sortkey(value_en):
     """(unit_class, magnitude) for a formatted value, or None if unparseable.
     Lets compose() order a post's lines by size, but only among lines that share
@@ -3216,7 +3237,13 @@ def main():
     # plaintext body is the card's alt text, and the whole post if rendering fails.
     en_source = source_reply(client_utils.TextBuilder(), c['src_en'], c.get('wiki_en'))
     ko_source = source_reply(client_utils.TextBuilder(), c['src_ko'], c.get('wiki_ko'))
-    en_alt, ko_alt = c['en_body'], c['ko_body']
+    # The body doubles as the cards' ALT text and, if rendering fails, as the
+    # plaintext post. Emoji are right for the post and wrong for the alt: a
+    # screen reader announces them by name, so the opener reads out as "round
+    # pushpin Seoul Forest, hour by hour" and every tagged line carries a
+    # spoken glyph before its label. Strip them from the alt only; the cards
+    # and the fallback post keep theirs.
+    en_alt, ko_alt = strip_emoji(c['en_body']), strip_emoji(c['ko_body'])
 
     print(f'\nNote: {sel.get("note", "")}')
     print(f'\nEN alt / fallback ({len(en_alt)} chars):\n{"-"*46}\n{en_alt}\n{"-"*46}')
