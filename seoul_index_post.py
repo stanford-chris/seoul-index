@@ -33,6 +33,7 @@ Usage:
   python3 seoul_index_post.py --spotlight --dry-run   # force the single-place card
 """
 
+import collections
 import csv
 import fcntl
 import io
@@ -120,6 +121,49 @@ SOURCE_URL = 'https://data.seoul.go.kr/'
 # How many recently-used line ids / categories to keep off the next post.
 RECENT_IDS_KEEP = 24
 RECENT_CATS_KEEP = 2
+
+# recent_ids is advisory: it goes to the selector as AVOID_IDS, the last and
+# weakest rule in a long prompt, and the selector demonstrably ignores it when a
+# frozen PAIR is more attractive. So the same card can come back the moment its
+# ids age out. It did: the spending card below went out line-for-line identical
+# on 29 Jul and 6, 10 and 17 Aug 2026 —
+#     Karaoke rooms ₩87.8bn / Bookshops ₩77.8bn / Fried chicken ₩77.7bn / Motels ₩61.7bn
+# and its top THREE lines were the same on all six spending cards in that
+# fortnight, only the fourth line moving. An exact-match guard would have caught
+# the four but not the six, so the rule is an OVERLAP one: a new card may share
+# at most CARD_OVERLAP_MAX line ids with any of the last RECENT_CARDS_KEEP
+# cards. Enforced in Python by reselecting (see select_fresh), because a rule the
+# selector is merely asked to follow is the thing that failed.
+#
+# 12 cards is about four days at three posts a day. The small veins (bike and
+# transport have 4 facts each) cannot clear an overlap of 2 against their own
+# last card, so in effect they post at most once per window — which is the
+# intended outcome: their four lines are fixed and only the values move.
+RECENT_CARDS_KEEP = 12
+CARD_OVERLAP_MAX = 2
+# Each retry is another claude -p call, so the guard gives up rather than
+# spending forever; a card that survives three rejections posts anyway.
+SELECT_RETRIES = 3
+
+# The floor under the neglected veins. Measured 17 Aug 2026 over the 50 logged
+# cards: seven of the sixteen harvested veins had NEVER posted (world 29 facts,
+# weather 19, health 12, infra 7, national 5, culture 4, air 2 — 78 of 202
+# facts, 39% of everything harvested), while six veins took the whole feed. The
+# cause is the prompt itself: it tells the selector to STRONGLY prefer a
+# pre-detected PAIR and calls CROSS_PAIRS "the account's sharpest move", and
+# pairs cluster in the live and quarterly veins. The annual-vintage veins lose
+# every time they are offered.
+#
+# So the same remedy as the cooldowns, pointed the other way: when a vein has
+# not been the primary category for this many days, the pool is narrowed TO that
+# vein for one card and the selector has nothing else to choose. Promotions never
+# land back to back, so a burst of starved veins airs over alternating posts
+# rather than putting the feed on rails for two days.
+STARVE_DAYS = 5
+# A promoted vein must be able to fill a card on its own. 'air' has only 2 facts
+# and so can never be promoted — it can only ever ride along on someone else's
+# card, which is worth knowing rather than silently working around.
+STARVE_MIN_FACTS = 3
 
 # Curated live-crowd locations (citydata_ppltn AREA_NM, all verified to resolve).
 # A mix of packed / quiet / touristy / young so contrasts are available.
@@ -216,7 +260,42 @@ CROWD_SPOTS = [
 # instead of setting places against each other. Chosen by coin flip rather
 # than a fixed cadence (see main()), so the spotlight does not land in the
 # same slot every day.
-SPOTLIGHT_EVERY = 3
+#
+# Was 3 until 17 Aug 2026, which measured out at 17 of the 50 logged cards —
+# a third of the feed spent on one card type that never reaches the selector,
+# and therefore a third of the feed that no other vein can ever occupy. Seven
+# veins (world, weather, health, infra, national, culture, air: 78 of 202
+# facts) had gone unposted for the whole three weeks the card log covers. At 5
+# the spotlight is about a fifth of the feed and those slots go back into the
+# pool.
+SPOTLIGHT_EVERY = 5
+
+# A spotlight card is four readings of ONE place, so unlike an index card it has
+# no contrast to fall back on: if the readings are all the same number, the card
+# says nothing four times. The KT population buckets are coarse (they arrive
+# pre-rounded, and the quieter spots round to the same value hour after hour),
+# so this is not rare — Yeonnam-dong on 7 Aug 2026 posted 11,000 / 11,000 /
+# 11,000 / 6,250 and Haebangchon on 10 Aug posted 3,250 / 3,250 / 3,750 /
+# 3,250. Both cleared the old "a flat forecast says nothing" check, which
+# compares the peak and trough HOURS and never looks at the values.
+#
+# A card must therefore carry at least SPOTLIGHT_MIN_DISTINCT different values,
+# spread at least SPOTLIGHT_MIN_SPREAD of the largest. Replayed against the 17
+# logged spotlight cards, the pair rejects exactly the two dead cards above and
+# keeps the other 15. The distinct-values floor is what does the work: eight of
+# the 15 keepers sit exactly on it (three values from four lines is the normal
+# shape, since 'now' and either the weekday average or the peak often round
+# together), while the closest keeper on spread is Bukchon Hanok Village at 46%,
+# comfortably clear of 25%. Both dead cards above fail on distinct values alone,
+# so on this sample the spread bar rejects nothing the distinct floor does not.
+# It is kept as the backstop for the shape the distinct floor cannot see: three
+# or four different values that are all nearly the same size (11,000 / 11,050 /
+# 11,100), which is one number with a wobble and reads as flat on the card.
+#
+# A rejected card falls through to a normal index card, which is the existing
+# behaviour when a place answers with too few lines.
+SPOTLIGHT_MIN_DISTINCT = 3
+SPOTLIGHT_MIN_SPREAD = 0.25
 
 # The world vein is a quarter of the pool and holds the widest gaps in it
 # (Seoul's density is 4x Amsterdam's), so the selector reaches for it whenever
@@ -224,6 +303,21 @@ SPOTLIGHT_EVERY = 3
 # after a world post, world facts leave the pool entirely until this many days
 # have passed. At three posts a day, 3 days is about one world card in nine.
 WORLD_COOLDOWN_DAYS = 3
+
+# Spending gets a cooldown for the opposite reason to world's. Its figures come
+# from a QUARTERLY aggregate (sales_agg.json), so the dead-heat pair that
+# sales_facts() pre-detects is not merely attractive, it is FROZEN: the same two
+# categories are handed to the selector under PAIRS on every run for months at a
+# time, and the prompt tells the selector to strongly prefer building around a
+# pair. The result was the identical card — bookshops against fried chicken —
+# recurring as fast as recent_ids would release it (4 posts in the fortnight to
+# 17 Aug 2026, on 4, 6, 10 and 17 August, three of them line-for-line the same).
+# recent_ids alone cannot fix this: at RECENT_IDS_KEEP=24 it only spaces repeats
+# about six posts apart. At three posts a day, 3 days is about one spending card
+# in nine. 'avgbill' is deliberately NOT cooled — it is the same source data
+# under a different framing ("Average bill in Seoul"), and it is not what
+# repeats.
+SPENDING_COOLDOWN_DAYS = 3
 
 # Rotating openers offered to the selector (it may also write its own). Kept
 # deliberately neutral — time/place framings, never a punchline. The house style
@@ -549,6 +643,11 @@ def spotlight_facts(api_key, spot):
                   f'Estimated crowd right now ({_ampm_en(now_h)})',
                   grouped(now_mid), grouped(now_mid), estimated=True,
                   label_ko=f'지금 추정 인구 ({_ampm_ko(now_h)})')]
+    # Raw magnitudes, kept alongside the facts purely so the flat-card check at
+    # the end can see them. They are never posted: the published strings are
+    # the grouped() values already inside each fact, so Python still owns every
+    # number exactly as before.
+    nums = [now_mid]
 
     # Typical for this weekday and hour, from our own observations. Sits second
     # so it lands next to the live figure it gives meaning to.
@@ -563,6 +662,7 @@ def spotlight_facts(api_key, spot):
                           f'Usual for a {WEEKDAY_EN.get(wd, wd)} at {_ampm_en(now_h)}',
                           grouped(mean), grouped(mean), estimated=True,
                           label_ko=f'{WEEKDAY_KO.get(wd, wd)} {_ampm_ko(now_h)} 평균'))
+        nums.append(mean)
 
     pts = []
     for x in (r.get('FCST_PPLTN') or []):
@@ -585,7 +685,21 @@ def spotlight_facts(api_key, spot):
                               grouped(lo[1]), grouped(lo[1]),
                               estimated=True, forecast=True,
                               label_ko=f'가장 한산할 시간 ({_ampm_ko(lo[0])})'))
-    return facts if len(facts) >= 3 else []
+            nums += [hi[1], lo[1]]
+    if len(facts) < 3:
+        return []
+    # Reject a card whose readings are the same number wearing different labels
+    # (see SPOTLIGHT_MIN_DISTINCT). Returning [] puts the run on the normal
+    # index path, which is what already happens when a place answers thinly.
+    distinct = len(set(nums))
+    hi_n = max(nums)
+    spread = (hi_n - min(nums)) / hi_n if hi_n else 0.0
+    if distinct < SPOTLIGHT_MIN_DISTINCT or spread < SPOTLIGHT_MIN_SPREAD:
+        print(f'Spotlight on {en} is flat ({distinct} distinct value(s), '
+              f'{spread:.0%} spread; needs {SPOTLIGHT_MIN_DISTINCT} and '
+              f'{SPOTLIGHT_MIN_SPREAD:.0%}) — no card in it.')
+        return []
+    return facts
 
 
 def spotlight_sel(spot, facts):
@@ -2186,10 +2300,14 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None):
     pool += sales_facts()
     pool += kosis_facts(kosis_key)
     pool += world_facts()
-    # HELD OFF pending card preview (re-anchored 30 Jul 2026 to LEAD with Seoul:
-    # World Bank for the countries, KOSIS for Seoul). Harvester and compose
-    # wiring are live; re-enable by uncommenting this one line once approved.
-    # pool += worldbank_facts(state, kosis_key)
+    # Re-anchored 30 Jul 2026 to LEAD with Seoul (World Bank for the countries,
+    # KOSIS for Seoul), then held off pending a look at the card. Card previewed
+    # and approved by the user 17 Aug 2026, so LIVE from this point:
+    #     People per square kilometre
+    #     Seoul 15,509/km² · South Korea 530/km² · United States 37/km²
+    # The metric used to be repeated on the source reply as well as the opener;
+    # see unsaid_metrics(), fixed in the same pass.
+    pool += worldbank_facts(state, kosis_key)
     pool += molit_facts(gov_key)
     pool += kma_facts(gov_key)
     pool += kac_facts(gov_key)
@@ -2293,6 +2411,89 @@ def cross_vein_pairs(pool):
     return out
 
 
+def apply_cooldown(pool, state, stamp_key, cat, days, label):
+    """Drop `cat` from the pool if its last post is younger than `days`.
+
+    Shared by the world and spending veins, which both get reached for far more
+    often than their share of the pool warrants. Two deliberate refusals to
+    fire: an unrecoverable or missing stamp means no cooldown, and the filter is
+    abandoned if it would leave fewer than 5 facts. A guard should never be the
+    thing that empties the pool and skips a post.
+
+    TypeError is caught alongside ValueError because a timezone-NAIVE stamp
+    (a hand-edited state file, or one written before the stamps carried an
+    offset) is unparseable against an aware now() and would otherwise raise
+    mid-run and skip the post. main() writes aware stamps, so this is the
+    unhappy path only.
+    """
+    stamp = state.get(stamp_key)
+    if not stamp:
+        return pool
+    try:
+        age = datetime.now(timezone.utc) - datetime.fromisoformat(stamp)
+    except (ValueError, TypeError):
+        return pool
+    if age >= timedelta(days=days):
+        return pool
+    cooled = [f for f in pool if f['cat'] != cat]
+    if len(cooled) < 5:
+        return pool
+    hours = int(age.total_seconds() // 3600)
+    print(f'{label} on cooldown ({hours}h of {days * 24}h) - '
+          f'{len(pool) - len(cooled)} facts withheld.')
+    return cooled
+
+
+def promote_starved(pool, state):
+    """Give a long-unposted vein one card to itself (see STARVE_DAYS).
+
+    The cooldowns hold back veins the selector over-reaches for; this is the
+    same mechanism aimed at the ones it never reaches for at all. When a vein
+    has gone STARVE_DAYS without being a card's primary category, the pool is
+    narrowed to that vein alone, so the selector's preference for a juicy
+    cross-vein pair cannot outvote it.
+
+    Never-posted veins go first, then the longest-neglected. Returns
+    (pool, promoted_cat), with promoted_cat None when nothing is promoted and
+    the pool handed back untouched.
+    """
+    # Two promotions running would put the feed on rails. last_cat is the record
+    # of what the previous card WAS, so comparing it with the cat we promoted
+    # last time needs no second flag to fall out of step with it (a duplicate
+    # flag is exactly what put two spotlights back to back on 22 Jul 2026).
+    if state.get('last_cat') and state.get('last_cat') == state.get('last_promoted_cat'):
+        return pool, None
+
+    counts = collections.Counter(f['cat'] for f in pool)
+    seen = state.get('cat_last_at') or {}
+    now = datetime.now(timezone.utc)
+    starved = []
+    for cat, n in counts.items():
+        if n < STARVE_MIN_FACTS:
+            continue
+        stamp = seen.get(cat)
+        age = None                          # None = never posted at all
+        if stamp:
+            try:
+                age = now - datetime.fromisoformat(stamp)
+            except (ValueError, TypeError):
+                age = None
+        if age is None or age >= timedelta(days=STARVE_DAYS):
+            starved.append((age, cat, n))
+    if not starved:
+        return pool, None
+
+    # Never-posted first; then oldest-seen first.
+    starved.sort(key=lambda t: (t[0] is not None,
+                                -(t[0].total_seconds() if t[0] else 0)))
+    age, cat, n = starved[0]
+    waited = 'never posted' if age is None else f'{age.days}d since last card'
+    others = ', '.join(c for _, c, _ in starved[1:]) or 'none'
+    print(f'Vein floor: promoting {cat} ({waited}); this card is built from its '
+          f'{n} facts alone. Also starved: {others}.')
+    return [f for f in pool if f['cat'] == cat], cat
+
+
 def select(pool, state):
     avoid = state.get('recent_ids', [])[-RECENT_IDS_KEEP:]
     slim = [{'id': f['id'], 'cat': f['cat'], 'label_en': f['label_en'],
@@ -2334,6 +2535,49 @@ def select(pool, state):
             if last:
                 raise RuntimeError(f'claude -p returned invalid JSON: {text[:200]!r}')
             continue
+
+
+def card_signature(picks):
+    """A card's identity as posted: its set of line ids, order-independent.
+    Order is not part of it because compose() sorts the lines by magnitude
+    anyway, so the same three facts in a different order are the same card."""
+    return sorted(p['id'] for p in picks if p.get('id'))
+
+
+def select_fresh(pool, state, strict=True):
+    """select(), but reject a card that repeats a recent one and ask again.
+
+    On a rejection the offending ids are dropped from the pool before
+    reselecting, which is what forces a genuinely different card rather than a
+    reshuffle of the same lines. Gives up after SELECT_RETRIES and posts the
+    last answer: a slightly repetitive card is better than no post.
+
+    strict=False falls back to rejecting only verbatim repeats. It is for a
+    promoted vein (see promote_starved), where the pool has deliberately been
+    narrowed to one small vein and the overlap rule would reject every card it
+    can possibly build.
+    """
+    recent = [set(s) for s in (state.get('recent_cards') or [])]
+    banned, sel = set(), None
+    for attempt in range(SELECT_RETRIES):
+        sub = [f for f in pool if f['id'] not in banned] if banned else pool
+        if len(sub) < 3:                    # nothing left to build a card from
+            sub = pool
+        sel = select(sub, state)
+        sig = set(card_signature(sel.get('picks', [])))
+        if not sig:
+            return sel                      # malformed; downstream will handle it
+        limit = CARD_OVERLAP_MAX if strict else len(sig) - 1
+        worst = max((len(sig & prev) for prev in recent), default=0)
+        if worst <= limit:
+            return sel
+        kind = 'overlaps' if strict else 'repeats'
+        print(f'Reselecting: card {kind} a recent one ({worst} of '
+              f'{len(sig)} lines shared, max {limit}); '
+              f'attempt {attempt + 1} of {SELECT_RETRIES}.')
+        banned |= sig
+    print('Repeat guard gave up; posting the last selection.')
+    return sel
 
 
 def clean_label(label, fallback, value):
@@ -2600,6 +2844,32 @@ def _strip_live_frame(label, korean):
     return s[0].upper() + s[1:] if s[:1].islower() else s
 
 
+def unsaid_metrics(opener, metrics):
+    """Those of `metrics` the opener does not already say.
+
+    The world and nation source lines name the metric because their labels are
+    bare place names — "Seoul, South Korea, United States" measures nothing on
+    its own, so something has to say what the figures are. That was written
+    before SELECT_PROMPT required those openers to name the metric themselves,
+    and once both did it, the same phrase went out twice one post apart:
+
+        card    ## People per square kilometre
+        reply   Source: data.worldbank.org · World Bank · People per square kilometre
+
+    which is precisely the duplication the KT-estimate caveat was moved off the
+    source reply to avoid (whatever the card says, the reply must not repeat).
+    Naming only what the opener left out keeps the safety net for a vague or
+    reworded opener without repeating a good one. Compared on letters and digits
+    alone, so punctuation, case and the opener's emoji do not defeat the match;
+    each language is judged against its own opener.
+    """
+    def norm(s):
+        return re.sub(r'[^0-9a-z가-힣]+', '', (s or '').lower())
+
+    op = norm(opener)
+    return [m for m in metrics if norm(m) and norm(m) not in op]
+
+
 def compose(sel, pool):
     by_id = {f['id']: f for f in pool}
     picks = [p for p in sel.get('picks', []) if p.get('id') in by_id]
@@ -2815,8 +3085,10 @@ def compose(sel, pool):
         wf = [by_id[p['id']] for p in picks if by_id[p['id']]['cat'] == 'world']
         keys = sorted({f['id'].split('_')[1] for f in wf})
         years = sorted({f['year'] for f in wf if f.get('year')})
-        met_en = ', '.join(WORLD_METRICS[k][0] for k in keys if k in WORLD_METRICS)
-        met_ko = ', '.join(WORLD_METRICS[k][1] for k in keys if k in WORLD_METRICS)
+        met_en = ', '.join(unsaid_metrics(
+            opener_en, [WORLD_METRICS[k][0] for k in keys if k in WORLD_METRICS]))
+        met_ko = ', '.join(unsaid_metrics(
+            opener_ko, [WORLD_METRICS[k][1] for k in keys if k in WORLD_METRICS]))
         yr = f', {"/".join(years)}' if years else ''
         # No bare "OECD" here: the domain already carries it, and the pinned
         # methodology card is where the publisher gets named in full.
@@ -2833,8 +3105,10 @@ def compose(sel, pool):
         nf = [by_id[p['id']] for p in picks if by_id[p['id']]['cat'] == 'nation']
         keys = sorted({f['id'].split('_')[1] for f in nf})
         years = sorted({f['year'] for f in nf if f.get('year')})
-        wb_met_en = ', '.join(WB_METRICS[k][0] for k in keys if k in WB_METRICS)
-        wb_met_ko = ', '.join(WB_METRICS[k][1] for k in keys if k in WB_METRICS)
+        wb_met_en = ', '.join(unsaid_metrics(
+            opener_en, [WB_METRICS[k][0] for k in keys if k in WB_METRICS]))
+        wb_met_ko = ', '.join(unsaid_metrics(
+            opener_ko, [WB_METRICS[k][1] for k in keys if k in WB_METRICS]))
         yr = f', {"/".join(years)}' if years else ''
         src_en += ' · World Bank'
         src_ko += ' · 세계은행'
@@ -3193,40 +3467,40 @@ def main():
     # post was (a spotlight that fell back to a normal card records its
     # normal category). The old last_spotlight boolean is retired.
     state.pop('last_spotlight', None)
+    promoted = None                        # set by the vein floor, below
 
     if not want_spotlight:
         pool = build_pool(api_key, state, kosis_key, gov_key)
         if len(pool) < 5:
             sys.exit(f'Pool too small ({len(pool)} facts) — data sources may be down.')
 
-        # World cooldown (see WORLD_COOLDOWN_DAYS). Applied before the rotation
-        # below, so that a world post held back here is dropped from the running
-        # rather than merely deferred to the next post. An unparseable or missing
-        # stamp means no cooldown: the guard should never be the thing that
-        # empties the pool.
-        last_world = state.get('last_world_at')
-        if last_world:
-            try:
-                age = datetime.now(timezone.utc) - datetime.fromisoformat(last_world)
-            except ValueError:
-                age = None
-            if age is not None and age < timedelta(days=WORLD_COOLDOWN_DAYS):
-                cooled = [f for f in pool if f['cat'] != 'world']
-                if len(cooled) >= 5:
-                    hours = int(age.total_seconds() // 3600)
-                    print(f'World on cooldown ({hours}h of '
-                          f'{WORLD_COOLDOWN_DAYS * 24}h) - {len(pool) - len(cooled)} '
-                          f'facts withheld.')
-                    pool = cooled
+        # Vein cooldowns (see WORLD_COOLDOWN_DAYS, SPENDING_COOLDOWN_DAYS).
+        # Applied before the rotation below, so that a post held back here is
+        # dropped from the running rather than merely deferred to the next post.
+        pool = apply_cooldown(pool, state, 'last_world_at', 'world',
+                              WORLD_COOLDOWN_DAYS, 'World')
+        pool = apply_cooldown(pool, state, 'last_spending_at', 'spending',
+                              SPENDING_COOLDOWN_DAYS, 'Spending')
 
-        # Category rotation: don't lead with the same metric two posts running.
-        last_cat = state.get('last_cat')
-        if last_cat:
-            rotated = [f for f in pool if f['cat'] != last_cat]
-            if len(rotated) >= 5:
-                pool = rotated
-        print(f'Harvested {len(pool)} candidate facts (rotated away from: {last_cat}).')
-        sel = select(pool, state)
+        # The floor under the veins the selector never reaches for. Applied
+        # after the cooldowns so a promoted vein is never one the cooldown has
+        # just withheld, and instead of the rotation below rather than before
+        # it: the promoted vein IS the card, so there is nothing to rotate away
+        # from (and a promoted vein cannot be last_cat anyway — it has not
+        # posted for STARVE_DAYS).
+        pool, promoted = promote_starved(pool, state)
+
+        if promoted:
+            print(f'Harvested {len(pool)} candidate facts (vein floor: {promoted}).')
+        else:
+            # Category rotation: don't lead with the same metric two posts running.
+            last_cat = state.get('last_cat')
+            if last_cat:
+                rotated = [f for f in pool if f['cat'] != last_cat]
+                if len(rotated) >= 5:
+                    pool = rotated
+            print(f'Harvested {len(pool)} candidate facts (rotated away from: {last_cat}).')
+        sel = select_fresh(pool, state, strict=not promoted)
 
     c = compose(sel, pool)
     used, primary = c['used'], c['primary']
@@ -3339,10 +3613,24 @@ def main():
 
     recent_ids = (state.get('recent_ids', []) + used)[-RECENT_IDS_KEEP:]
     state['recent_ids'] = recent_ids
+    # The card's own identity, for the repeat guard (see select_fresh). Written
+    # for spotlight cards too, so the same place cannot come round twice in a
+    # window either.
+    state['recent_cards'] = ((state.get('recent_cards') or [])
+                             + [sorted(used)])[-RECENT_CARDS_KEEP:]
+    # Per-vein clock for the starvation floor (see promote_starved). 'primary'
+    # is the category the card was actually built on, which is what the floor
+    # measures — a vein that merely rode along on a cross-pair card has not had
+    # its turn.
     state['last_cat'] = primary
     state['last_success_at'] = datetime.now(timezone.utc).isoformat()
+    state.setdefault('cat_last_at', {})[primary] = state['last_success_at']
+    if promoted:
+        state['last_promoted_cat'] = promoted
     if primary == 'world':
         state['last_world_at'] = state['last_success_at']
+    if primary == 'spending':
+        state['last_spending_at'] = state['last_success_at']
     if primary == 'nation':
         state['last_nation_at'] = state['last_success_at']
     write_json_atomic(STATE, state, ensure_ascii=False, indent=2)

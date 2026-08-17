@@ -3,6 +3,7 @@ seoul_index_config.json
 
 # Runtime state and generated caches
 seoul_index_state.json
+seoul_index_state.json.bak-*
 sales_agg.json
 molit_agg.json
 books_agg.json
