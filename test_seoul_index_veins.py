@@ -1,0 +1,487 @@
+"""Tests for the six veins added 21 Aug 2026 from the data.seoul.go.kr sweep.
+
+Every test here asserts a GUARD FIRES. That is deliberate: none of the traps
+these veins carry announces itself. The feeds do not error, they do not return
+nothing, and they do not crash the harvester — they hand back a plausible number
+that means something other than what its field name says. A green run of the
+bot proves nothing about any of them, which is why they are tested where they
+live rather than through a composed card.
+
+No network, no model call, no posting: http_get_json is stubbed per test.
+"""
+import sys, unittest
+from pathlib import Path
+
+sys.argv = ['test']
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import seoul_index_post as S
+
+
+class Stub:
+    """Swap http_get_json for a canned payload, restoring it afterwards."""
+
+    def __init__(self, payloads):
+        self.payloads = payloads      # {substring of URL: payload}
+        self.calls = []
+
+    def __enter__(self):
+        self.real = S.http_get_json
+        S.http_get_json = self._get
+        return self
+
+    def __exit__(self, *exc):
+        S.http_get_json = self.real
+
+    def _get(self, url):
+        self.calls.append(url)
+        for key, payload in self.payloads.items():
+            if key in url:
+                if isinstance(payload, Exception):
+                    raise payload
+                return payload
+        raise RuntimeError(f'no stub for {url}')
+
+
+def ok(service, rows):
+    return {service: {'RESULT': {'CODE': 'INFO-000'}, 'row': rows,
+                      'list_total_count': len(rows)}}
+
+
+# ---------------------------------------------------------------------------
+# statInfantNumInfo: the field LABELS are wrong in the feed itself
+# ---------------------------------------------------------------------------
+# Three year columns, because a card needs three lines: a two-year fixture
+# makes every one of these tests pass for the wrong reason.
+INFANT_ROWS = [
+    # GBCODE 00 is a HEADER: its YEARnn hold the year labels, not counts.
+    {'GBCODE': '00', 'GBCODENM': '연도별',
+     'YEAR01': '2016', 'YEAR02': '2021', 'YEAR03': '2025'},
+    {'GBCODE': '01', 'GBCODENM': '0세',
+     'YEAR01': '75,536', 'YEAR02': '45,531', 'YEAR03': '41,600'},
+    {'GBCODE': '02', 'GBCODENM': '출산율(%)',
+     'YEAR01': '0.94', 'YEAR02': '0.64', 'YEAR03': '0.580'},
+    # ⚠️ '수' means count and holds a PERCENTAGE; '비율' means ratio and holds a
+    # COUNT. They are swapped in the feed. Neither may ever reach a card.
+    {'GBCODE': '07', 'GBCODENM': '어린이집,계,수',
+     'YEAR01': '44.1%', 'YEAR02': '45.0%', 'YEAR03': '46.1%'},
+    {'GBCODE': '08', 'GBCODENM': '어린이집,계,비율',
+     'YEAR01': '131,081', 'YEAR02': '100,000', 'YEAR03': '89,559'},
+]
+
+
+class InfantFeedLabelsLie(unittest.TestCase):
+    def facts(self, rows=None, state=None):
+        with Stub({'statInfantNumInfo': ok('statInfantNumInfo', rows or INFANT_ROWS)}):
+            return S.infant_facts('KEY', state if state is not None else {})
+
+    def test_header_row_is_never_read_as_data(self):
+        # Reading GBCODE 00 would publish the YEAR as a population: '2016' people.
+        vals = {f['value_en'] for f in self.facts()}
+        self.assertNotIn('2,016', vals)
+        self.assertNotIn('2016', vals)
+
+    def test_year_labels_come_from_the_header(self):
+        labels = {f['label_en'] for f in self.facts()}
+        self.assertTrue(labels <= {'2016', '2021', '2025'}, labels)
+
+    def test_percentage_row_can_never_reach_a_card(self):
+        # GBCODE 07 says 'count' and holds "44.1%". Every rotation must skip it.
+        state = {}
+        seen = set()
+        for _ in range(8):
+            for f in self.facts(state=state):
+                seen.add(f['value_en'])
+        self.assertNotIn('44.1%', seen)
+        self.assertNotIn('44', seen)
+
+    def test_only_allowlisted_gbcodes_are_read(self):
+        # 08 is a real count, but it is not on the list and stays off the card.
+        state = {}
+        seen = set()
+        for _ in range(8):
+            for f in self.facts(state=state):
+                seen.add(f['value_en'])
+        self.assertNotIn('131,081', seen)
+
+    def test_a_renamed_series_is_dropped_not_guessed(self):
+        rows = [dict(r) for r in INFANT_ROWS]
+        rows[1]['GBCODENM'] = '만0세'          # label changes, GBCODE does not
+        self.assertTrue(self.facts(rows))       # keyed on GBCODE, so still read
+
+    def test_a_renumbered_series_is_dropped(self):
+        rows = [dict(r) for r in INFANT_ROWS]
+        rows[1]['GBCODE'] = '99'               # no longer allow-listed
+        self.assertEqual(self.facts(rows), [])
+
+
+# ---------------------------------------------------------------------------
+# SmartUncomfStatMonth: the running year hides a year-to-date total in a month
+# ---------------------------------------------------------------------------
+def year_row(year, months, total=None):
+    r = {'YEAR': year}
+    for i, m in enumerate(months, 1):
+        r[f'MON_{i:02d}'] = float(m)
+    r['MON_TOTAL'] = float(total if total is not None else sum(months))
+    return r
+
+
+COMPLETE = [year_row('2025', [50000] * 12), year_row('2024', [60000] * 12),
+            year_row('2023', [70000] * 12)]
+# ⚠️ The real 2026 row: MON_07 held 435,518, which was MON_TOTAL and also the
+# sum of Jan-Jun. Publishing it as July would have been six times too large.
+RUNNING = year_row('2026', [66038, 63038, 73495, 76110, 77418, 79419,
+                            435518, 0, 0, 0, 0, 0], total=435518)
+
+
+# ⚠️ A running year in DECEMBER has no empty months at all, so the zero-month
+# check cannot see it and ONLY the arithmetic check does. Without this fixture
+# the suite passed with the arithmetic check deleted — found by mutation, not by
+# a green run.
+DECEMBER_RUNNING = year_row('2027', [10000] * 11 + [110000], total=110000)
+
+
+class ComplaintRunningYear(unittest.TestCase):
+    def facts(self, rows):
+        with Stub({'SmartUncomfStatMonth': ok('SmartUncomfStatMonth', rows)}):
+            return S.complaint_facts('KEY')
+
+    def test_the_running_year_is_rejected(self):
+        labels = {f['label_en'] for f in self.facts([RUNNING] + COMPLETE)}
+        self.assertNotIn('2026', labels)
+
+    def test_the_running_years_inflated_month_never_appears(self):
+        vals = {f['value_en'] for f in self.facts([RUNNING] + COMPLETE)}
+        self.assertNotIn('435,518', vals)
+
+    def test_complete_years_are_kept(self):
+        labels = {f['label_en'] for f in self.facts([RUNNING] + COMPLETE)}
+        self.assertEqual(labels, {'2025', '2024', '2023'})
+
+    def test_a_year_with_an_empty_month_is_not_complete(self):
+        partial = year_row('2022', [1000] * 11 + [0])
+        labels = {f['label_en'] for f in self.facts(COMPLETE + [partial])}
+        self.assertNotIn('2022', labels)
+
+    def test_a_december_running_year_is_caught_by_arithmetic_alone(self):
+        # Every month non-zero, so the empty-month check is blind here: the
+        # months sum to 220,000 against a stated total of 110,000.
+        labels = {f['label_en'] for f in self.facts([DECEMBER_RUNNING] + COMPLETE)}
+        self.assertNotIn('2027', labels)
+        self.assertNotIn('110,000', {f['value_en']
+                                     for f in self.facts([DECEMBER_RUNNING] + COMPLETE)})
+
+    def test_too_few_complete_years_yields_nothing(self):
+        self.assertEqual(self.facts([RUNNING] + COMPLETE[:2]), [])
+
+
+# ---------------------------------------------------------------------------
+# SPOP_DAILYSUM_JACHI_250: a citywide row sits among the districts
+# ---------------------------------------------------------------------------
+def dn(name, day, night, stamp='20260817'):
+    return {'STDR_DE_ID': stamp, 'SIGNGU_NM': name,
+            'DAY_LVPOP_CO': str(day), 'NIGHT_LVPOP_CO': str(night)}
+
+
+DN_ROWS = [dn('서울시', 9_500_000, 9_400_000),      # ⚠️ the whole city
+           dn('종로구', 308_329, 207_168), dn('중구', 274_182, 192_273),
+           dn('강남구', 744_354, 648_850), dn('송파구', 766_166, 726_820)]
+
+
+class DaynightCitywideRow(unittest.TestCase):
+    def facts(self, state=None):
+        with Stub({'SPOP_DAILYSUM': ok('SPOP_DAILYSUM_JACHI_250', DN_ROWS)}):
+            return S.daynight_facts('KEY', state if state is not None else {})
+
+    def test_the_citywide_row_never_becomes_a_line(self):
+        # Left in, 9.5m would tower over every district and read as one of them.
+        self.assertNotIn('9,500,000', {f['value_en'] for f in self.facts()})
+        self.assertNotIn('서울시', {f['label_ko'] for f in self.facts()})
+
+    def test_the_citywide_row_is_dropped_even_if_it_gains_an_english_name(self):
+        # ⚠️ Without this, the test above passes for the WRONG REASON: '서울시'
+        # has no entry in the district table, so en_name's unmapped fallback
+        # drops it and the explicit skip is never exercised. Give it a name and
+        # only the explicit skip stands between it and the card.
+        real = S.en_name
+        S.en_name = lambda ko, kind: 'Seoul' if ko == '서울시' else real(ko, kind)
+        try:
+            facts = self.facts()
+        finally:
+            S.en_name = real
+        self.assertNotIn('Seoul', {f['label_en'] for f in facts})
+        self.assertNotIn('9,500,000', {f['value_en'] for f in facts})
+
+    def test_districts_survive(self):
+        self.assertTrue({'종로구', '중구'} <= {f['label_ko'] for f in self.facts()})
+
+    def test_day_and_night_are_never_mixed_in_one_card(self):
+        state = {}
+        first = {f['value_en'] for f in self.facts(state)}
+        second = {f['value_en'] for f in self.facts(state)}
+        self.assertNotEqual(first, second)       # alternates
+        self.assertIn('308,329', first)          # daytime Jongno
+        self.assertIn('207,168', second)         # night-time Jongno
+        self.assertEqual(first & second, set())  # never both on one card
+
+    def test_lines_are_flagged_estimated(self):
+        self.assertTrue(all(f['estimated'] for f in self.facts()))
+
+
+# ---------------------------------------------------------------------------
+# WoWcbsDayStatic: three different measures share one feed
+# ---------------------------------------------------------------------------
+def wrow(site, measure, val, ymd='20260820'):
+    return {'YMD': ymd, 'BUSNP_NM': site, 'ROF_SE_NM': measure,
+            'MSRMT_VL': float(val)}
+
+
+class WaterOneMeasureOnly(unittest.TestCase):
+    def facts(self, rows):
+        with Stub({'WoWcbsDayStatic': ok('WoWcbsDayStatic', rows)}):
+            return S.water_facts('KEY')
+
+    def test_only_intake_is_read(self):
+        rows = [wrow('암사', '취수', 1_074_500), wrow('강북', '취수', 840_389),
+                wrow('뚝도', '취수', 435_692),
+                wrow('암사', '송수', 1_004_800),      # transmission
+                wrow('동부', '공급량', 617_983)]      # supplied
+        vals = {f['value_en'] for f in self.facts(rows)}
+        self.assertIn('1,074,500 m³', vals)
+        self.assertNotIn('1,004,800 m³', vals)   # would compare unlike things
+        self.assertNotIn('617,983 m³', vals)
+
+    def test_an_uncurated_site_is_skipped_not_romanised(self):
+        rows = [wrow('암사', '취수', 1), wrow('강북', '취수', 2),
+                wrow('뚝도', '취수', 3), wrow('새이름', '취수', 4)]
+        self.assertNotIn('새이름', {f['label_ko'] for f in self.facts(rows)})
+
+    def test_too_few_sites_is_no_card(self):
+        self.assertEqual(self.facts([wrow('암사', '취수', 1)]), [])
+
+    def test_only_the_newest_day_is_used(self):
+        rows = [wrow('암사', '취수', 111, '20260820'), wrow('강북', '취수', 222, '20260820'),
+                wrow('뚝도', '취수', 333, '20260820'), wrow('구의', '취수', 999, '20260819')]
+        self.assertNotIn('999 m³', {f['value_en'] for f in self.facts(rows)})
+
+
+# ---------------------------------------------------------------------------
+# ListNecessariesPricesService: a flat spread is not an index
+# ---------------------------------------------------------------------------
+def prow(name, unit, price, gu, kind='전통시장', date='2026-08-14'):
+    return {'PRDLST_NM': name, 'UNIT': unit, 'A_PRICE': str(price),
+            'M_GU_NAME': gu, 'M_TYPE_NAME': kind, 'P_DATE': date,
+            'M_NAME': f'{gu} 시장'}
+
+
+class PriceSpreadGuard(unittest.TestCase):
+    def facts(self, rows, state=None):
+        with Stub({'ListNecessariesPrices':
+                   ok('ListNecessariesPricesService', rows)}):
+            return S.price_facts('KEY', state if state is not None else {})
+
+    def test_a_flat_item_is_skipped(self):
+        rows = [prow('배추', '1포기', 5000, '종로구'),
+                prow('배추', '1포기', 5200, '중구'),
+                prow('배추', '1포기', 5400, '강남구')]   # 1.08x, far under 1.5
+        self.assertEqual(self.facts(rows), [])
+
+    def test_a_real_spread_makes_a_card(self):
+        rows = [prow('배추', '1포기', 2992, '노원구', '대형마트'),
+                prow('배추', '1포기', 3500, '광진구'),
+                prow('배추', '1포기', 6900, '동작구')]
+        vals = {f['value_en'] for f in self.facts(rows)}
+        self.assertIn('₩2,992', vals)
+        self.assertIn('₩6,900', vals)       # both ends must survive
+
+    def test_one_line_per_district_and_kind(self):
+        rows = [prow('배추', '1포기', 2992, '노원구', '대형마트'),
+                prow('배추', '1포기', 3100, '노원구', '대형마트'),   # same label
+                prow('배추', '1포기', 3500, '광진구'),
+                prow('배추', '1포기', 6900, '동작구')]
+        labels = [f['label_en'] for f in self.facts(rows)]
+        self.assertEqual(len(labels), len(set(labels)))
+
+    def test_an_unmapped_district_is_dropped(self):
+        rows = [prow('배추', '1포기', 2992, '노원구', '대형마트'),
+                prow('배추', '1포기', 3500, '광진구'),
+                prow('배추', '1포기', 6900, '동작구'),
+                prow('배추', '1포기', 9900, '없는구')]
+        self.assertNotIn('₩9,900', {f['value_en'] for f in self.facts(rows)})
+
+    def test_a_zero_price_is_not_a_price(self):
+        rows = [prow('배추', '1포기', 0, '노원구', '대형마트'),
+                prow('배추', '1포기', 3500, '광진구'),
+                prow('배추', '1포기', 6900, '동작구'),
+                prow('배추', '1포기', 2992, '중구', '대형마트')]
+        self.assertNotIn('₩0', {f['value_en'] for f in self.facts(rows)})
+
+
+# ---------------------------------------------------------------------------
+# WPOSInformationTime + KMA: one hour, and the Han must be in it
+# ---------------------------------------------------------------------------
+def wp(station, watt, hr='13:00', ymd='20260821'):
+    return {'MSRSTN_NM': station, 'WATT': str(watt), 'YMD': ymd, 'HR': hr}
+
+
+def kma(t1h):
+    return {'response': {'body': {'items': {'item': [
+        {'category': 'T1H', 'obsrValue': str(t1h)}]}}}}
+
+
+class RiverNeedsTheHanAndASpread(unittest.TestCase):
+    def facts(self, rows, air=15.0):
+        with Stub({'WPOSInformationTime': ok('WPOSInformationTime', rows),
+                   'getUltraSrtNcst': kma(air)}):
+            return S.river_facts('KEY', 'GOVKEY')
+
+    def test_an_hour_without_the_han_is_not_used(self):
+        # 18:00 has three tributaries; 13:00 has all four. The Han is required.
+        rows = [wp('탄천', 28.2, '18:00'), wp('중랑천', 27.1, '18:00'),
+                wp('안양천', 28.8, '18:00'),
+                wp('선유', 20.0, '13:00'), wp('탄천', 21.0, '13:00'),
+                wp('중랑천', 22.0, '13:00')]
+        labels = {f['label_en'] for f in self.facts(rows)}
+        self.assertIn('The Han at Seonyu', labels)
+        self.assertIn('20.0°C', {f['value_en'] for f in self.facts(rows)})
+
+    def test_a_flat_summer_reading_makes_no_card(self):
+        rows = [wp('선유', 28.1), wp('탄천', 27.4), wp('중랑천', 26.5)]
+        self.assertEqual(self.facts(rows, air=26.5), [])   # 1.6°C spread
+
+    def test_an_open_autumn_gap_makes_a_card(self):
+        rows = [wp('선유', 20.4), wp('탄천', 20.1), wp('중랑천', 19.6)]
+        self.assertTrue(self.facts(rows, air=14.8))        # 5.6°C spread
+
+    def test_the_air_line_is_always_present(self):
+        rows = [wp('선유', 20.4), wp('탄천', 20.1), wp('중랑천', 19.6)]
+        self.assertIn('The air', {f['label_en'] for f in self.facts(rows, 14.8)})
+
+    def test_no_air_reading_means_no_card(self):
+        # Four near-identical river temperatures are not an index on their own.
+        rows = [wp('선유', 20.4), wp('탄천', 20.1), wp('중랑천', 19.6)]
+        with Stub({'WPOSInformationTime': ok('WPOSInformationTime', rows),
+                   'getUltraSrtNcst': RuntimeError('down')}):
+            self.assertEqual(S.river_facts('KEY', 'GOVKEY'), [])
+
+    def test_a_station_under_maintenance_is_skipped(self):
+        rows = [wp('선유', 20.4), wp('탄천', '점검중'), wp('중랑천', 19.6),
+                wp('안양천', 19.9)]
+        vals = {f['value_en'] for f in self.facts(rows, 14.8)}
+        self.assertNotIn('점검중', vals)
+
+
+# ---------------------------------------------------------------------------
+# HRFCO: conditional, and the range comes back newest-first
+# ---------------------------------------------------------------------------
+def hr_level(pairs):
+    return {'content': [{'ymdhm': t, 'wl': str(v)} for t, v in pairs]}
+
+
+HR_TIERS = {'content': [{'wlobscd': '1018680', 'attwl': '3.9', 'wrnwl': '5.5',
+                         'almwl': '6.2', 'srswl': '6.5'}]}
+
+
+class LevelIsConditional(unittest.TestCase):
+    def facts(self, pairs):
+        with Stub({'waterlevel/list': hr_level(pairs),
+                   'waterlevel/info': HR_TIERS}):
+            return S.level_facts('KEY')
+
+    def test_an_ordinary_river_is_silence(self):
+        self.assertEqual(self.facts([('202608211900', 2.68)]), [])
+
+    def test_a_high_river_speaks(self):
+        facts = self.facts([('202608211900', 4.62)])
+        self.assertIn('4.62 m', {f['value_en'] for f in facts})
+
+    def test_newest_first_ordering_does_not_yield_a_stale_reading(self):
+        # ⚠️ HRFCO returns the range NEWEST-FIRST. Reading the LAST row takes
+        # the OLDEST — here a 2.10 m reading hours old, which would silence a
+        # river that is actually at 4.62 m.
+        pairs = [('202608211900', 4.62), ('202608211800', 3.10),
+                 ('202608211700', 2.10)]
+        vals = {f['value_en'] for f in self.facts(pairs)}
+        self.assertIn('4.62 m', vals)
+        self.assertNotIn('2.10 m', vals)
+
+    def test_blank_current_slots_are_skipped_not_zeroed(self):
+        with Stub({'waterlevel/list': {'content': [
+                       {'ymdhm': '202608211910', 'wl': ''},
+                       {'ymdhm': '202608211900', 'wl': '4.62'}]},
+                   'waterlevel/info': HR_TIERS}):
+            vals = {f['value_en'] for f in S.level_facts('KEY')}
+        self.assertIn('4.62 m', vals)
+
+    def test_tiers_are_read_live_not_hardcoded(self):
+        tiers = {'content': [{'wlobscd': '1018680', 'attwl': '3.0',
+                              'wrnwl': '4.0', 'almwl': '5.0', 'srswl': '6.0'}]}
+        with Stub({'waterlevel/list': hr_level([('202608211900', 4.62)]),
+                   'waterlevel/info': tiers}):
+            vals = {f['value_en'] for f in S.level_facts('KEY')}
+        self.assertIn('4.00 m', vals)       # the revised tier, not 5.50
+        self.assertNotIn('5.50 m', vals)
+
+    def test_a_partial_tier_set_is_refused(self):
+        tiers = {'content': [{'wlobscd': '1018680', 'attwl': '3.9',
+                              'wrnwl': '', 'almwl': '6.2', 'srswl': '6.5'}]}
+        with Stub({'waterlevel/list': hr_level([('202608211900', 4.62)]),
+                   'waterlevel/info': tiers}):
+            self.assertEqual(S.level_facts('KEY'), [])
+
+    def test_no_key_is_silence_not_a_crash(self):
+        self.assertEqual(S.level_facts(None), [])
+
+
+# ---------------------------------------------------------------------------
+# SeoulLibraryMemberInfo
+# ---------------------------------------------------------------------------
+class LibraryBands(unittest.TestCase):
+    def facts(self, rows):
+        with Stub({'SeoulLibraryMemberInfo':
+                   ok('SeoulLibraryMemberInfo', rows)}):
+            return S.library_facts('KEY')
+
+    def test_bands_outside_the_map_are_dropped(self):
+        rows = [{'AGE_RANGE': '0', 'MBR_CNT': '268'},
+                {'AGE_RANGE': '90', 'MBR_CNT': '50'},
+                {'AGE_RANGE': '30', 'MBR_CNT': '70348'},
+                {'AGE_RANGE': '40', 'MBR_CNT': '60143'},
+                {'AGE_RANGE': '20', 'MBR_CNT': '49854'}]
+        facts = self.facts(rows)
+        # Assert on the IDS, not the formatted values: a guard that merges the
+        # tiny bands into a real one also makes '268' vanish from the values,
+        # which is how a broken guard passed this test at first.
+        ids = {f['id'] for f in facts}
+        self.assertNotIn('library_0', ids)
+        self.assertNotIn('library_90', ids)
+        self.assertEqual(ids, {'library_30', 'library_40', 'library_20'})
+        self.assertEqual({f['value_en'] for f in facts},
+                         {'70,348', '60,143', '49,854'})   # nothing absorbed
+
+    def test_birth_years_within_a_band_are_summed(self):
+        rows = [{'AGE_RANGE': '30', 'MBR_CNT': '40000'},
+                {'AGE_RANGE': '30', 'MBR_CNT': '30348'},
+                {'AGE_RANGE': '40', 'MBR_CNT': '60143'},
+                {'AGE_RANGE': '20', 'MBR_CNT': '49854'}]
+        vals = {f['value_en'] for f in self.facts(rows)}
+        self.assertIn('70,348', vals)
+
+    def test_teens_head_the_bands_not_ten_s(self):
+        self.assertEqual(S.LIBRARY_BANDS['10'][0], 'Teens')
+        self.assertEqual(S.LIBRARY_BANDS['20'][0], '20s')
+
+
+# ---------------------------------------------------------------------------
+# Card ordering
+# ---------------------------------------------------------------------------
+class SequenceVeinsKeepTheirOrder(unittest.TestCase):
+    def test_year_and_level_veins_are_sequences_not_rankings(self):
+        self.assertTrue({'level', 'complaint', 'infant'} <= S.ORDERED_CATS)
+
+    def test_ranking_veins_are_not_in_the_set(self):
+        # These are genuinely rankings and must keep the value sort.
+        self.assertFalse({'price', 'water', 'daynight', 'library'} & S.ORDERED_CATS)
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=1)
