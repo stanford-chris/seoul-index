@@ -350,6 +350,7 @@ OPENERS = [
     ('Within a five-minute walk of transit', '도보 5분 내 대중교통'),
     ('Summer nights, hotter than the countryside', '여름밤, 도시가 더 더운 만큼'),
     ('People per square kilometre', '1제곱킬로미터당 인구'),
+    ('Births per woman', '여성 1명당 출생아 수'),
 ]
 
 TAGS = [('Seoul', 'seoul'), ('서울', '서울')]
