@@ -342,7 +342,9 @@ class RiverNeedsTheHanAndASpread(unittest.TestCase):
                 wp('중랑천', 22.0, '13:00')]
         labels = {f['label_en'] for f in self.facts(rows)}
         self.assertIn('The Han at Seonyu', labels)
-        self.assertIn('20.0°C', {f['value_en'] for f in self.facts(rows)})
+        # Assert on the KOREAN value: it stays bare metric, while the English
+        # one carries an imperial conversion.
+        self.assertIn('20.0°C', {f['value_ko'] for f in self.facts(rows)})
 
     def test_a_flat_summer_reading_makes_no_card(self):
         rows = [wp('선유', 28.1), wp('탄천', 27.4), wp('중랑천', 26.5)]
@@ -368,6 +370,39 @@ class RiverNeedsTheHanAndASpread(unittest.TestCase):
                 wp('안양천', 19.9)]
         vals = {f['value_en'] for f in self.facts(rows, 14.8)}
         self.assertNotIn('점검중', vals)
+
+
+class ImperialConversions(unittest.TestCase):
+    """Conversions ride the ENGLISH card only, and a difference is not a
+    temperature."""
+
+    def test_celsius_carries_fahrenheit_on_the_english_card_only(self):
+        rows = [wp('선유', 20.4), wp('탄천', 20.1), wp('중랑천', 19.6)]
+        with Stub({'WPOSInformationTime': ok('WPOSInformationTime', rows),
+                   'getUltraSrtNcst': kma(14.8)}):
+            facts = S.river_facts('KEY', 'GOVKEY')
+        self.assertTrue(all('°F' in f['value_en'] for f in facts))
+        self.assertFalse(any('°F' in f['value_ko'] for f in facts))
+
+    def test_a_temperature_difference_uses_the_delta_formula(self):
+        # ⚠️ The urban heat island runs about 2°C. As a TEMPERATURE that would
+        # convert to 35.6°F; as the DIFFERENCE it is, it is 3.6°F. The wrong
+        # formula gives a number ten times too large and entirely plausible.
+        self.assertEqual(S.to_f_delta(2.0), '2.0°C (3.6°F)')
+        self.assertEqual(S.to_f(2.0), '2.0°C (36°F)')
+
+    def test_speed_carries_mph(self):
+        self.assertEqual(S.to_mph(26), '26 km/h (16 mph)')
+
+    def test_a_converted_value_still_sorts(self):
+        # ⚠️ Without stripping the parenthetical, _sortkey returns None and the
+        # card silently stops ordering its lines.
+        self.assertEqual(S._sortkey('26.5°C (80°F)'), ('u:°C', 26.5))
+        self.assertEqual(S._sortkey('26 km/h (16 mph)'), ('u:km/h', 26.0))
+
+    def test_converted_lines_of_one_unit_still_share_a_sort_class(self):
+        keys = [S._sortkey(v) for v in ('20.4°C (69°F)', '14.8°C (59°F)')]
+        self.assertEqual(len({k[0] for k in keys}), 1)
 
 
 # ---------------------------------------------------------------------------

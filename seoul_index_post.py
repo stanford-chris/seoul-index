@@ -420,6 +420,28 @@ def grouped(n):
     return f'{int(round(n)):,}'
 
 
+def to_f(celsius):
+    """'26.5°C' -> '26.5°C (80°F)'. ENGLISH CARD ONLY: Korea is metric and a
+    Korean card carrying °F would be noise, which is exactly what the two
+    value strings on every fact are for."""
+    return f'{celsius:.1f}°C ({celsius * 9 / 5 + 32:.0f}°F)'
+
+
+def to_f_delta(celsius):
+    """Same, for a temperature DIFFERENCE rather than a temperature.
+
+    ⚠️ A difference converts with x9/5 and NO +32: the urban heat island runs
+    about 2.0°C, which is 3.6°F of extra warmth, not 35.6°F. Using the
+    temperature formula on it would publish a number roughly ten times too
+    large and perfectly plausible-looking."""
+    return f'{celsius:.1f}°C ({celsius * 9 / 5:.1f}°F)'
+
+
+def to_mph(kmh):
+    """'26 km/h' -> '26 km/h (16 mph)'. English card only, as with to_f."""
+    return f'{kmh} km/h ({kmh * 0.621371:.0f} mph)'
+
+
 def won_ko(amount):
     """Korean currency: 653,500,000,000 -> '6,535억 원'; 3.67e12 -> '3조 6,701억 원';
     1천만–1억 (a cheap apartment) -> '6,500만 원'; small per-visit amounts -> '5,441원'."""
@@ -1028,7 +1050,7 @@ def traffic_facts(api_key):
         # metric ("How fast Seoul is driving right now"), so pin the label to keep
         # the road name and let the selector supply that framing.
         out.append(fact(f'traffic_{lid}', 'traffic', name_en,
-                        f'{spd} km/h', f'{spd}km/h', pair='traffic_speed',
+                        to_mph(spd), f'{spd}km/h', pair='traffic_speed',
                         pin=True, label_ko=entry.get('name_ko') or name_en))
     return out if len(out) >= 2 else []
 
@@ -1176,11 +1198,11 @@ def river_facts(api_key, gov_key):
         if v is None:
             continue
         facts.append(fact(f'river_watt_{ko_name}', 'river', en_label,
-                          f'{v:.1f}°C', f'{v:.1f}°C', pair='river_now',
+                          to_f(v), f'{v:.1f}°C', pair='river_now',
                           pin=True, label_ko=ko_label))
     # Bare labels like the traffic and world lines: the opener carries the
     # metric and the hour, so every label here is pinned to survive rewording.
-    facts.append(fact('river_air', 'river', 'The air', f'{air:.1f}°C',
+    facts.append(fact('river_air', 'river', 'The air', to_f(air),
                       f'{air:.1f}°C', pair='river_now', pin=True,
                       label_ko='기온'))
     # One water reading plus the air is a contrast, not an index; three lines
@@ -1201,7 +1223,9 @@ def river_facts(api_key, gov_key):
     # ten. The same shape of rule as the spotlight card's "at least three
     # distinct values, spread at least a quarter of the largest", which exists
     # because that card, too, once went out saying one thing four times.
-    vals = [float(f['value_en'].rstrip('°C')) for f in facts]
+    # Read the KOREAN value: it stays bare metric, while the English one now
+    # carries an imperial conversion that no float() will survive.
+    vals = [float(f['value_ko'].rstrip('°C')) for f in facts]
     if max(vals) - min(vals) < RIVER_MIN_SPREAD_C:
         print(f'river: spread {max(vals) - min(vals):.1f}°C is under '
               f'{RIVER_MIN_SPREAD_C}°C — vein inert this run')
@@ -2213,10 +2237,10 @@ def kma_facts(key):
                       _wx_num(r, 'sumRn'))
         if hi is not None and lo is not None:
             facts.append(fact('wx_yday_hi', 'weather', "Seoul's high yesterday",
-                              f'{hi:.1f}°C', f'{hi:.1f}°C', pair='wx_yday',
+                              to_f(hi), f'{hi:.1f}°C', pair='wx_yday',
                               pin=True, label_ko='어제 서울 최고기온'))
             facts.append(fact('wx_yday_lo', 'weather', "Seoul's low yesterday",
-                              f'{lo:.1f}°C', f'{lo:.1f}°C', pair='wx_yday',
+                              to_f(lo), f'{lo:.1f}°C', pair='wx_yday',
                               pin=True, label_ko='어제 서울 최저기온'))
         if rn:
             facts.append(fact('wx_yday_rain', 'weather',
@@ -2241,7 +2265,7 @@ def kma_facts(key):
             v = _wx_num(ex['hot'], 'maxTa')
             facts.append(fact(f'wx_hot_{side}', 'weather',
                               f'Hottest day, {mon_en} {y}',
-                              f'{v:.1f}°C', f'{v:.1f}°C', pair='wx_heat_then',
+                              to_f(v), f'{v:.1f}°C', pair='wx_heat_then',
                               pin=True, label_ko=f'가장 더웠던 날, {y}년 {mon}월'))
         if ex['wet']:
             v = _wx_num(ex['wet'], 'sumRn')
@@ -2253,9 +2277,9 @@ def kma_facts(key):
     # Criterion counts, offered only in the season where they bite: a pair
     # of zeros is not a fact.
     for fid, kind, en_label, ko_label in (
-            ('wx_swelter', 'swelter', 'Days of 33°C or more',
+            ('wx_swelter', 'swelter', 'Days of 33°C (91°F) or more',
              '최고기온 33°C 이상인 날'),
-            ('wx_tropical', 'tropical', 'Nights never below 25°C',
+            ('wx_tropical', 'tropical', 'Nights never below 25°C (77°F)',
              '최저기온 25°C 이상인 날'),
             ('wx_freeze', 'freeze', 'Days never above freezing',
              '종일 영하였던 날')):
@@ -2296,7 +2320,7 @@ def kma_facts(key):
                     v = _wx_num(ex['hot'], 'maxTa')
                     facts.append(fact(f'wx_s_hot_{side}', 'weather',
                                       f'Hottest day, {span_en} {y}',
-                                      f'{v:.1f}°C', f'{v:.1f}°C', pair='wx_s_hot',
+                                      to_f(v), f'{v:.1f}°C', pair='wx_s_hot',
                                       pin=True,
                                       label_ko=f'가장 더웠던 날, {y}년 {span_ko}'))
                 if ex['wet']:
@@ -2307,9 +2331,9 @@ def kma_facts(key):
                                       pin=True,
                                       label_ko=f'비가 가장 많이 온 날, {y}년 {span_ko}'))
             for fid, kind, en_label, ko_label in (
-                    ('wx_s_swelter', 'swelter', 'Days of 33°C or more',
+                    ('wx_s_swelter', 'swelter', 'Days of 33°C (91°F) or more',
                      '최고기온 33°C 이상인 날'),
-                    ('wx_s_tropical', 'tropical', 'Nights never below 25°C',
+                    ('wx_s_tropical', 'tropical', 'Nights never below 25°C (77°F)',
                      '최저기온 25°C 이상인 날')):
                 if s_now[kind] or s_then[kind]:
                     for side, ex, y in sides:
@@ -2836,7 +2860,8 @@ WORLD_MEASURES = [
     ('heat', 'DSD_FUA_ENV@DF_UHI', 6,
      {'MEASURE': 'UHI', 'TIME_SEASON': 'NIGHT_SUMMER'},
      ('Urban heat island, summer nights', '여름밤 도시 열섬 강도'),
-     lambda v: f'{v:.1f}°C'),
+     # ⚠️ A DIFFERENCE, not a temperature: to_f_delta, never to_f.
+     lambda v: (to_f_delta(v), f'{v:.1f}°C')),
     ('density', 'DSD_FUA_TERR@DF_DENSITY', 4,
      {'MEASURE': 'POP_DEN'},
      ('People per square kilometre', '1제곱킬로미터당 인구'),
@@ -2912,14 +2937,19 @@ def world_facts():
             if not year:
                 continue
             for code, v in vals.items():
+                # A metric may return one string for both languages, or an
+                # (english, korean) pair where only the English card carries an
+                # imperial conversion.
                 value = fmt(v)
+                value_en, value_ko = (value if isinstance(value, tuple)
+                                      else (value, value))
                 # Bare city name: dedupe_labels() strips a shared trailing run
                 # from all but the FIRST label, so "... metro area" on every line
                 # would survive only on line one and read as though that city
                 # alone were a metro figure. The caveat rides on the source line,
                 # which compose() always writes, and on the pinned card.
                 out.append(fact(f'world_{key}_{code}', 'world',
-                                names[code], value, value,
+                                names[code], value_en, value_ko,
                                 pair=f'city_{key}', year=year))
         except (RuntimeError, KeyError, IndexError, ValueError):
             continue
@@ -3467,8 +3497,13 @@ def strip_emoji(text):
 def _sortkey(value_en):
     """(unit_class, magnitude) for a formatted value, or None if unparseable.
     Lets compose() order a post's lines by size, but only among lines that share
-    a unit (so a ₩ post sorts, a mixed count+% narrative post is left alone)."""
-    s = value_en.strip()
+    a unit (so a ₩ post sorts, a mixed count+% narrative post is left alone).
+
+    ⚠️ A trailing imperial conversion is stripped first. '26.5°C (80°F)' does
+    not match the unit pattern below — the parenthetical contains digits — so
+    without this every temperature and speed card silently stopped sorting the
+    moment conversions were added."""
+    s = re.sub(r'\s*\([^)]*\)\s*$', '', value_en.strip())
     if s.startswith('₩'):
         num, mult = s[1:], 1.0
         for suf, m in (('tn', 1e12), ('bn', 1e9), ('m', 1e6)):
