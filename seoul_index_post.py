@@ -1490,7 +1490,17 @@ def price_facts(api_key, state):
 
         # Keep the two ends and, if room, the widest-apart middles: the card is
         # the SPREAD, so the extremes must both survive the selector's trim.
+        # ⚠️ THE LABEL LEADS WITH WHAT THE NUMBER MEANS. "A traditional market
+        # in Dongjak-gu" puts the unplaceable part first and never says the
+        # thing that matters — that this is the dearest in the city that day —
+        # leaving a reader who cannot place Dongjak with four prices and no way
+        # to read them. The two ends therefore carry their rank, exactly as the
+        # property vein's "Most paid for an apartment (Yongsan-gu)" does. The
+        # rank is true of the whole city, not of the card, so it stays true
+        # whichever companions the selector keeps.
         picks = [vals[0], vals[-1]] + vals[1:-1][:2]
+        rank = {id(vals[0]): ('Cheapest', '가장 싼'),
+                id(vals[-1]): ('Dearest', '가장 비싼')}
         try:
             d = datetime.strptime(newest, '%Y-%m-%d')
             PRICE_PERIOD['en'] = f'{d.day} {MONTHS_EN[d.month - 1]}'
@@ -1500,11 +1510,17 @@ def price_facts(api_key, state):
         PRICE_LABEL['en'] = en_label
         PRICE_LABEL['ko'] = ko_label
         facts = []
-        for price, kind, gu_en, gu_ko in picks:
+        for entry in picks:
+            price, kind, gu_en, gu_ko = entry
+            lead = rank.get(id(entry))
+            label_en = f'{kind[0].capitalize()} in {gu_en}'
+            label_ko = f'{gu_ko}의 {kind[1]}'
+            if lead:
+                label_en = f'{lead[0]}, {kind[0]} ({gu_en})'
+                label_ko = f'{lead[1]} {kind[1]} ({gu_ko})'
             facts.append(fact(f'price_{ko_name}_{gu_ko}_{kind[1]}', 'price',
-                              f'{kind[0].capitalize()} in {gu_en}',
-                              won_en(price), won_ko(price), pair='price_spread',
-                              pin=True, label_ko=f'{gu_ko}의 {kind[1]}',
+                              label_en, won_en(price), won_ko(price),
+                              pair='price_spread', pin=True, label_ko=label_ko,
                               num=price, unit='won'))
         return facts
     return []
@@ -1636,6 +1652,14 @@ def daynight_facts(api_key, state):
         return []
     facts.sort(key=lambda f: -f['num'])
     facts = facts[:3] + facts[-3:]      # the fullest and the emptiest
+    # The ends lead with what they mean, as the price vein does: a reader who
+    # cannot place Songpa-gu can still read "Fullest by day". facts[0] and
+    # facts[-1] are the extremes of the WHOLE CITY, not of the card, so the
+    # claim holds whichever companions the selector keeps.
+    for f, (en, ko) in ((facts[0], (f'Fullest {when_en}', f'{when_ko} 가장 많은 곳')),
+                        (facts[-1], (f'Emptiest {when_en}', f'{when_ko} 가장 적은 곳'))):
+        f['label_en'] = f'{en} ({f["label_en"]})'
+        f['label_ko'] = f'{ko} ({f["label_ko"]})'
     try:
         dt = datetime.strptime(newest, '%Y%m%d')
         # Just the date: the opener is required to say which half of the day

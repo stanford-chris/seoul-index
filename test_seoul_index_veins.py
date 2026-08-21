@@ -212,7 +212,18 @@ class DaynightCitywideRow(unittest.TestCase):
         self.assertNotIn('9,500,000', {f['value_en'] for f in facts})
 
     def test_districts_survive(self):
-        self.assertTrue({'종로구', '중구'} <= {f['label_ko'] for f in self.facts()})
+        # The extremes now carry their rank and the district in parentheses,
+        # so match on containment rather than equality.
+        labels = ' '.join(f['label_ko'] for f in self.facts())
+        self.assertIn('종로구', labels)
+        self.assertIn('중구', labels)
+
+    def test_the_extremes_lead_with_what_they_mean(self):
+        # A reader who cannot place Songpa-gu can still read the line.
+        facts = self.facts()
+        self.assertTrue(facts[0]['label_en'].startswith('Fullest'))
+        self.assertTrue(facts[-1]['label_en'].startswith('Emptiest'))
+        self.assertIn('(Songpa-gu)', facts[0]['label_en'])
 
     def test_day_and_night_are_never_mixed_in_one_card(self):
         state = {}
