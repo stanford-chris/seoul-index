@@ -1191,6 +1191,137 @@ def river_facts(api_key, gov_key):
     return facts
 
 
+# --- river level (conditional) ---------------------------------------------
+# The other half of what the Han River bot measured, and the half that nearly
+# did not make it in. Three framings were tried and two were thrown away:
+#
+#   · Seoul's 16 HRFCO gauges side by side. WRONG, and confidently so. Every
+#     gauge reads from its own datum, and those run from -0.068 m at 잠수교 to
+#     47.946 m at 신림5교 (checked 21 Aug 2026): two gauges both showing 3 m are
+#     describing water surfaces forty-eight metres apart. A card setting them in
+#     a column presents a comparison that does not exist — the avgbill mistake
+#     with a bigger drop.
+#   · Gauge reading plus datum, to get elevation above sea level. Comparable,
+#     but computed, and all it discloses is that water runs downhill.
+#   · ONE gauge against ITS OWN published tiers. Kept: every number is published
+#     by HRFCO, nothing is derived, and the arrangement asks the only question
+#     worth asking of a river level — how far is it from trouble.
+#
+# ⚠️ It is CONDITIONAL, and that is the whole design. Four of the five lines are
+# thresholds that never move, so as a routine vein it would post the same card
+# forever and the repeat guard would (rightly) block it. So the vein sleeps
+# until the river is actually doing something, and the vein floor then promotes
+# it on its first appearance because it has "never posted". A quiet river is
+# silence, which is the same contract harden_audit.sh and the roster check keep.
+#
+# ⚠️ Never write that 잠수교 is closed or submerged. These are 홍수특보 tiers, not
+# the level at which the walkway goes under, and the bot must not translate one
+# into the other. Name the tiers as HRFCO names them.
+HRFCO_BASE = 'http://api.hrfco.go.kr'
+JAMSU_OBS = '1018680'          # 서울시(잠수교)
+# Mirror of the published 관심 tier, used only as the cheap gate so an ordinary
+# river costs one small request. The tiers actually PRINTED on the card are read
+# live from the info endpoint, so a revision by HRFCO reaches the card even if
+# this constant lags. Verified against the published value 21 Aug 2026.
+JAMSU_GATE_M = 3.9
+LEVEL_TIERS = [('attwl', 'Attention', '관심'),
+               ('wrnwl', 'Caution', '주의'),
+               ('almwl', 'Alert', '경계'),
+               ('srswl', 'Serious', '심각')]
+
+# Set by level_facts() so compose() can footnote the reading time.
+LEVEL_PERIOD = {'en': None, 'ko': None}
+
+
+def _hrfco_latest_level(key):
+    """(level_m, reading_datetime) at 잠수교, or None.
+
+    ⚠️ HRFCO returns the range NEWEST-FIRST, so the last row is the OLDEST.
+    Sort before taking the newest rather than indexing off the end; reading
+    rows[-1] silently yields a figure hours stale and looks perfectly fine.
+
+    ⚠️ The 10M grid aligns to the START minute of the window, so an unfloored
+    'now' asks for :X6 slots the station never reports and every wl comes back
+    blank. Floor the window to a ten-minute boundary."""
+    now = datetime.now(SEOUL_TZ)
+    base = now.replace(minute=now.minute // 10 * 10, second=0, microsecond=0)
+    url = (f'{HRFCO_BASE}/{key}/waterlevel/list/10M/{JAMSU_OBS}/'
+           f'{(base - timedelta(hours=2)):%Y%m%d%H%M}/{base:%Y%m%d%H%M}.json')
+    try:
+        d = http_get_json(url)
+    except RuntimeError:
+        return None
+    pts = []
+    for r in (d.get('content') or []):
+        raw = str(r.get('wl') or '').strip()
+        if not raw:
+            continue        # the most recent slot or two are routinely blank
+        try:
+            pts.append((str(r.get('ymdhm')), float(raw)))
+        except ValueError:
+            continue
+    if not pts:
+        return None
+    pts.sort()
+    stamp, wl = pts[-1]
+    try:
+        when = datetime.strptime(stamp, '%Y%m%d%H%M')
+    except ValueError:
+        return None
+    return wl, when
+
+
+def _hrfco_tiers(key):
+    """The four published warning tiers for 잠수교, or None."""
+    try:
+        d = http_get_json(f'{HRFCO_BASE}/{key}/waterlevel/info.json')
+    except RuntimeError:
+        return None
+    row = next((r for r in (d.get('content') or [])
+                if r.get('wlobscd') == JAMSU_OBS), None)
+    if not row:
+        return None
+    tiers = []
+    for field, en, ko in LEVEL_TIERS:
+        try:
+            tiers.append((float(str(row.get(field)).strip()), en, ko))
+        except (TypeError, ValueError):
+            return None     # a partial tier set would misdescribe the river
+    return tiers
+
+
+def level_facts(hrfco_key):
+    """The Han at 잠수교 against its own flood tiers — only when it is high."""
+    if not hrfco_key:
+        return []
+    latest = _hrfco_latest_level(hrfco_key)
+    if latest is None:
+        return []
+    wl, when = latest
+    if wl < JAMSU_GATE_M:
+        return []           # an ordinary river is not news; stay silent
+    tiers = _hrfco_tiers(hrfco_key)
+    if not tiers:
+        return []
+
+    LEVEL_PERIOD['en'] = _ampm_en(when.hour)
+    LEVEL_PERIOD['ko'] = _ampm_ko(when.hour)
+    # Deliberately NOT "The Han at Jamsu Bridge": the opener already names the
+    # river and the gauge, and a pinned label repeating it word for word gets
+    # past dedupe_labels (pins are exempt) and onto the card twice. Sorted by
+    # value, this line lands in its true place among the tiers, which is the
+    # whole point of the card.
+    facts = [fact('level_now', 'level', 'The river now',
+                  f'{wl:.2f} m', f'{wl:.2f}m', pair='level_tiers', pin=True,
+                  label_ko='현재 수위')]
+    for value, en, ko in tiers:
+        facts.append(fact(f'level_{en.lower()}', 'level',
+                          f'{en} level ({ko})', f'{value:.2f} m',
+                          f'{value:.2f}m', pair='level_tiers', pin=True,
+                          label_ko=f'{ko} 수위'))
+    return facts
+
+
 BOOKS_AGG = HERE / 'books_agg.json'
 # Set by books_facts() so compose() can footnote the loan month on the card, the
 # same split sales/property make (the publisher stays a clickable credit in the
@@ -2464,7 +2595,7 @@ def worldbank_facts(state, kosis_key):
 
 # --- selection + composition ----------------------------------------------
 
-def build_pool(api_key, state, kosis_key=None, gov_key=None):
+def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None):
     # gov_key is the shared data.go.kr key: one key, per-API 활용신청, so the
     # property, weather, airport, health and culture veins all ride on it.
     pool = []
@@ -2475,6 +2606,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None):
     pool += bike_facts(api_key)
     pool += traffic_facts(api_key)
     pool += river_facts(api_key, gov_key)
+    pool += level_facts(hrfco_key)
     pool += books_facts()
     pool += sales_facts()
     pool += kosis_facts(kosis_key)
@@ -2522,6 +2654,7 @@ Rules:
 - "weather" lines are published readings from Seoul's official weather station: yesterday's high/low/rain, the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the yesterday set, the then-and-now monthly set, OR the season-to-date set (never blend the three). A season-to-date post is built around the swelter tally ("Days of 33°C or more, 1 Jun–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, every pair must put its two years in the SAME order, and the arrangement carries the half-century — never point it out. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
 - "tourism" lines are one month's visitor counts at named paid-admission Seoul attractions (the palaces, Lotte World, Seoul Sky…). Own post; ONE frame per post — total visitors OR foreign visitors, never both; the month rides on the card automatically. The pairs are the point: a dead heat or the widest gap between two named attractions.
 - "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and the fact that these are readings at one hour, e.g. "Water and air in Seoul" — the same case as the world, traffic and books lines. Do NOT write "right now": the reading hour rides on the card automatically and can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
+- "level" lines appear ONLY when the Han is running high, and they are one gauge (잠수교) set against its own published flood-warning tiers: the level right now, then the 관심/주의/경계/심각 levels. Build them into their own post, never mixed with any other category, and include the current level plus at least two tiers — the arrangement IS the story, which is how far the river is from each tier. The opener must name the river and the gauge, e.g. "The Han at Jamsu Bridge". ⚠️ NEVER write or imply that the bridge is closed, submerged, flooded or about to be: these are flood-WARNING tiers set by 한강홍수통제소, not the level at which the walkway goes under, and the two are different things. Do not add alarm, urgency or commentary of any kind — state the levels and stop. Never call the situation dangerous.
 - "airport", "health" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split (labels carry their months). A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. These are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
@@ -3155,7 +3288,7 @@ def compose(sel, pool):
     # Categories whose figures come from a publisher other than Seoul Open
     # Data; anything outside this set is credited to data.seoul.go.kr.
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
-                 'health', 'culture', 'tourism', 'books'}
+                 'health', 'culture', 'tourism', 'books', 'level'}
     uses_seoul = any(c not in non_seoul for c in cats)
     uses_kosis = 'national' in cats
     uses_oecd = 'world' in cats
@@ -3179,6 +3312,7 @@ def compose(sel, pool):
            (['mcst.go.kr'] if uses_mcst else []) + \
            (['know.tour.go.kr'] if uses_tour else []) + \
            (['data4library.kr'] if uses_books else []) + \
+           (['hrfco.go.kr'] if 'level' in cats else []) + \
            ([WB_DOMAIN] if uses_wb else [])
     if not srcs:
         srcs = ['data.seoul.go.kr']
@@ -3241,6 +3375,13 @@ def compose(sel, pool):
         if 'river' in cats:
             scope_en.append(('Air: Seoul forecast-zone reading', None))
             scope_ko.append(('기온: 서울 예보구역 관측값', None))
+    if 'level' in cats:
+        # ⚠️ These are 홍수특보 tiers, NOT the level at which the walkway goes
+        # under. The card must never say the bridge is closed or submerged.
+        src_en += ' · HRFCO'
+        src_ko += ' · 한강홍수통제소'
+        scope_en.append(('Flood-warning tiers at this gauge', LEVEL_PERIOD['en']))
+        scope_ko.append(('이 지점의 홍수특보 기준수위', LEVEL_PERIOD['ko']))
     if uses_kac:
         src_en += ' · Korea Airports Corporation'
         src_ko += ' · 한국공항공사'
@@ -3473,6 +3614,7 @@ LINK_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                 ('mcst.go.kr', 'https://www.mcst.go.kr'),
                 ('know.tour.go.kr', 'https://know.tour.go.kr'),
                 ('data4library.kr', 'https://data4library.kr'),
+                ('hrfco.go.kr', 'https://www.hrfco.go.kr'),
                 (WB_DOMAIN, f'https://{WB_DOMAIN}')]
 
 
@@ -3631,13 +3773,16 @@ def main():
     api_key = config['api_key']
     kosis_key = config.get('kosis_key')
     gov_key = config.get('data_go_kr_key')
+    # HRFCO issues its own key (not a data.go.kr one): it is the level
+    # vein's only source, and that vein is silent without it.
+    hrfco_key = config.get('hrfco_api_key')
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
 
     # Inspect the cross-vein collisions the detector finds for the live pool,
     # then exit — no selector call, no post. A deterministic look at what the
     # selector will be offered (unlike a --dry-run, whose picks the model makes).
     if SHOW_CROSS:
-        pool = build_pool(api_key, state, kosis_key, gov_key)
+        pool = build_pool(api_key, state, kosis_key, gov_key, hrfco_key)
         elig = [f for f in pool if f.get('unit')]
         print(f'{len(pool)} facts, {len(elig)} collidable:')
         for f in sorted(elig, key=lambda f: (f['unit'], -f['num'])):
@@ -3688,7 +3833,7 @@ def main():
     promoted = None                        # set by the vein floor, below
 
     if not want_spotlight:
-        pool = build_pool(api_key, state, kosis_key, gov_key)
+        pool = build_pool(api_key, state, kosis_key, gov_key, hrfco_key)
         if len(pool) < 5:
             sys.exit(f'Pool too small ({len(pool)} facts) — data sources may be down.')
 
