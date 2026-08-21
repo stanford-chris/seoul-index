@@ -172,7 +172,12 @@ STARVE_MIN_FACTS = 3
 # inverts what the card is about: the reading leads, then the tiers ascend away
 # from it. Add a category here only when its lines are a SEQUENCE rather than a
 # ranking.
-ORDERED_CATS = {'level'}
+# 'complaint' and 'infant' label their lines with BARE YEARS, which are a
+# sequence and not a ranking: value-sorted, a complaints card read 2023, 2024,
+# 2022, 2025, which a reader takes for a bug before they take it for an
+# ordering. The infant card escaped that only because its fall happens to be
+# monotonic — luck, not design, and it scrambles the moment a band ticks up.
+ORDERED_CATS = {'level', 'complaint', 'infant'}
 
 # Curated live-crowd locations (citydata_ppltn AREA_NM, all verified to resolve).
 # A mix of packed / quiet / touristy / young so contrasts are available.
@@ -1711,7 +1716,9 @@ LIBRARY_MIN_LINES = 3
 # Numerals, not words: the card is a column of age bands and "In their
 # thirties" spends four words on what "30s" says, which is also the rule the
 # crowd vein already follows for its age lines.
-LIBRARY_BANDS = {'10': ('10s', '10대'), '20': ('20s', '20대'),
+# Numerals from 20 up, but 'Teens' for the youngest: nobody says "in their
+# 10s", and the column still reads as numerals with one short word at the head.
+LIBRARY_BANDS = {'10': ('Teens', '10대'), '20': ('20s', '20대'),
                  '30': ('30s', '30대'), '40': ('40s', '40대'),
                  '50': ('50s', '50대'), '60': ('60s', '60대'),
                  '70': ('70s', '70대'), '80': ('80s', '80대')}
