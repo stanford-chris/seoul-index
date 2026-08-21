@@ -166,6 +166,14 @@ STARVE_DAYS = 5
 # card, which is worth knowing rather than silently working around.
 STARVE_MIN_FACTS = 3
 
+# Categories whose lines keep the HARVESTER'S order instead of being sorted by
+# value, like a spotlight card. Sorting a river-level card by size buried "the
+# river now" at the bottom under three thresholds it is nowhere near, which
+# inverts what the card is about: the reading leads, then the tiers ascend away
+# from it. Add a category here only when its lines are a SEQUENCE rather than a
+# ranking.
+ORDERED_CATS = {'level'}
+
 # Curated live-crowd locations (citydata_ppltn AREA_NM, all verified to resolve).
 # A mix of packed / quiet / touristy / young so contrasts are available.
 # 'area' is the API's own AREA_NM, which often carries an administrative suffix
@@ -1526,8 +1534,11 @@ def water_facts(api_key):
         return []
     try:
         dt = datetime.strptime(newest, '%Y%m%d')
-        WATER_PERIOD['en'] = f'{dt.day} {MONTHS_EN[dt.month - 1]}'
-        WATER_PERIOD['ko'] = f'{dt.month}월 {dt.day}일'
+        # The dateline names the KIND of place as well as the day: the lines
+        # are bare names (Amsa, Ttukdo) and nothing else on the card said they
+        # were waterworks rather than districts or rivers.
+        WATER_PERIOD['en'] = f'Purification centres, {dt.day} {MONTHS_EN[dt.month - 1]}'
+        WATER_PERIOD['ko'] = f'정수센터, {dt.month}월 {dt.day}일'
     except ValueError:
         WATER_PERIOD['en'] = WATER_PERIOD['ko'] = newest
     return facts
@@ -1598,8 +1609,11 @@ def daynight_facts(api_key, state):
     facts = facts[:3] + facts[-3:]      # the fullest and the emptiest
     try:
         dt = datetime.strptime(newest, '%Y%m%d')
-        DAYNIGHT_PERIOD['en'] = f'{when_en}, {dt.day} {MONTHS_EN[dt.month - 1]}'
-        DAYNIGHT_PERIOD['ko'] = f'{dt.month}월 {dt.day}일 {when_ko}'
+        # Just the date: the opener is required to say which half of the day
+        # it is, and a dateline reading "by day, 17 August" under an opener
+        # reading "Seoul by day" said it twice.
+        DAYNIGHT_PERIOD['en'] = f'{dt.day} {MONTHS_EN[dt.month - 1]}'
+        DAYNIGHT_PERIOD['ko'] = f'{dt.month}월 {dt.day}일'
     except ValueError:
         DAYNIGHT_PERIOD['en'] = DAYNIGHT_PERIOD['ko'] = newest
     return facts
@@ -1622,9 +1636,14 @@ INFANT_MIN_LINES = 3
 # holds 131,081: the two are swapped. Row 12 also misspells 유치원 as 유지원.
 # Only these four rows were checked to be unambiguous whole-number counts, and
 # anything not on this list is left alone rather than trusted.
-INFANT_SERIES = {'01': ('Children aged 0', '0세 인구'),
+# ⚠️ '0세' is NOT "aged 0", which an English reader takes to mean newborns. It
+# is the first year of life, 0 to 11 months. The feed is on 만 나이
+# (international age) — Korean counting age starts at 1 and has no 0세 at all,
+# so a 0세 row can only be the international reckoning — which makes the honest
+# English "under 1". Same reasoning turns '영아(0~2)세' into "under 3".
+INFANT_SERIES = {'01': ('Children under 1', '0세 인구'),
                  '04': ('Children under 6', '영유아 인구'),
-                 '05': ('Children aged 0 to 2', '영아(0~2세) 인구'),
+                 '05': ('Children under 3', '영아(0~2세) 인구'),
                  '06': ('Children aged 3 to 5', '유아(3~5세) 인구')}
 INFANT_PERIOD = {'en': None, 'ko': None}
 
@@ -1670,8 +1689,8 @@ def infant_facts(api_key, state):
         return []
     # The ends of the decade carry it; the middle years only pad the card.
     facts = [facts[0], facts[len(facts) // 2], facts[-1]]
-    INFANT_PERIOD['en'] = f'{en_age}, in Seoul'
-    INFANT_PERIOD['ko'] = f'서울의 {ko_age}'
+    INFANT_PERIOD['en'] = en_age
+    INFANT_PERIOD['ko'] = ko_age
     return facts
 
 
@@ -1689,10 +1708,13 @@ def infant_facts(api_key, state):
 # libraries. The opener must say so or the figures read as citywide.
 LIBRARY_SVC = 'SeoulLibraryMemberInfo'
 LIBRARY_MIN_LINES = 3
-LIBRARY_BANDS = {'10': ('In their teens', '10대'), '20': ('In their twenties', '20대'),
-                 '30': ('In their thirties', '30대'), '40': ('In their forties', '40대'),
-                 '50': ('In their fifties', '50대'), '60': ('In their sixties', '60대'),
-                 '70': ('In their seventies', '70대'), '80': ('In their eighties', '80대')}
+# Numerals, not words: the card is a column of age bands and "In their
+# thirties" spends four words on what "30s" says, which is also the rule the
+# crowd vein already follows for its age lines.
+LIBRARY_BANDS = {'10': ('10s', '10대'), '20': ('20s', '20대'),
+                 '30': ('30s', '30대'), '40': ('40s', '40대'),
+                 '50': ('50s', '50대'), '60': ('60s', '60대'),
+                 '70': ('70s', '70대'), '80': ('80s', '80대')}
 
 
 def library_facts(api_key):
@@ -3117,12 +3139,12 @@ Rules:
 - "property" lines are one month's apartment-market filings from the national land ministry: actual sale prices (the dearest and cheapest single sales), a record jeonse deposit, and counts of filings. Build them into their own post — never alongside a live "right now" line, a spending line, a national line or a world line. The pairs are the point: the price gap (dearest vs cheapest sale) or the jeonse/monthly-rent split. Never put a month or date in a property label — the filing month rides on the card automatically.
 - "weather" lines are published readings from Seoul's official weather station: yesterday's high/low/rain, the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the yesterday set, the then-and-now monthly set, OR the season-to-date set (never blend the three). A season-to-date post is built around the swelter tally ("Days of 33°C or more, 1 Jun–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, every pair must put its two years in the SAME order, and the arrangement carries the half-century — never point it out. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
 - "tourism" lines are one month's visitor counts at named paid-admission Seoul attractions (the palaces, Lotte World, Seoul Sky…). Own post; ONE frame per post — total visitors OR foreign visitors, never both; the month rides on the card automatically. The pairs are the point: a dead heat or the widest gap between two named attractions.
-- "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and the fact that these are readings at one hour, e.g. "Water and air in Seoul" — the same case as the world, traffic and books lines. Do NOT write "right now": the reading hour rides on the card automatically and can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
+- "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and nothing more, e.g. "Water and air in Seoul" — the same case as the world, traffic and books lines. ⚠️ Do NOT put the hour, the time or the words "one hour" in the opener: the reading hour rides on the card automatically as its dateline, and an opener repeating it spends the line saying nothing. Do NOT write "right now" either: that hour can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
 - "level" lines appear ONLY when the Han is running high, and they are one gauge (잠수교) set against its own published flood-warning tiers: the level right now, then the 관심/주의/경계/심각 levels. Build them into their own post, never mixed with any other category, and include the current level plus at least two tiers — the arrangement IS the story, which is how far the river is from each tier. The opener must name the river and the gauge, e.g. "The Han at Jamsu Bridge". ⚠️ NEVER write or imply that the bridge is closed, submerged, flooded or about to be: these are flood-WARNING tiers set by 한강홍수통제소, not the level at which the walkway goes under, and the two are different things. Do not add alarm, urgency or commentary of any kind — state the levels and stop. Never call the situation dangerous.
 - "price" lines are ONE everyday item priced at shops across Seoul on one day. Each label is a bare shop KIND and DISTRICT ("A traditional market in Dongjak-gu", "A supermarket in Nowon-gu"), so the opener MUST name the item and that these are its prices — e.g. "What a watermelon costs in Seoul" — the same case as the world, traffic and books lines. Build them into their own post, never mixed with any other category, and ALWAYS keep the cheapest and dearest lines: the card IS the spread. Never point out that markets are dearer than supermarkets or the reverse — it changes from item to item, and noticing it is the reader's job. Never call a price high, low, cheap or a bargain.
-- "water" lines are the raw water drawn at each of Seoul's purification centres on one day. Labels are BARE PLACE NAMES, so the opener MUST name the metric and the day ("Water drawn for Seoul"). Own post, never mixed. Every line is an intake figure at the same measure — never say one centre is bigger or busier than another.
-- "daynight" lines are one district-level population reading, either DAYTIME or NIGHT-TIME, never both in one card. Labels are BARE DISTRICT NAMES, so the opener MUST say which of the two it is and that these are estimates ("Seoul by day", "Seoul after dark"). Own post, never mixed. These are KT-modelled estimates, and the card already carries that caveat: do not restate it in a line.
-- "infant" lines are Seoul's children at one age, one line per year across a decade. Labels are BARE YEARS, so the opener MUST name who is being counted ("Children aged 0 in Seoul"). Own post, never mixed, and keep the first and last years: the fall between them is the card. State it and stop — never call it a decline, a crisis, or a collapse, and never mention birth rates.
+- "water" lines are the raw water drawn at each of Seoul's purification centres on one day. Labels are BARE PLACE NAMES (Amsa, Ttukdo), and the card's dateline says they are purification centres, so the opener MUST name the METRIC and nothing more ("Water drawn for Seoul"). ⚠️ Do NOT put the day, the date or the words "one day" in the opener: the date rides on the card automatically and an opener that repeats it spends the line saying nothing. Own post, never mixed. Every line is an intake figure at the same measure — never say one centre is bigger or busier than another.
+- "daynight" lines are HOW MANY PEOPLE ARE PRESENT in each district, either by DAY or by NIGHT, never both in one card. Labels are BARE DISTRICT NAMES, so the opener MUST name BOTH what is counted — people, a population — AND which half of the day: "Seoul's daytime population", "How many people are in Seoul after dark". ⚠️ An opener naming only the time ("Seoul by day") is NOT enough and leaves the reader guessing whether the figures are people, money or anything else. The measure is 생활인구: everyone present at that hour, residents and workers and visitors together — so never call it the district's population in the sense of who LIVES there, and never call it a crowd. Own post, never mixed. The KT-estimate caveat rides on the card already: do not restate it in a line.
+- "infant" lines count Seoul's children in ONE age band, one line per year across a decade. Labels are BARE YEARS. ⚠️ The card already names the age band on its own line, and YOU ARE NOT TOLD WHICH BAND IT IS — so the opener must NEVER state an age or an age range. Writing "Children aged 0" over the under-six figures is the exact mistake this rule exists to stop. Give a neutral opener that says only that these are Seoul's children over time: "Seoul's children, a decade apart", "Fewer every year in Seoul". Own post, never mixed, and keep the first and last years: the fall between them is the card. State it and stop — never call it a decline, a crisis, or a collapse, and never mention birth rates.
 - "library" lines are the registered members of Seoul Library by decade of life. Labels are BARE AGE BANDS, so the opener MUST name the library and what is counted ("Who holds a card at Seoul Library"). Own post, never mixed. It is ONE library, not the city's 215 — never imply otherwise.
 - "complaint" lines are how many faults Seoul's residents reported in a whole year, one line per year. Labels are BARE YEARS, so the opener MUST name what is counted ("Things reported broken in Seoul"). Own post, never mixed, and never characterise a year as better or worse than another.
 - "airport", "health" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split (labels carry their months). A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. These are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
@@ -3675,7 +3697,7 @@ def compose(sel, pool):
     # A spotlight card is one place read along a clock — now, then the usual for
     # this hour, then the hours ahead. Sorting that by size would scramble the
     # sequence into nonsense, so it keeps the harvester's order instead.
-    if spotlight:
+    if spotlight or precats & ORDERED_CATS:
         order = {f['id']: i for i, f in enumerate(pool)}
         picks = sorted(picks, key=lambda p: order.get(p['id'], 0))
     elif maybe_grouped:
@@ -3885,8 +3907,12 @@ def compose(sel, pool):
         scope_en.append(('Public-library loans', BOOKS_PERIOD['en']))
         scope_ko.append(('공공도서관 대출', BOOKS_PERIOD['ko']))
     if 'water' in cats and WATER_PERIOD['en']:
-        scope_en.append(('Raw water drawn', WATER_PERIOD['en']))
-        scope_ko.append(('취수량', WATER_PERIOD['ko']))
+        # Not "Raw water drawn": that only repeats an opener already required
+        # to name the metric. What the reader cannot know from the card is that
+        # this is 취수 — water taken from the river BEFORE treatment — and not
+        # the 송수/공급량 figures the same feed also carries.
+        scope_en.append(('Raw intake, before treatment', WATER_PERIOD['en']))
+        scope_ko.append(('취수량 (정수 전)', WATER_PERIOD['ko']))
     if 'daynight' in cats and DAYNIGHT_PERIOD['en']:
         # No descriptor: these facts are estimated=True, so the card already
         # carries the KT caveat, and adding "Estimated population" beside it
@@ -3895,8 +3921,14 @@ def compose(sel, pool):
         scope_en.append((None, DAYNIGHT_PERIOD['en']))
         scope_ko.append((None, DAYNIGHT_PERIOD['ko']))
     if 'infant' in cats and INFANT_PERIOD['en']:
-        scope_en.append((INFANT_PERIOD['en'], None))
-        scope_ko.append((INFANT_PERIOD['ko'], None))
+        # ⚠️ The AGE BAND rides here, in the dateline slot, and the opener is
+        # forbidden from naming one. The lines are bare years, so nothing else
+        # on the card says which of the four series it is — and when this was
+        # briefly left to the opener, the selector wrote "Children aged 0 in
+        # Seoul" over the under-SIX figures. Python owns which band it is,
+        # exactly as it owns every value.
+        scope_en.append((None, INFANT_PERIOD['en']))
+        scope_ko.append((None, INFANT_PERIOD['ko']))
     if 'library' in cats:
         # ⚠️ Seoul Library, not Seoul's 215 public libraries.
         scope_en.append(('Members of Seoul Library', None))
@@ -4009,6 +4041,14 @@ def compose(sel, pool):
     if forecast:
         note_en = 'Hours ahead are forecasts; crowds are KT-estimated'
         note_ko = '이후 시간대는 예측치 · 인구는 KT 추정'
+    elif 'daynight' in cats:
+        # ⚠️ NOT "crowds". These are 생활인구: everyone present in a district at
+        # that hour — residents, people at work, people visiting — which is a
+        # different thing from the crowd vein's estimate of a named place, and
+        # from the district's registered population. Borrowing the crowd vein's
+        # wording said the wrong thing about the figures.
+        note_en = 'Population present, KT-estimated' if estimated else ''
+        note_ko = '생활인구는 KT 추정' if estimated else ''
     else:
         note_en = 'Crowds are KT-estimated' if estimated else ''
         note_ko = '인구는 KT 추정' if estimated else ''
