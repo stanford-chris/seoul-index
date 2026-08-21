@@ -45,6 +45,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
@@ -1012,6 +1013,182 @@ def traffic_facts(api_key):
                         f'{spd} km/h', f'{spd}km/h', pair='traffic_speed',
                         pin=True, label_ko=entry.get('name_ko') or name_en))
     return out if len(out) >= 2 else []
+
+
+# --- river -----------------------------------------------------------------
+# Absorbed from the Han River bot (@hanrivernow) on 21 Aug 2026. That bot ran on
+# this same Seoul key from 18 July and never published a thing: it was held back
+# for a CCTV still whose ITS key took 34 days to approve, by which point a ninth
+# Bluesky account was the wrong answer. Its readings became a vein here instead.
+#
+# ⚠️ The vein is water AGAINST AIR, not river against river. On 21 Aug 2026 the
+# four stations sat within 1.7°C of each other (안양천 28.8, 탄천 28.2, 선유 28.1,
+# 중랑천 27.1), which is four numbers that nearly match: no double-take, no card.
+# The contrast that carries a card is the water disagreeing with the sky, which
+# it does by several degrees for most of the year. So the air reading is part of
+# the vein rather than a companion to it, and a card must include it.
+#
+# ⚠️ Every line in a card shares ONE reading hour, and that is load-bearing.
+# 선유 is the ONLY Han main-stem station and publishes about five hours behind
+# the three tributaries — over the ten days to 21 Aug 2026 it logged 246 valid
+# readings against their 251, the shortfall being exactly the most recent hours.
+# Taking each station's newest reading would set a 1 p.m. river beside a 6 p.m.
+# sky and call the result "right now", which is the Overcast-offset mistake in
+# another costume. So the harvester picks the newest hour the stations agree on
+# and asks KMA for the air AT THAT HOUR. 초단기실황 serves any hour in the last
+# 24 ("최근 1일 간의 자료만 제공합니다"), which always covers 선유's lag.
+WPOS_STATIONS = [('선유', 'The Han at Seonyu', '한강(선유)'),
+                 ('탄천', 'The Tancheon', '탄천'),
+                 ('중랑천', 'The Jungnangcheon', '중랑천'),
+                 ('안양천', 'The Anyangcheon', '안양천')]
+WPOS_ROWS = 120          # ~30 hours over the four stations, newest first
+WPOS_MIN_STATIONS = 3    # an hour fewer stations agree on is not a card
+RIVER_MIN_SPREAD_C = 3.0  # warmest reading minus coolest; below this the
+                         # vein stays inert (see river_facts)
+HAN_STATION = '선유'      # the only main-stem station; a card without it is not
+                         # a card about the Han (see river_facts)
+
+# 종로구 on the KMA forecast grid: central Seoul, the same 예보구역 as ASOS 108.
+KMA_NOW_NX, KMA_NOW_NY = 60, 127
+
+# Set by river_facts() so compose() can footnote the reading hour beside the
+# figures, the same split books, sales and property make.
+RIVER_PERIOD = {'en': None, 'ko': None}
+
+
+def _wpos_grid(api_key):
+    """(YMD, HR) -> {station: °C}, from the hourly water-quality readings."""
+    url = (f'http://openapi.seoul.go.kr:8088/{api_key}/json/'
+           f'WPOSInformationTime/1/{WPOS_ROWS}/')
+    try:
+        d = http_get_json(url)
+    except RuntimeError:
+        return {}
+    body = d.get('WPOSInformationTime') or {}
+    if ((body.get('RESULT') or {}).get('CODE') or '') != 'INFO-000':
+        return {}
+    grid = {}
+    for r in body.get('row') or []:
+        # WATT is the water temperature. It reads '점검중' while a station is
+        # under maintenance, and is sometimes blank; both must be skipped
+        # rather than coerced.
+        try:
+            v = float((r.get('WATT') or '').strip())
+        except ValueError:
+            continue
+        grid.setdefault((r.get('YMD'), r.get('HR')), {})[r.get('MSRSTN_NM')] = v
+    return grid
+
+
+def _kma_air_at(key, ymd, hhmm):
+    """Air temperature °C from 초단기실황 at one hour, or None.
+
+    This is an observation (the 예보구역's representative AWS reading), not a
+    forecast, which is what lets it sit on a card that promises figures as
+    published. Open-Meteo was the alternative and was rejected for that reason:
+    its 'current' is a model's estimate and its 'feels like' plainly derived."""
+    if not key:
+        return None
+    p = {'serviceKey': key, 'pageNo': '1', 'numOfRows': '10',
+         'dataType': 'JSON', 'base_date': ymd, 'base_time': hhmm,
+         'nx': str(KMA_NOW_NX), 'ny': str(KMA_NOW_NY)}
+    # safe='%' keeps the already-encoded service key from being double-encoded.
+    url = ('http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/'
+           'getUltraSrtNcst?' + urllib.parse.urlencode(p, safe='%'))
+    try:
+        d = http_get_json(url)
+    except RuntimeError:
+        return None
+    try:
+        items = d['response']['body']['items']['item']
+    except (KeyError, TypeError):
+        return None
+    for it in items:
+        if it.get('category') == 'T1H':
+            try:
+                return float(it.get('obsrValue'))
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def river_facts(api_key, gov_key):
+    """Water temperatures in Seoul's rivers, and the air above them, at one hour."""
+    grid = _wpos_grid(api_key)
+    if not grid:
+        return []
+    # 선유 is REQUIRED, not merely counted. It is the only Han main-stem
+    # station, and an hour without it yields a card about the Tancheon, the
+    # Jungnangcheon and the Anyangcheon — three tributaries, no Han, on an
+    # account whose readers came for the river. Because 선유 lags the others by
+    # about five hours, the newest hour that satisfies this is usually not the
+    # newest hour in the grid; that is the trade, and the footnote carries the
+    # hour so the staleness is stated rather than hidden.
+    stamp = next((s for s in sorted(grid, reverse=True)
+                  if HAN_STATION in grid[s] and len(grid[s]) >= WPOS_MIN_STATIONS),
+                 None)
+    if stamp is None:
+        return []
+    ymd, hr = stamp
+    cells = grid[stamp]
+    air = _kma_air_at(gov_key, ymd, (hr or '').replace(':', ''))
+    if air is None:
+        # Without the air line the remaining readings are four near-identical
+        # numbers (see the note above), so the vein stays inert rather than
+        # offering the selector a flat card.
+        return []
+
+    try:
+        stamp_dt = datetime.strptime(f'{ymd} {hr}', '%Y%m%d %H:%M')
+    except ValueError:
+        return []
+    # The hour alone would mislead on a reading taken yesterday, which a
+    # late run plus 선유's lag can produce, so the date rides along unless
+    # the reading is from today.
+    today = datetime.now(SEOUL_TZ).date()
+    RIVER_PERIOD['en'] = _ampm_en(stamp_dt.hour)
+    RIVER_PERIOD['ko'] = _ampm_ko(stamp_dt.hour)
+    if stamp_dt.date() != today:
+        RIVER_PERIOD['en'] += f', {stamp_dt.day} {MONTHS_EN[stamp_dt.month - 1]}'
+        RIVER_PERIOD['ko'] += f', {stamp_dt.month}월 {stamp_dt.day}일'
+
+    facts = []
+    for ko_name, en_label, ko_label in WPOS_STATIONS:
+        v = cells.get(ko_name)
+        if v is None:
+            continue
+        facts.append(fact(f'river_watt_{ko_name}', 'river', en_label,
+                          f'{v:.1f}°C', f'{v:.1f}°C', pair='river_now',
+                          pin=True, label_ko=ko_label))
+    # Bare labels like the traffic and world lines: the opener carries the
+    # metric and the hour, so every label here is pinned to survive rewording.
+    facts.append(fact('river_air', 'river', 'The air', f'{air:.1f}°C',
+                      f'{air:.1f}°C', pair='river_now', pin=True,
+                      label_ko='기온'))
+    # One water reading plus the air is a contrast, not an index; three lines
+    # is the floor a card is built from.
+    if len(facts) < 3:
+        return []
+
+    # ⚠️ SPREAD GUARD, and it is the difference between a card and a shrug.
+    # Measured on 21 Aug 2026 at 1 p.m.: Han 28.1, Anyangcheon 28.1, Tancheon
+    # 27.4, Jungnangcheon 26.5, air 26.5 — a 1.6°C spread with the air landing
+    # exactly on a tributary. Five numbers that nearly match are not a Harper's
+    # index, they are a shrug, and the vein floor would have promoted that card
+    # anyway because nothing here was empty or errored.
+    #
+    # In high summer the river and the sky converge, so this vein is SUPPOSED to
+    # sleep for part of the year and wake when the gap opens: by October the air
+    # runs several degrees under the water, and in winter the gap is close to
+    # ten. The same shape of rule as the spotlight card's "at least three
+    # distinct values, spread at least a quarter of the largest", which exists
+    # because that card, too, once went out saying one thing four times.
+    vals = [float(f['value_en'].rstrip('°C')) for f in facts]
+    if max(vals) - min(vals) < RIVER_MIN_SPREAD_C:
+        print(f'river: spread {max(vals) - min(vals):.1f}°C is under '
+              f'{RIVER_MIN_SPREAD_C}°C — vein inert this run')
+        return []
+    return facts
 
 
 BOOKS_AGG = HERE / 'books_agg.json'
@@ -2297,6 +2474,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None):
     pool += count_facts(api_key)
     pool += bike_facts(api_key)
     pool += traffic_facts(api_key)
+    pool += river_facts(api_key, gov_key)
     pool += books_facts()
     pool += sales_facts()
     pool += kosis_facts(kosis_key)
@@ -2343,6 +2521,7 @@ Rules:
 - "property" lines are one month's apartment-market filings from the national land ministry: actual sale prices (the dearest and cheapest single sales), a record jeonse deposit, and counts of filings. Build them into their own post — never alongside a live "right now" line, a spending line, a national line or a world line. The pairs are the point: the price gap (dearest vs cheapest sale) or the jeonse/monthly-rent split. Never put a month or date in a property label — the filing month rides on the card automatically.
 - "weather" lines are published readings from Seoul's official weather station: yesterday's high/low/rain, the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the yesterday set, the then-and-now monthly set, OR the season-to-date set (never blend the three). A season-to-date post is built around the swelter tally ("Days of 33°C or more, 1 Jun–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, every pair must put its two years in the SAME order, and the arrangement carries the half-century — never point it out. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
 - "tourism" lines are one month's visitor counts at named paid-admission Seoul attractions (the palaces, Lotte World, Seoul Sky…). Own post; ONE frame per post — total visitors OR foreign visitors, never both; the month rides on the card automatically. The pairs are the point: a dead heat or the widest gap between two named attractions.
+- "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and the fact that these are readings at one hour, e.g. "Water and air in Seoul" — the same case as the world, traffic and books lines. Do NOT write "right now": the reading hour rides on the card automatically and can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
 - "airport", "health" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split (labels carry their months). A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. These are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
@@ -2982,7 +3161,9 @@ def compose(sel, pool):
     uses_oecd = 'world' in cats
     uses_wb = 'nation' in cats
     uses_molit = 'property' in cats
-    uses_kma = 'weather' in cats
+    # The river vein spans two publishers: the water is Seoul Open Data
+    # (so 'river' stays out of non_seoul above) and the air is KMA.
+    uses_kma = 'weather' in cats or 'river' in cats
     uses_kac = 'airport' in cats
     uses_hira = 'health' in cats
     uses_mcst = 'culture' in cats
@@ -3047,8 +3228,19 @@ def compose(sel, pool):
         # it rides on the card; the labels already carry their months.
         src_en += ' · KMA'
         src_ko += ' · 기상청'
-        scope_en.append(('Official Seoul station (108)', None))
-        scope_ko.append(('서울 대표 관측소(108) 기준', None))
+        # ⚠️ The two KMA veins read DIFFERENT instruments, and saying so wrongly
+        # is worse than not saying it. 'weather' is ASOS station 108, Seoul's
+        # reference station, daily. 'river' is 초단기실황, the representative AWS
+        # value for the 종로구 예보구역, hourly. Crediting the river card to 108
+        # would name an instrument that did not take the reading — which the
+        # first version of this vein did, on 21 Aug 2026, until the card was
+        # actually read.
+        if 'weather' in cats:
+            scope_en.append(('Official Seoul station (108)', None))
+            scope_ko.append(('서울 대표 관측소(108) 기준', None))
+        if 'river' in cats:
+            scope_en.append(('Air: Seoul forecast-zone reading', None))
+            scope_ko.append(('기온: 서울 예보구역 관측값', None))
     if uses_kac:
         src_en += ' · Korea Airports Corporation'
         src_ko += ' · 한국공항공사'
@@ -3081,6 +3273,16 @@ def compose(sel, pool):
         # public-library scope are keys to the figures, so they ride the card.
         scope_en.append(('Public-library loans', BOOKS_PERIOD['en']))
         scope_ko.append(('공공도서관 대출', BOOKS_PERIOD['ko']))
+    if 'river' in cats and RIVER_PERIOD['en']:
+        # The hour is a key to the figures, not a credit: a water
+        # temperature means nothing without the hour it was read.
+        # The period slot becomes the card's dateline (as with books and
+        # property), which is where the hour belongs: it heads the card rather
+        # than trailing it. The descriptor is left empty because a scope note
+        # reading "Water and air readings" only restates the card; the caveat
+        # worth the space is which instrument the air came from, added below.
+        scope_en.append((None, RIVER_PERIOD['en']))
+        scope_ko.append((None, RIVER_PERIOD['ko']))
     if uses_oecd:
         # Name the metric here rather than trusting the opener. The metro-area
         # scope and the year are NOT put here: they qualify the numbers rather
