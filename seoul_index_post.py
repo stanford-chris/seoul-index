@@ -1468,6 +1468,313 @@ def price_facts(api_key, state):
     return []
 
 
+# --- waterworks ------------------------------------------------------------
+# WoWcbsDayStatic, found in the 21 Aug 2026 portal sweep. Daily, and genuinely
+# daily: it carried yesterday's figures when built. Two kinds of site report —
+# 정수센터 (purification centres, measuring 취수 intake and 송수 transmission) and
+# 수도사업소 (district waterworks offices, measuring 공급량 supplied) — and the
+# vein uses ONE measure at a time so the lines are actually comparable. Setting
+# an intake figure beside a supply figure would look like a ranking of places
+# and be a comparison of two different things.
+WATER_SVC = 'WoWcbsDayStatic'
+WATER_ROWS = 300
+WATER_MIN_LINES = 3
+# The five purification centres, curated rather than romanised: 뚝도 is not the
+# 뚝섬 in the station table and would take its name wrongly.
+WATER_SITES = {'암사': 'Amsa', '강북': 'Gangbuk', '뚝도': 'Ttukdo',
+               '구의': 'Guui', '영등포': 'Yeongdeungpo'}
+WATER_PERIOD = {'en': None, 'ko': None}
+
+
+def water_facts(api_key):
+    """Water drawn at each of Seoul's purification centres, on one day."""
+    try:
+        d = http_get_json(f'http://openapi.seoul.go.kr:8088/{api_key}/json/'
+                          f'{WATER_SVC}/1/{WATER_ROWS}/')
+    except RuntimeError:
+        return []
+    body = d.get(WATER_SVC) or {}
+    if ((body.get('RESULT') or {}).get('CODE') or '') != 'INFO-000':
+        return []
+    rows = body.get('row') or []
+    if not rows:
+        return []
+    newest = max(r.get('YMD') or '' for r in rows)
+    facts = []
+    for r in rows:
+        if r.get('YMD') != newest or r.get('ROF_SE_NM') != '취수':
+            continue            # 취수 only: see the note above
+        en = WATER_SITES.get(r.get('BUSNP_NM') or '')
+        if not en:
+            continue
+        try:
+            v = float(r.get('MSRMT_VL'))
+        except (TypeError, ValueError):
+            continue
+        if v <= 0:
+            continue
+        facts.append(fact(f'water_{r["BUSNP_NM"]}', 'water', en,
+                          f'{grouped(v)} m³', f'{grouped(v)}m³',
+                          pair='water_intake', pin=True,
+                          label_ko=f'{r["BUSNP_NM"]} 정수센터'))
+    if len(facts) < WATER_MIN_LINES:
+        return []
+    try:
+        dt = datetime.strptime(newest, '%Y%m%d')
+        WATER_PERIOD['en'] = f'{dt.day} {MONTHS_EN[dt.month - 1]}'
+        WATER_PERIOD['ko'] = f'{dt.month}월 {dt.day}일'
+    except ValueError:
+        WATER_PERIOD['en'] = WATER_PERIOD['ko'] = newest
+    return facts
+
+
+# --- day and night ---------------------------------------------------------
+# SPOP_DAILYSUM_JACHI_250: Seoul's OWN district-level daily aggregate of the
+# 생활인구 series. The 250m-cell tables carry more (21 nationalities), but a
+# citywide or district figure from those would be us summing cells, i.e. us
+# computing. This table publishes the district totals already, so the card
+# quotes rather than calculates — the distinction the account rests on.
+#
+# ⚠️ 생활인구 is KT-modelled, not counted, exactly like the crowd vein, so these
+# facts are flagged estimated=True and the card carries that caveat.
+DAYNIGHT_SVC = 'SPOP_DAILYSUM_JACHI_250'
+DAYNIGHT_ROWS = 200
+DAYNIGHT_MIN_LINES = 3
+DAYNIGHT_PERIOD = {'en': None, 'ko': None}
+
+
+def daynight_facts(api_key, state):
+    """How far a district's daytime population runs above its night-time one."""
+    try:
+        d = http_get_json(f'http://openapi.seoul.go.kr:8088/{api_key}/json/'
+                          f'{DAYNIGHT_SVC}/1/{DAYNIGHT_ROWS}/')
+    except RuntimeError:
+        return []
+    body = d.get(DAYNIGHT_SVC) or {}
+    if ((body.get('RESULT') or {}).get('CODE') or '') != 'INFO-000':
+        return []
+    rows = body.get('row') or []
+    if not rows:
+        return []
+    newest = max(r.get('STDR_DE_ID') or '' for r in rows)
+    day = [r for r in rows if r.get('STDR_DE_ID') == newest]
+
+    def num(r, k):
+        try:
+            return float(r.get(k))
+        except (TypeError, ValueError):
+            return None
+
+    # Alternate between the two published halves rather than mixing them: a
+    # daytime figure and a night-time one for DIFFERENT districts in one column
+    # reads as a ranking of places and is nothing of the sort.
+    which = 'DAY_LVPOP_CO' if int(state.get('daynight_i', 0)) % 2 == 0 else 'NIGHT_LVPOP_CO'
+    state['daynight_i'] = int(state.get('daynight_i', 0)) + 1
+    when_en, when_ko = (('by day', '낮') if which.startswith('DAY')
+                        else ('by night', '밤'))
+    facts = []
+    for r in day:
+        gu_ko = r.get('SIGNGU_NM') or ''
+        v = num(r, which)
+        # ⚠️ '서울시' is a CITYWIDE row sitting among the 25 districts. Left in,
+        # it would tower over every district line and read as one of them.
+        if not gu_ko or gu_ko == '서울시' or v is None or v <= 0:
+            continue
+        gu_en = en_name(gu_ko, 'districts')
+        if gu_en == gu_ko:
+            continue
+        facts.append(fact(f'daynight_{which[:3]}_{gu_ko}', 'daynight', gu_en,
+                          grouped(v), grouped(v), pair='daynight_spread',
+                          pin=True, label_ko=gu_ko, estimated=True,
+                          num=v, unit='people'))
+    if len(facts) < DAYNIGHT_MIN_LINES:
+        return []
+    facts.sort(key=lambda f: -f['num'])
+    facts = facts[:3] + facts[-3:]      # the fullest and the emptiest
+    try:
+        dt = datetime.strptime(newest, '%Y%m%d')
+        DAYNIGHT_PERIOD['en'] = f'{when_en}, {dt.day} {MONTHS_EN[dt.month - 1]}'
+        DAYNIGHT_PERIOD['ko'] = f'{dt.month}월 {dt.day}일 {when_ko}'
+    except ValueError:
+        DAYNIGHT_PERIOD['en'] = DAYNIGHT_PERIOD['ko'] = newest
+    return facts
+
+
+# --- the youngest ----------------------------------------------------------
+# statInfantNumInfo: Seoul's count of children at each age, one column per year,
+# 2016 to 2025. The account already sets Seoul's fertility rate against the
+# country's; this is the same story told in whole children rather than a rate,
+# which is the more legible half.
+#
+# ⚠️ Row GBCODE '00' is a HEADER, not data: its YEAR01..YEAR10 hold the year
+# labels ('2016'…'2025'), and reading it as a row would publish the year as a
+# population. The year labels are taken FROM it, which is why it is read first
+# rather than skipped.
+INFANT_SVC = 'statInfantNumInfo'
+INFANT_MIN_LINES = 3
+# ⚠️⚠️ KEYED ON GBCODE, NEVER ON THE LABEL, because this feed's labels lie.
+# Row '어린이집,계,수' ("count") holds "44.1%" and '어린이집,계,비율' ("ratio")
+# holds 131,081: the two are swapped. Row 12 also misspells 유치원 as 유지원.
+# Only these four rows were checked to be unambiguous whole-number counts, and
+# anything not on this list is left alone rather than trusted.
+INFANT_SERIES = {'01': ('Children aged 0', '0세 인구'),
+                 '04': ('Children under 6', '영유아 인구'),
+                 '05': ('Children aged 0 to 2', '영아(0~2세) 인구'),
+                 '06': ('Children aged 3 to 5', '유아(3~5세) 인구')}
+INFANT_PERIOD = {'en': None, 'ko': None}
+
+
+def infant_facts(api_key, state):
+    """Seoul's children at one age, a decade apart."""
+    try:
+        d = http_get_json(f'http://openapi.seoul.go.kr:8088/{api_key}/json/'
+                          f'{INFANT_SVC}/1/50/')
+    except RuntimeError:
+        return []
+    body = d.get(INFANT_SVC) or {}
+    if ((body.get('RESULT') or {}).get('CODE') or '') != 'INFO-000':
+        return []
+    rows = body.get('row') or []
+    header = next((r for r in rows if r.get('GBCODE') == '00'), None)
+    if not header:
+        return []
+    cols = [f'YEAR{i:02d}' for i in range(1, 11)]
+    years = {c: (header.get(c) or '').strip() for c in cols}
+
+    ages = [r for r in rows if r.get('GBCODE') in INFANT_SERIES]
+    if not ages:
+        return []
+    i = int(state.get('infant_i', 0))
+    state['infant_i'] = (i + 1) % len(ages)
+    r = ages[i % len(ages)]
+    en_age, ko_age = INFANT_SERIES[r['GBCODE']]
+
+    facts = []
+    for c in cols:
+        yr = years.get(c)
+        raw = (r.get(c) or '').replace(',', '').strip()
+        if not yr or not raw.isdigit():
+            continue
+        v = int(raw)
+        if v <= 0:
+            continue
+        facts.append(fact(f'infant_{r["GBCODE"]}_{yr}', 'infant', yr,
+                          grouped(v), grouped(v), pair='infant_decade',
+                          pin=True, label_ko=f'{yr}년', num=v, unit='people'))
+    if len(facts) < INFANT_MIN_LINES:
+        return []
+    # The ends of the decade carry it; the middle years only pad the card.
+    facts = [facts[0], facts[len(facts) // 2], facts[-1]]
+    INFANT_PERIOD['en'] = f'{en_age}, in Seoul'
+    INFANT_PERIOD['ko'] = f'서울의 {ko_age}'
+    return facts
+
+
+# --- library membership ----------------------------------------------------
+# SeoulLibraryMemberInfo: registered members of 서울도서관 by year of birth,
+# which the vein sums into the decade bands the feed itself declares
+# (AGE_RANGE). Summing published rows is counting, which the account allows;
+# nothing here is modelled or averaged.
+#
+# ⚠️ The sibling loans service (SeoulLibraryBookRentNumInfo) is deliberately NOT
+# used, though it is live and carries real checkout counts. It publishes NO date
+# or period field, so nobody can say what window a count of 31 covers, and an
+# unlabelled count cannot go on a card. Revisit only if a period appears.
+# ⚠️ This is 서울도서관, the city's flagship library, NOT Seoul's 215 public
+# libraries. The opener must say so or the figures read as citywide.
+LIBRARY_SVC = 'SeoulLibraryMemberInfo'
+LIBRARY_MIN_LINES = 3
+LIBRARY_BANDS = {'10': ('In their teens', '10대'), '20': ('In their twenties', '20대'),
+                 '30': ('In their thirties', '30대'), '40': ('In their forties', '40대'),
+                 '50': ('In their fifties', '50대'), '60': ('In their sixties', '60대'),
+                 '70': ('In their seventies', '70대'), '80': ('In their eighties', '80대')}
+
+
+def library_facts(api_key):
+    """Who holds a card at Seoul Library, by decade of life."""
+    try:
+        d = http_get_json(f'http://openapi.seoul.go.kr:8088/{api_key}/json/'
+                          f'{LIBRARY_SVC}/1/200/')
+    except RuntimeError:
+        return []
+    body = d.get(LIBRARY_SVC) or {}
+    if ((body.get('RESULT') or {}).get('CODE') or '') != 'INFO-000':
+        return []
+    tally = {}
+    for r in (body.get('row') or []):
+        band = (r.get('AGE_RANGE') or '').strip()
+        if band not in LIBRARY_BANDS:
+            continue        # '0' and '90' are real but tiny; they would read as
+                            # errors beside a band of 70,000
+        try:
+            tally[band] = tally.get(band, 0) + int(str(r.get('MBR_CNT')).strip())
+        except (TypeError, ValueError):
+            continue
+    facts = []
+    for band, total in sorted(tally.items(), key=lambda kv: -kv[1]):
+        if total <= 0:
+            continue
+        en, ko = LIBRARY_BANDS[band]
+        facts.append(fact(f'library_{band}', 'library', en, grouped(total),
+                          grouped(total), pair='library_ages', pin=True,
+                          label_ko=ko, num=total, unit='people'))
+    return facts if len(facts) >= LIBRARY_MIN_LINES else []
+
+
+# --- complaints ------------------------------------------------------------
+# SmartUncomfStatMonth: how many times Seoul's residents reported something
+# wrong, by month, back to 2012. A whole year against a whole year is the card.
+#
+# ⚠️⚠️ THE CURRENT YEAR'S ROW IS NOT SAFE TO READ AS MONTHS. In the row for the
+# running year, the CURRENT month's slot holds the YEAR-TO-DATE TOTAL, not that
+# month: on 21 Aug 2026 MON_07 read 435,518, which is exactly MON_TOTAL and
+# exactly the sum of January to June. In 2025 and 2024 the same field is an
+# ordinary month. Publishing MON_07 as July would have been six times too large.
+# So the vein uses COMPLETE PRIOR YEARS ONLY, and the check is arithmetic rather
+# than a date comparison: a year whose months do not sum to its own MON_TOTAL is
+# not a finished year.
+COMPLAINT_SVC = 'SmartUncomfStatMonth'
+COMPLAINT_MIN_LINES = 3
+
+
+def complaint_facts(api_key):
+    """Reports to Seoul's fault-reporting service, by complete year."""
+    try:
+        d = http_get_json(f'http://openapi.seoul.go.kr:8088/{api_key}/json/'
+                          f'{COMPLAINT_SVC}/1/30/')
+    except RuntimeError:
+        return []
+    body = d.get(COMPLAINT_SVC) or {}
+    if ((body.get('RESULT') or {}).get('CODE') or '') != 'INFO-000':
+        return []
+    years = []
+    for r in (body.get('row') or []):
+        yr = (r.get('YEAR') or '').strip()
+        try:
+            months = [float(r.get(f'MON_{i:02d}') or 0) for i in range(1, 13)]
+            total = float(r.get('MON_TOTAL') or 0)
+        except (TypeError, ValueError):
+            continue
+        if not yr.isdigit() or total <= 0:
+            continue
+        # The running year fails this: its months sum to about twice its total,
+        # because the year-to-date figure is sitting in a month's slot.
+        if abs(sum(months) - total) > 1:
+            continue
+        if min(months) <= 0:
+            continue        # a year with an empty month is not complete either
+        years.append((yr, total))
+    if len(years) < COMPLAINT_MIN_LINES:
+        return []
+    years.sort(key=lambda t: t[0], reverse=True)
+    facts = []
+    for yr, total in years[:5]:
+        facts.append(fact(f'complaint_{yr}', 'complaint', yr, grouped(total),
+                          grouped(total), pair='complaint_years', pin=True,
+                          label_ko=f'{yr}년'))
+    return facts
+
+
 BOOKS_AGG = HERE / 'books_agg.json'
 # Set by books_facts() so compose() can footnote the loan month on the card, the
 # same split sales/property make (the publisher stays a clickable credit in the
@@ -2754,6 +3061,11 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None):
     pool += river_facts(api_key, gov_key)
     pool += level_facts(hrfco_key)
     pool += price_facts(api_key, state)
+    pool += water_facts(api_key)
+    pool += daynight_facts(api_key, state)
+    pool += infant_facts(api_key, state)
+    pool += library_facts(api_key)
+    pool += complaint_facts(api_key)
     pool += books_facts()
     pool += sales_facts()
     pool += kosis_facts(kosis_key)
@@ -2803,6 +3115,11 @@ Rules:
 - "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and the fact that these are readings at one hour, e.g. "Water and air in Seoul" — the same case as the world, traffic and books lines. Do NOT write "right now": the reading hour rides on the card automatically and can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
 - "level" lines appear ONLY when the Han is running high, and they are one gauge (잠수교) set against its own published flood-warning tiers: the level right now, then the 관심/주의/경계/심각 levels. Build them into their own post, never mixed with any other category, and include the current level plus at least two tiers — the arrangement IS the story, which is how far the river is from each tier. The opener must name the river and the gauge, e.g. "The Han at Jamsu Bridge". ⚠️ NEVER write or imply that the bridge is closed, submerged, flooded or about to be: these are flood-WARNING tiers set by 한강홍수통제소, not the level at which the walkway goes under, and the two are different things. Do not add alarm, urgency or commentary of any kind — state the levels and stop. Never call the situation dangerous.
 - "price" lines are ONE everyday item priced at shops across Seoul on one day. Each label is a bare shop KIND and DISTRICT ("A traditional market in Dongjak-gu", "A supermarket in Nowon-gu"), so the opener MUST name the item and that these are its prices — e.g. "What a watermelon costs in Seoul" — the same case as the world, traffic and books lines. Build them into their own post, never mixed with any other category, and ALWAYS keep the cheapest and dearest lines: the card IS the spread. Never point out that markets are dearer than supermarkets or the reverse — it changes from item to item, and noticing it is the reader's job. Never call a price high, low, cheap or a bargain.
+- "water" lines are the raw water drawn at each of Seoul's purification centres on one day. Labels are BARE PLACE NAMES, so the opener MUST name the metric and the day ("Water drawn for Seoul"). Own post, never mixed. Every line is an intake figure at the same measure — never say one centre is bigger or busier than another.
+- "daynight" lines are one district-level population reading, either DAYTIME or NIGHT-TIME, never both in one card. Labels are BARE DISTRICT NAMES, so the opener MUST say which of the two it is and that these are estimates ("Seoul by day", "Seoul after dark"). Own post, never mixed. These are KT-modelled estimates, and the card already carries that caveat: do not restate it in a line.
+- "infant" lines are Seoul's children at one age, one line per year across a decade. Labels are BARE YEARS, so the opener MUST name who is being counted ("Children aged 0 in Seoul"). Own post, never mixed, and keep the first and last years: the fall between them is the card. State it and stop — never call it a decline, a crisis, or a collapse, and never mention birth rates.
+- "library" lines are the registered members of Seoul Library by decade of life. Labels are BARE AGE BANDS, so the opener MUST name the library and what is counted ("Who holds a card at Seoul Library"). Own post, never mixed. It is ONE library, not the city's 215 — never imply otherwise.
+- "complaint" lines are how many faults Seoul's residents reported in a whole year, one line per year. Labels are BARE YEARS, so the opener MUST name what is counted ("Things reported broken in Seoul"). Own post, never mixed, and never characterise a year as better or worse than another.
 - "airport", "health" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split (labels carry their months). A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. These are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
@@ -3562,6 +3879,26 @@ def compose(sel, pool):
         # public-library scope are keys to the figures, so they ride the card.
         scope_en.append(('Public-library loans', BOOKS_PERIOD['en']))
         scope_ko.append(('공공도서관 대출', BOOKS_PERIOD['ko']))
+    if 'water' in cats and WATER_PERIOD['en']:
+        scope_en.append(('Raw water drawn', WATER_PERIOD['en']))
+        scope_ko.append(('취수량', WATER_PERIOD['ko']))
+    if 'daynight' in cats and DAYNIGHT_PERIOD['en']:
+        # No descriptor: these facts are estimated=True, so the card already
+        # carries the KT caveat, and adding "Estimated population" beside it
+        # printed the same warning twice. Only the date is missing, so only
+        # the date is added.
+        scope_en.append((None, DAYNIGHT_PERIOD['en']))
+        scope_ko.append((None, DAYNIGHT_PERIOD['ko']))
+    if 'infant' in cats and INFANT_PERIOD['en']:
+        scope_en.append((INFANT_PERIOD['en'], None))
+        scope_ko.append((INFANT_PERIOD['ko'], None))
+    if 'library' in cats:
+        # ⚠️ Seoul Library, not Seoul's 215 public libraries.
+        scope_en.append(('Members of Seoul Library', None))
+        scope_ko.append(('서울도서관 등록 회원', None))
+    if 'complaint' in cats:
+        scope_en.append(('Reports to Seoul, complete years', None))
+        scope_ko.append(('서울시 접수 신고, 연도별', None))
     if 'price' in cats and PRICE_PERIOD['en']:
         # The date and the item are keys to the figures: a price means
         # nothing without what was bought and when.
