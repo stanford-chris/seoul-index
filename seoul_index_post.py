@@ -1322,6 +1322,152 @@ def level_facts(hrfco_key):
     return facts
 
 
+# --- market prices ---------------------------------------------------------
+# Found 21 Aug 2026 by sweeping data.seoul.go.kr properly for the first time
+# (3,401 datasets; see reference_seoul_portal_sweep). ~700k observations back to
+# Jan 2025, refreshed roughly weekly, and it is the best-shaped source the
+# account has taken on: the SAME item priced at named shops across the city, so
+# a card is two published prices and the gap between them, with nothing computed
+# and nothing modelled. The same shape as the property vein's dearest/cheapest.
+#
+# ⚠️ The feed is NEWEST-FIRST. Reading from the end returns January 2025 and
+# looks like a dead archive; row 1 is a few days old. This cost a wrong
+# conclusion during the build, and it is the second time in one evening a Seoul
+# API's ordering did that (see the HRFCO note in level_facts).
+#
+# ⚠️ Shops are labelled by DISTRICT and KIND, never by name. The feed carries
+# real shop names (뚝도시장, 이마트(미아점)) and the English card has no English
+# for them, so a named line would fall back to Korean exactly as the bike vein's
+# station names would have. District names come from the curated table the
+# subway lines already use. The kind — traditional market against supermarket —
+# is a published field and is the more interesting half anyway: it changes sides
+# from item to item, which a card should let the reader notice unremarked.
+PRICE_SVC = 'ListNecessariesPricesService'
+PRICE_ROWS = 1000        # newest-first, ~2 days of observations
+PRICE_MIN_LINES = 3      # a spread needs three quoted shops to be an index
+PRICE_MIN_RATIO = 1.5    # dearest/cheapest below this is not worth a card
+PRICE_STRIDE = 7         # coprime with the item list, so the walk covers it
+
+# Curated because the feed's 93 product/unit pairs include several a reader
+# outside Korea cannot place, and because the unit belongs in the opener rather
+# than on every line. Korean labels are the feed's own wording.
+PRICE_ITEMS = [
+    ('배추',   '1포기',  'a napa cabbage',      '배추 1포기'),
+    ('수박',   '',       'a watermelon',        '수박 한 통'),
+    ('계란',   '',       'a tray of eggs',      '계란 한 판'),
+    ('사과',   '',       'apples',              '사과'),
+    ('삼겹살', '100g',   'pork belly, 100g',    '삼겹살 100g'),
+    ('돼지고기','100g',  'pork, 100g',          '돼지고기 100g'),
+    ('소고기(국산)','100g','Korean beef, 100g',  '국산 소고기 100g'),
+    ('고등어', '대',     'a large mackerel',    '고등어(대)'),
+    ('갈치',   '대',     'a large hairtail',    '갈치(대)'),
+    ('쌀',     '10kg',   'rice, 10kg',          '쌀 10kg'),
+    ('양파',   '1kg',    'onions, 1kg',         '양파 1kg'),
+    ('마늘',   '1kg',    'garlic, 1kg',         '마늘 1kg'),
+    ('풋고추', '100g',   'green chillies, 100g','풋고추 100g'),
+    ('상추',   '100g',   'lettuce, 100g',       '상추 100g'),
+    ('두부',   '380g',   'a block of tofu',     '두부 380g'),
+    ('콩나물', '340g',   'bean sprouts, 340g',  '콩나물 340g'),
+    ('우유',   '1L',     'milk, 1L',            '우유 1L'),
+    ('소주',   '360ml',  'a bottle of soju',    '소주 360ml'),
+    ('맥주',   '500ml',  'a can of beer',       '맥주 500ml'),
+    ('라면',   '5개입',  'instant noodles, 5-pack', '라면 5개입'),
+    ('식용유', '1.8L',   'cooking oil, 1.8L',   '식용유 1.8L'),
+    ('참기름', '320ml',  'sesame oil, 320ml',   '참기름 320ml'),
+    ('고추장', '1kg',    'gochujang, 1kg',      '고추장 1kg'),
+    ('김치',   '3.3kg',  'kimchi, 3.3kg',       '김치 3.3kg'),
+]
+PRICE_KIND = {'전통시장': ('a traditional market', '전통시장'),
+              '대형마트': ('a supermarket', '대형마트')}
+
+# Set by price_facts() so compose() can date the prices and name the item.
+PRICE_PERIOD = {'en': None, 'ko': None}
+PRICE_LABEL = {'en': None, 'ko': None}
+
+
+def _price_rows(api_key):
+    """The newest page of price observations, or []."""
+    url = (f'http://openapi.seoul.go.kr:8088/{api_key}/json/'
+           f'{PRICE_SVC}/1/{PRICE_ROWS}/')
+    try:
+        d = http_get_json(url)
+    except RuntimeError:
+        return []
+    body = d.get(PRICE_SVC) or {}
+    if ((body.get('RESULT') or {}).get('CODE') or '') != 'INFO-000':
+        return []
+    return body.get('row') or []
+
+
+def price_window(state):
+    """Which item this card considers, striding so every item comes round."""
+    i, n = int(state.get('price_i', 0)), len(PRICE_ITEMS)
+    state['price_i'] = (i + 1) % n
+    return [PRICE_ITEMS[(i + k * PRICE_STRIDE) % n] for k in range(n)]
+
+
+def price_facts(api_key, state):
+    """One everyday item, priced at shops across Seoul, on the newest day."""
+    rows = _price_rows(api_key)
+    if not rows:
+        return []
+    newest = max(r.get('P_DATE') or '' for r in rows)
+    if not newest:
+        return []
+    day = [r for r in rows if r.get('P_DATE') == newest]
+
+    for ko_name, unit, en_label, ko_label in price_window(state):
+        seen = {}
+        for r in day:
+            if r.get('PRDLST_NM') != ko_name or (r.get('UNIT') or '') != unit:
+                continue
+            kind = PRICE_KIND.get(r.get('M_TYPE_NAME') or '')
+            gu_ko = r.get('M_GU_NAME') or ''
+            if not kind or not gu_ko:
+                continue
+            gu_en = en_name(gu_ko, 'districts')
+            if gu_en == gu_ko:
+                continue        # unmapped: en_name says so, and a Korean
+                                # district on the English card is not a line
+            try:
+                price = float(r.get('A_PRICE'))
+            except (TypeError, ValueError):
+                continue
+            if price <= 0:
+                continue
+            # One line per (district, kind): several shops of the same kind in
+            # one district would otherwise put the same label on the card twice.
+            key = (gu_ko, r['M_TYPE_NAME'])
+            if key not in seen or price < seen[key][0]:
+                seen[key] = (price, kind, gu_en, gu_ko)
+        if len(seen) < PRICE_MIN_LINES:
+            continue
+        vals = sorted(seen.values())
+        if vals[-1][0] / max(vals[0][0], 1) < PRICE_MIN_RATIO:
+            continue            # too flat to be worth a reader's attention
+
+        # Keep the two ends and, if room, the widest-apart middles: the card is
+        # the SPREAD, so the extremes must both survive the selector's trim.
+        picks = [vals[0], vals[-1]] + vals[1:-1][:2]
+        try:
+            d = datetime.strptime(newest, '%Y-%m-%d')
+            PRICE_PERIOD['en'] = f'{d.day} {MONTHS_EN[d.month - 1]}'
+            PRICE_PERIOD['ko'] = f'{d.month}월 {d.day}일'
+        except ValueError:
+            PRICE_PERIOD['en'] = PRICE_PERIOD['ko'] = newest
+        PRICE_LABEL['en'] = en_label
+        PRICE_LABEL['ko'] = ko_label
+        facts = []
+        for price, kind, gu_en, gu_ko in picks:
+            facts.append(fact(f'price_{ko_name}_{gu_ko}_{kind[1]}', 'price',
+                              f'{kind[0].capitalize()} in {gu_en}',
+                              won_en(price), won_ko(price), pair='price_spread',
+                              pin=True, label_ko=f'{gu_ko}의 {kind[1]}',
+                              num=price, unit='won'))
+        return facts
+    return []
+
+
 BOOKS_AGG = HERE / 'books_agg.json'
 # Set by books_facts() so compose() can footnote the loan month on the card, the
 # same split sales/property make (the publisher stays a clickable credit in the
@@ -2607,6 +2753,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None):
     pool += traffic_facts(api_key)
     pool += river_facts(api_key, gov_key)
     pool += level_facts(hrfco_key)
+    pool += price_facts(api_key, state)
     pool += books_facts()
     pool += sales_facts()
     pool += kosis_facts(kosis_key)
@@ -2655,6 +2802,7 @@ Rules:
 - "tourism" lines are one month's visitor counts at named paid-admission Seoul attractions (the palaces, Lotte World, Seoul Sky…). Own post; ONE frame per post — total visitors OR foreign visitors, never both; the month rides on the card automatically. The pairs are the point: a dead heat or the widest gap between two named attractions.
 - "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and the fact that these are readings at one hour, e.g. "Water and air in Seoul" — the same case as the world, traffic and books lines. Do NOT write "right now": the reading hour rides on the card automatically and can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
 - "level" lines appear ONLY when the Han is running high, and they are one gauge (잠수교) set against its own published flood-warning tiers: the level right now, then the 관심/주의/경계/심각 levels. Build them into their own post, never mixed with any other category, and include the current level plus at least two tiers — the arrangement IS the story, which is how far the river is from each tier. The opener must name the river and the gauge, e.g. "The Han at Jamsu Bridge". ⚠️ NEVER write or imply that the bridge is closed, submerged, flooded or about to be: these are flood-WARNING tiers set by 한강홍수통제소, not the level at which the walkway goes under, and the two are different things. Do not add alarm, urgency or commentary of any kind — state the levels and stop. Never call the situation dangerous.
+- "price" lines are ONE everyday item priced at shops across Seoul on one day. Each label is a bare shop KIND and DISTRICT ("A traditional market in Dongjak-gu", "A supermarket in Nowon-gu"), so the opener MUST name the item and that these are its prices — e.g. "What a watermelon costs in Seoul" — the same case as the world, traffic and books lines. Build them into their own post, never mixed with any other category, and ALWAYS keep the cheapest and dearest lines: the card IS the spread. Never point out that markets are dearer than supermarkets or the reverse — it changes from item to item, and noticing it is the reader's job. Never call a price high, low, cheap or a bargain.
 - "airport", "health" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split (labels carry their months). A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. These are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
@@ -3414,6 +3562,11 @@ def compose(sel, pool):
         # public-library scope are keys to the figures, so they ride the card.
         scope_en.append(('Public-library loans', BOOKS_PERIOD['en']))
         scope_ko.append(('공공도서관 대출', BOOKS_PERIOD['ko']))
+    if 'price' in cats and PRICE_PERIOD['en']:
+        # The date and the item are keys to the figures: a price means
+        # nothing without what was bought and when.
+        scope_en.append((f'Price of {PRICE_LABEL["en"]}', PRICE_PERIOD['en']))
+        scope_ko.append((f'{PRICE_LABEL["ko"]} 가격', PRICE_PERIOD['ko']))
     if 'river' in cats and RIVER_PERIOD['en']:
         # The hour is a key to the figures, not a credit: a water
         # temperature means nothing without the hour it was read.
