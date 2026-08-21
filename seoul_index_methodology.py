@@ -8,10 +8,10 @@ thread carries the new card look. Posting it stands up a 7-post thread:
 
   1. EN "About this account" card   (image, no caption)
   2. EN "About the crowd figures" card
-  3. EN "About the city comparisons" card
+  3. EN "About the comparisons" card
   4. KO "이 계정에 대하여" card
   5. KO "인구 수치에 대하여" card
-  6. KO "도시 비교에 대하여" card
+  6. KO "비교 수치에 대하여" card
   7. a short reply with clickable source links
 
 Each card's full text is its alt text. The link stays clickable because it lives
@@ -79,38 +79,48 @@ KO_CAVEAT = ('‘인구’ 수치(특정 장소의 '
              '신호로 추정해 전체 인구로 보정한 '
              '값입니다. 20~50대 구간이 가장 '
              '정확합니다.')
-# City comparisons are a third kind of figure: a different publisher, and a
-# different Seoul. The OECD reports functional urban areas, so its Seoul is the
-# capital region, not the city the rest of the account counts. Saying so here is
-# the point of the card — the same caveat rides on every comparison post's
-# source line, but the reasoning only fits in the pinned thread.
-EN_CITIES = ('Some posts set Seoul beside other cities. Those comparisons come from '
-             'the OECD, which measures every city the same way. They cover whole '
-             'metropolitan areas, so Seoul here is the capital region of about 24 '
-             'million, not the 9.6 million that the other posts count.')
+# Comparisons are a third kind of figure: a different publisher, and sometimes
+# a different Seoul. The OECD reports functional urban areas, so its Seoul is the
+# capital region, not the city the rest of the account counts. The World Bank
+# lines are the other way round: whole countries, with Seoul the city itself.
+# Both scopes ride the relevant post's card footnote, but the reasoning only
+# fits in the pinned thread, and a card explaining only the OECD half would have
+# a reader take a nation card for a metro one (the nation vein returned on
+# 21 Aug 2026, after this card was written).
+EN_CITIES = ('Some posts set Seoul beside other places. City comparisons come from '
+             'the OECD, which measures every city the same way: they cover whole '
+             'metropolitan areas, so Seoul there is the capital region of about 24 '
+             'million, not the 9.6 million the other posts count. Comparisons with '
+             'whole countries come from the World Bank, and there Seoul is the city '
+             'itself.')
 KO_CITIES = ('일부 게시물은 서울을 다른 '
-             '도시와 나란히 놓습니다. 이 수치는 '
-             '모든 도시를 같은 기준으로 '
-             '측정하는 경제협력개발기구(OECD) '
-             '자료입니다. '
+             '도시나 국가와 나란히 놓습니다. '
+             '도시 비교는 모든 도시를 같은 '
+             '기준으로 측정하는 '
+             '경제협력개발기구(OECD) 자료로, '
              '광역도시권 기준이므로 여기서 '
              '서울은 인구 약 960만 명의 '
              '서울시가 아니라 약 2,400만 명의 '
-             '수도권을 뜻합니다.')
+             '수도권을 뜻합니다. 국가와 '
+             '비교하는 수치는 '
+             '세계은행(World Bank) 자료이며, '
+             '이때 서울은 서울시 자체를 '
+             '뜻합니다.')
 
 CARDS = [
     {'lang': 'en', 'heading': 'About this account', 'emoji': '\U0001f3d9️', 'body': [EN_INTRO]},
     {'lang': 'en', 'heading': 'About the crowd figures', 'emoji': '\U0001f465', 'body': [EN_CAVEAT]},
-    {'lang': 'en', 'heading': 'About the city comparisons', 'emoji': '\U0001f30f', 'body': [EN_CITIES]},
+    {'lang': 'en', 'heading': 'About the comparisons', 'emoji': '\U0001f30f', 'body': [EN_CITIES]},
     {'lang': 'ko', 'heading': '이 계정에 대하여', 'emoji': '\U0001f3d9️', 'body': [KO_INTRO]},
     {'lang': 'ko', 'heading': '인구 수치에 대하여', 'emoji': '\U0001f465', 'body': [KO_CAVEAT]},
-    {'lang': 'ko', 'heading': '도시 비교에 대하여', 'emoji': '\U0001f30f', 'body': [KO_CITIES]},
+    {'lang': 'ko', 'heading': '비교 수치에 대하여', 'emoji': '\U0001f30f', 'body': [KO_CITIES]},
 ]
 
 # Every publisher the bot draws on, each hyperlinked in the trailing reply.
 SOURCE_LINE = ('Sources · 출처: data.seoul.go.kr, kosis.kr, data-explorer.oecd.org, '
                'rt.molit.go.kr, data.kma.go.kr, airport.co.kr, '
-               'opendata.hira.or.kr, mcst.go.kr, know.tour.go.kr, data4library.kr')
+               'opendata.hira.or.kr, mcst.go.kr, know.tour.go.kr, data4library.kr, '
+               'hrfco.go.kr, data.worldbank.org')
 SOURCE_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                   ('kosis.kr', 'https://kosis.kr'),
                   ('data-explorer.oecd.org', 'https://data-explorer.oecd.org'),
@@ -120,7 +130,9 @@ SOURCE_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                   ('opendata.hira.or.kr', 'https://opendata.hira.or.kr'),
                   ('mcst.go.kr', 'https://www.mcst.go.kr'),
                   ('know.tour.go.kr', 'https://know.tour.go.kr'),
-                  ('data4library.kr', 'https://data4library.kr')]
+                  ('data4library.kr', 'https://data4library.kr'),
+                  ('hrfco.go.kr', 'https://www.hrfco.go.kr'),
+                  ('data.worldbank.org', 'https://data.worldbank.org')]
 
 
 def _alt(card):
