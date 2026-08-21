@@ -175,5 +175,55 @@ class SpotlightFlatness(unittest.TestCase):
         self.assertTrue(self.verdict([550, 475, 450, 150]))           # Nodeul
 
 
+class NationCardNamesTheMetric(unittest.TestCase):
+    """A nation card's row labels are bare place names, so the card must state
+    what is measured. When the opener does not (the generic "Seoul and the
+    nation"), the metric rides the masthead subtitle — above the rows — and is
+    NOT left only in the source-reply credit line, where a reader of the card
+    never sees it. When the opener already names the metric, nothing is added.
+    Regression guard for the 21 Aug 2026 birth-rate card that shipped four bare
+    numbers with no label."""
+
+    @staticmethod
+    def _nation_sel_pool(opener_en, opener_ko, pair, rows):
+        # rows: [(iso, place_en, place_ko, value)], value language-neutral.
+        pool = [S.fact(f'nation_{pair}_{iso}', 'nation', en, v, v,
+                       pair=f'nation_{pair}', year='2024')
+                for iso, en, ko, v in rows]
+        sel = {'opener_en': opener_en, 'opener_ko': opener_ko,
+               'opener_emoji': '👶',
+               'picks': [{'id': f'nation_{pair}_{iso}', 'label_en': en,
+                          'label_ko': ko, 'emoji': ''}
+                         for iso, en, ko, v in rows]}
+        return sel, pool
+
+    FERTILITY = [('USA', 'United States', '미국', '1.63'),
+                 ('JPN', 'Japan', '일본', '1.15'),
+                 ('KOR', 'South Korea', '대한민국', '0.75'),
+                 ('SEOUL', 'Seoul', '서울', '0.58')]
+
+    def test_generic_opener_lifts_metric_onto_the_card(self):
+        sel, pool = self._nation_sel_pool(
+            'Seoul and the nation', '서울과 전국', 'fertility', self.FERTILITY)
+        c = S.compose(sel, pool)
+        # On the card face, above the rows:
+        self.assertEqual(c['dateline_en'], 'Births per woman')
+        self.assertEqual(c['dateline_ko'], '여성 1명당 출생아 수')
+        # Not duplicated in the credit line...
+        self.assertNotIn('Births per woman', c['src_en'])
+        # ...and present exactly once in the alt text (so screen readers get it).
+        self.assertEqual(c['en_body'].count('Births per woman'), 1)
+        # The scope/vintage stays in the footnote, unchanged.
+        self.assertEqual(c['note_en'], 'Seoul against whole countries, 2024')
+
+    def test_opener_that_names_the_metric_adds_nothing(self):
+        sel, pool = self._nation_sel_pool(
+            'Births per woman', '여성 1명당 출생아 수', 'fertility', self.FERTILITY)
+        c = S.compose(sel, pool)
+        self.assertEqual(c['dateline_en'], '')      # no subtitle — opener said it
+        self.assertEqual(c['dateline_ko'], '')
+        self.assertNotIn('Births per woman', c['src_en'])  # never in the credit
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

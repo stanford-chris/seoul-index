@@ -2338,7 +2338,7 @@ Rules:
 - Do not mix unrelated live "right now" lines with quarterly spending lines in a way that breaks a single frame, unless the contrast itself is the point.
 - "national" lines (Seoul set against the whole country: its share of the population, the fertility-rate gap) are annual figures from a different source. Build them into their own "Seoul and the nation" post — never mix a national line with a live "right now" line or a spending line. The fertility pair is only two lines, so pair it with the population-share line to make a set of three.
 - "world" lines set Seoul's metro area against other cities' metro areas, from the OECD. Their labels are BARE CITY NAMES, so the opener MUST say what is being measured (e.g. "Green space per person", "Within a five-minute walk of transit") — this is the one case where the opener names the metric. Build them into their own post: every world line in a post must come from the SAME pair (all city_green, or all city_transit, never a mix), and a world line NEVER appears alongside a Seoul-only line of any other category. Always include the Seoul line.
-- "nation" lines set SEOUL against whole countries, on one metric, from the World Bank (countries) and KOSIS (Seoul). Seoul leads the card; the peers are whole nations (Korea, Japan, the US…), which is the point — e.g. Seoul is denser than entire countries. Labels are BARE PLACE NAMES (Seoul, then countries), so the opener MUST name the metric (e.g. "People per square kilometre", "Births per woman") — the same rule as the world lines. Build them into their own post: every nation line must come from the SAME pair (all nation_density, or all nation_fertility, never a mix), ALWAYS include the Seoul line, and a nation line NEVER appears alongside a Seoul-only line of any other category or a world (city) line. The pair is the point: Seoul against the country that most sharpens it (the widest gap, or a near dead heat).
+- "nation" lines set SEOUL against whole countries, on one metric, from the World Bank (countries) and KOSIS (Seoul). Seoul leads the card; the peers are whole nations (Korea, Japan, the US…), which is the point — e.g. Seoul is denser than entire countries. Labels are BARE PLACE NAMES (Seoul, then countries), so the opener MUST name the metric (e.g. "People per square kilometre", "Births per woman") — the same rule as the world lines. Do NOT reach for the generic "Seoul and the nation" / "서울과 전국" opener here: that framing belongs to the Seoul-vs-Korea "national" lines, and on a nation card it names no metric, leaving the countries measuring nothing — make the metric itself the opener. Build them into their own post: every nation line must come from the SAME pair (all nation_density, or all nation_fertility, never a mix), ALWAYS include the Seoul line, and a nation line NEVER appears alongside a Seoul-only line of any other category or a world (city) line. The pair is the point: Seoul against the country that most sharpens it (the widest gap, or a near dead heat).
 - "property" lines are one month's apartment-market filings from the national land ministry: actual sale prices (the dearest and cheapest single sales), a record jeonse deposit, and counts of filings. Build them into their own post — never alongside a live "right now" line, a spending line, a national line or a world line. The pairs are the point: the price gap (dearest vs cheapest sale) or the jeonse/monthly-rent split. Never put a month or date in a property label — the filing month rides on the card automatically.
 - "weather" lines are published readings from Seoul's official weather station: yesterday's high/low/rain, the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the yesterday set, the then-and-now monthly set, OR the season-to-date set (never blend the three). A season-to-date post is built around the swelter tally ("Days of 33°C or more, 1 Jun–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, every pair must put its two years in the SAME order, and the arrangement carries the half-century — never point it out. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
 - "tourism" lines are one month's visitor counts at named paid-admission Seoul attractions (the palaces, Lotte World, Seoul Sky…). Own post; ONE frame per post — total visitors OR foreign visitors, never both; the month rides on the card automatically. The pairs are the point: a dead heat or the widest gap between two named attractions.
@@ -3017,6 +3017,11 @@ def compose(sel, pool):
     # labels ("right now"), so a card pairing a live line with a dated vein still
     # shows the dated month up top while the live line reads against it.
     scope_en, scope_ko = [], []
+    # Metric to surface on the card face (masthead subtitle) for bare-place-name
+    # cards (nation) when the opener did not name it. Empty means the opener
+    # already said it, so nothing is added. Set by the uses_wb branch below and
+    # lifted onto the dateline once the period/grouping logic has settled.
+    card_metric_en = card_metric_ko = ''
     if ('spending' in cats or 'avgbill' in cats) and SALES_Q['en']:
         scope_en.append(('Commercial districts', SALES_Q['en']))
         scope_ko.append(('상권', SALES_Q['ko']))
@@ -3098,23 +3103,25 @@ def compose(sel, pool):
         scope_en.append((f'Metro areas{yr}', None))
         scope_ko.append((f'광역도시권{yr}', None))
     if uses_wb:
-        # Same split as the OECD branch: name the metric here (a credit); the
-        # scope and year qualify the numbers, so they ride the footnote
-        # ("Seoul against whole countries, <year>") as a year-vintage caveat, not
-        # a masthead period — so its period slot is None, exactly like metro.
+        # The labels are bare place names (Seoul, then whole countries), so the
+        # metric must be stated somewhere or the numbers measure nothing. When the
+        # opener already names it, unsaid_metrics() returns empty and we say it
+        # nowhere else. When it does NOT (e.g. the generic "Seoul and the nation"
+        # opener), the metric rides the card's masthead subtitle — above the rows,
+        # not in the source reply — so a reader of the card sees what is measured
+        # without hunting the credit line. The scope and year still qualify the
+        # numbers, so they stay in the footnote ("Seoul against whole countries,
+        # <year>") with a None period slot, exactly like metro.
         nf = [by_id[p['id']] for p in picks if by_id[p['id']]['cat'] == 'nation']
         keys = sorted({f['id'].split('_')[1] for f in nf})
         years = sorted({f['year'] for f in nf if f.get('year')})
-        wb_met_en = ', '.join(unsaid_metrics(
+        card_metric_en = ', '.join(unsaid_metrics(
             opener_en, [WB_METRICS[k][0] for k in keys if k in WB_METRICS]))
-        wb_met_ko = ', '.join(unsaid_metrics(
+        card_metric_ko = ', '.join(unsaid_metrics(
             opener_ko, [WB_METRICS[k][1] for k in keys if k in WB_METRICS]))
         yr = f', {"/".join(years)}' if years else ''
         src_en += ' · World Bank'
         src_ko += ' · 세계은행'
-        if wb_met_en:
-            src_en += f' · {wb_met_en}'
-            src_ko += f' · {wb_met_ko}'
         scope_en.append((f'Seoul against whole countries{yr}', None))
         scope_ko.append((f'서울 대 각국(국가 전체){yr}', None))
     # The dateline is the single datable period shared across the card. Only the
@@ -3132,6 +3139,14 @@ def compose(sel, pool):
     # the masthead is suppressed (see _card_payload) and the period rides the
     # dated group's subhead. The footnote already dropped it via _scope_strs.
     grouped = maybe_grouped and bool(dateline_en)
+
+    # Bare-place-name cards (nation) with an opener that did not name the metric
+    # lift it onto the masthead subtitle — under the title, above the rows. This
+    # runs after the period/grouping logic so it can never be mistaken for a
+    # datable period or flip `grouped`: a nation card carries no liftable period,
+    # so dateline_en is empty here, and it is never a grouped cross pair.
+    if card_metric_en and not grouped and not dateline_en:
+        dateline_en, dateline_ko = card_metric_en, card_metric_ko
 
     def _scope_strs(entries, promoted):
         # A promoted period is dropped from its entry (it now rides the dateline);
