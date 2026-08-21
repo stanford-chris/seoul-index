@@ -875,6 +875,11 @@ def count_facts(api_key):
     # already do. Service names all verified live (INFO-000 + a count) 28 Jul 2026.
     specs = [('wifi', 'TbPublicWifiInfo', 'Public Wi-Fi hotspots the city runs', '공공 와이파이 수'),
              ('library', 'SeoulPublicLibraryInfo', 'Public libraries', None),
+             # Seoul Library's catalogue, added 21 Aug 2026 from the portal
+             # sweep. It is ONE library's holdings, not the city's, which is
+             # why the label names it rather than saying 'Books in Seoul'.
+             ('holdings', 'SeoulLibraryBookSearchInfo',
+              'Items in Seoul Library’s catalogue', '서울도서관 소장자료 수'),
              ('park', 'SearchParkInfoService', 'Major parks', None),
              ('busstop', 'busStopLocationXyInfo', 'Bus stops citywide', None),
              ('events', 'culturalEventInfo', 'Cultural events on the city’s listings', None),
