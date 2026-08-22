@@ -1869,10 +1869,18 @@ def complaint_facts(api_key):
 
 
 BOOKS_AGG = HERE / 'books_agg.json'
-# Set by books_facts() so compose() can footnote the loan month on the card, the
+# Set by books_facts() so compose() can footnote the loan window on the card, the
 # same split sales/property make (the publisher stays a clickable credit in the
-# reply; the month is a key to the figures and rides beside them).
+# reply; the window and the as-of date are keys to the figures and ride beside
+# them). The window and the scope are read from the harvest rather than written
+# here: the library publishes the window and can change it, and only the file
+# knows which harvest the numbers on this card came from.
 BOOKS_PERIOD = {'en': None, 'ko': None}
+BOOKS_WINDOW = {'days': None, 'scope_en': None, 'scope_ko': None}
+# A rolling 60-day window read months ago is not a fact about now. The harvest is
+# monthly, so anything older than this means the job has stopped and the vein
+# should go quiet rather than keep posting a window it no longer knows the end of.
+BOOKS_MAX_AGE_DAYS = 45
 
 
 def _ordinal(n):
@@ -1885,28 +1893,48 @@ def _ordinal(n):
 
 
 def books_facts():
-    """Aggregate library-loan figures for Seoul last month, from the cached
-    data4library scan (books_agg.json, refreshed monthly by
-    seoul_index_books_harvest.py). Silent until that file exists — the same
-    safe-by-default pattern as traffic_facts.
+    """Loan counts for the most-borrowed books at SEOUL LIBRARY, from the cached
+    scan (books_agg.json, refreshed monthly by seoul_index_books_harvest.py).
+    Silent until that file exists — the same safe-by-default pattern as
+    traffic_facts.
+
+    ⚠️ ONE library, the city's flagship, not Seoul's 215 public libraries. The
+    source changed on 22 August 2026 from data4library (citywide, calendar
+    months, and never activated) to Seoul's own SeoulLibraryBookRentNumInfo, and
+    the counts are correspondingly small: 32 checkouts topped the list that day.
+    A reader who takes those for a citywide figure has been misled, which is why
+    the opener is required to name the library and the footnote carries the scope.
 
     Titles are deliberately NOT posted: they are Korean proper nouns that would
     strand mixed script on the English card. The vein publishes the loan COUNTS
     only — the checkouts of the most-borrowed book, of the lowest-ranked in the
     scanned set, and of that set combined — so every figure is fully owned by
-    Python and reads identically in both languages. The metric ('checkouts last
-    month') rides on the opener, like the world/traffic/tourism lines; the labels
-    are pinned because each carries a rank or a set size that Python owns."""
+    Python and reads identically in both languages. The metric rides on the
+    opener, like the world/traffic/tourism lines; the labels are pinned because
+    each carries a rank or a set size that Python owns."""
     try:
         agg = json.loads(BOOKS_AGG.read_text())
         books = [b for b in agg['books'] if isinstance(b.get('loan_count'), int)]
         period = agg['period']
-    except (OSError, ValueError, KeyError):
+        days = int(agg['window_days'])
+        # ⚠️ The subtraction lives INSIDE the try: a timezone-NAIVE stamp parses
+        # fine and then raises TypeError here, so catching only the parse would
+        # crash the whole run on a hand-edited cache file.
+        age = (datetime.now(timezone.utc)
+               - datetime.fromisoformat(agg['generated_at'])).days
+    except (OSError, ValueError, KeyError, TypeError):
         return []
     if len(books) < 2:
         return []
+    # See BOOKS_MAX_AGE_DAYS: a stale cache goes quiet rather than dating a
+    # rolling window by a harvest nobody ran.
+    if age > BOOKS_MAX_AGE_DAYS:
+        return []
     BOOKS_PERIOD['en'] = period.get('label_en')
     BOOKS_PERIOD['ko'] = period.get('label_ko')
+    BOOKS_WINDOW['days'] = days
+    BOOKS_WINDOW['scope_en'] = agg.get('scope_en') or 'Seoul Library'
+    BOOKS_WINDOW['scope_ko'] = agg.get('scope_ko') or '서울도서관'
     books.sort(key=lambda b: b['ranking'])
     top, low = books[0], books[-1]
     n = len(books)
@@ -3222,7 +3250,7 @@ Rules:
 - "airport", "health" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split (labels carry their months). A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. These are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
-- "books" lines are library-loan COUNTS from Seoul's public libraries last month, from data4library — the checkouts of the most-borrowed book, of a lower-ranked one, and of the top titles combined. Titles are never named, so the labels are bare ranks ("The most-borrowed book", "The 10th most-borrowed", "The top 10 combined") and the opener MUST name the metric and month ("Library checkouts in Seoul last month", or a neutral loans framing) — the same case as the world, traffic and tourism lines where the opener carries the metric. Own post, one month (the month rides on the card automatically); the pair is the point: the gap between the most-borrowed book's checkouts and the lower-ranked one's. Never mix a books line with any other category.
+- "books" lines are library-loan COUNTS at SEOUL LIBRARY over the last 60 days — the checkouts of the most-borrowed book, of a lower-ranked one, and of the top titles combined. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries, and the counts are small (the top book runs to a few dozen): the opener MUST name the library as well as the metric ("What Seoul Library lent most"), exactly as the "library" membership lines do, or a reader takes a two-figure number for a citywide one. Titles are never named, so the labels are bare ranks ("The most-borrowed book", "The 10th most-borrowed", "The top 10 combined"). ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post; the pair is the point: the gap between the most-borrowed book's checkouts and the lower-ranked one's. Never mix a books line with any other category.
 - Keep the opener neutral (a time or place framing), EXCEPT on a world post, where it must name the metric as described above. Pick one from OPENERS, or write a short neutral one (max ~5 words) — it must NOT give away or hint at the pairing. Provide it in English and Korean.
 - You may lightly reword an English label for wit, but keep its meaning and DO NOT put any digit in a label.
 - Translate every chosen label to natural Korean (labels only — never restate the number in the label).
@@ -3897,8 +3925,10 @@ def compose(sel, pool):
     # everything except the KOSIS 'national' figures, which get their own credit.
     # Categories whose figures come from a publisher other than Seoul Open
     # Data; anything outside this set is credited to data.seoul.go.kr.
+    # 'books' is deliberately NOT here: since 22 August 2026 the loan counts come
+    # from Seoul's own portal (SeoulLibraryBookRentNumInfo), not data4library.
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
-                 'health', 'culture', 'tourism', 'books', 'level'}
+                 'health', 'culture', 'tourism', 'level'}
     uses_seoul = any(c not in non_seoul for c in cats)
     uses_kosis = 'national' in cats
     uses_oecd = 'world' in cats
@@ -3921,7 +3951,6 @@ def compose(sel, pool):
            (['opendata.hira.or.kr'] if uses_hira else []) + \
            (['mcst.go.kr'] if uses_mcst else []) + \
            (['know.tour.go.kr'] if uses_tour else []) + \
-           (['data4library.kr'] if uses_books else []) + \
            (['hrfco.go.kr'] if 'level' in cats else []) + \
            ([WB_DOMAIN] if uses_wb else [])
     if not srcs:
@@ -4020,10 +4049,16 @@ def compose(sel, pool):
             scope_en.append(('Paid-admission sites', TOUR_M['en']))
             scope_ko.append(('유료 관광지 입장객', TOUR_M['ko']))
     if uses_books and BOOKS_PERIOD['en']:
-        # data4library.kr in srcs is the clickable credit; the loan month and the
-        # public-library scope are keys to the figures, so they ride the card.
-        scope_en.append(('Public-library loans', BOOKS_PERIOD['en']))
-        scope_ko.append(('공공도서관 대출', BOOKS_PERIOD['ko']))
+        # ⚠️ The window is the whole reason this vein is publishable and it is
+        # not in the API: 서울도서관 states it on its own page and the harvester
+        # re-reads it every run (see seoul_index_books_harvest.py). The date is
+        # when the figures were read, not the window's end, which is why the two
+        # are worded separately: the date lifts to the dateline and the window
+        # and the library stay in the footnote, where they qualify every line.
+        scope_en.append((f'Loans at {BOOKS_WINDOW["scope_en"]}, '
+                         f'last {BOOKS_WINDOW["days"]} days', BOOKS_PERIOD['en']))
+        scope_ko.append((f'{BOOKS_WINDOW["scope_ko"]} 대출, '
+                         f'최근 {BOOKS_WINDOW["days"]}일', BOOKS_PERIOD['ko']))
     if 'water' in cats and WATER_PERIOD['en']:
         # Not "Raw water drawn": that only repeats an opener already required
         # to name the metric. What the reader cannot know from the card is that
@@ -4279,7 +4314,6 @@ LINK_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                 ('opendata.hira.or.kr', 'https://opendata.hira.or.kr'),
                 ('mcst.go.kr', 'https://www.mcst.go.kr'),
                 ('know.tour.go.kr', 'https://know.tour.go.kr'),
-                ('data4library.kr', 'https://data4library.kr'),
                 ('hrfco.go.kr', 'https://www.hrfco.go.kr'),
                 (WB_DOMAIN, f'https://{WB_DOMAIN}')]
 

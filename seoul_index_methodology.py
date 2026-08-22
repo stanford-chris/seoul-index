@@ -119,7 +119,7 @@ CARDS = [
 # Every publisher the bot draws on, each hyperlinked in the trailing reply.
 SOURCE_LINE = ('Sources · 출처: data.seoul.go.kr, kosis.kr, data-explorer.oecd.org, '
                'rt.molit.go.kr, data.kma.go.kr, airport.co.kr, '
-               'opendata.hira.or.kr, mcst.go.kr, know.tour.go.kr, data4library.kr, '
+               'opendata.hira.or.kr, mcst.go.kr, know.tour.go.kr, '
                'hrfco.go.kr, data.worldbank.org')
 SOURCE_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                   ('kosis.kr', 'https://kosis.kr'),
@@ -130,7 +130,6 @@ SOURCE_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                   ('opendata.hira.or.kr', 'https://opendata.hira.or.kr'),
                   ('mcst.go.kr', 'https://www.mcst.go.kr'),
                   ('know.tour.go.kr', 'https://know.tour.go.kr'),
-                  ('data4library.kr', 'https://data4library.kr'),
                   ('hrfco.go.kr', 'https://www.hrfco.go.kr'),
                   ('data.worldbank.org', 'https://data.worldbank.org')]
 
