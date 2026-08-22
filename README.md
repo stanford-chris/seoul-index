@@ -172,9 +172,12 @@ Run it:
 ```
 python3 seoul_index_post.py --dry-run   # harvest, select, compose and print, no post
 python3 seoul_index_post.py             # post one index (English + Korean card thread)
+python3 seoul_index_post.py --only=books  # build the card from ONE vein and post it
 ```
 
-The live account posts three times a day (8:30 a.m., 12:30 p.m. and 8:30 p.m. KST) via `launchd`, with the crowd sampler running hourly from 05:00 to 23:00, the sales scan monthly (the sales data is quarterly, so a weekly scan was recomputing a figure that moves four times a year) and the books harvest weekly on Sundays at 05:20. Books is weekly rather than monthly because its counts move daily — they rose by one overnight between 21 and 22 August 2026 — and the card carries the date they were read, so a monthly harvest would put a month-old figure under a month-old dateline for most of its life.
+The live account posts three times a day (8:30 a.m., 12:30 p.m. and 8:30 p.m. KST) via `launchd`, with the crowd sampler running hourly from 05:00 to 23:00, the sales scan monthly (the sales data is quarterly, so a weekly scan was recomputing a figure that moves four times a year) and the books harvest weekly on Sundays at 05:20. Books is weekly rather than monthly because its counts move daily — they rose by one overnight between 21 and 22 August 2026 — and the card carries no date of its own, so a month-old harvest would read as current.
+
+`--only=<cat>` builds the card from one vein and takes the same path the vein floor takes when it promotes a starved one. It exists because there was otherwise no way to show a particular vein on demand: the floor picks whichever vein has waited longest, so asking to see a new one meant either waiting its turn or posting the wrong card to find out. It refuses, naming the veins that exist, when the one asked for has fewer than three facts.
 
 ## Licence
 
