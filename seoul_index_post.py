@@ -3689,6 +3689,27 @@ LIVE_CATS = {'crowd', 'air', 'bike', 'traffic'}
 # four the dateline logic promotes; used early, before scope is built, to spot a
 # groupable live+dated cross pair while ordering the lines.
 DATED_PERIOD_CATS = {'tourism', 'property', 'spending', 'avgbill', 'books'}
+# Veins whose lines are BARE LABELS ("60s", "2019") explained by a DESCRIPTOR
+# rather than by a date. On an own post the opener carries that meaning, so this
+# is only a reminder in the footnote — but a cross pair OVERRIDES "own post,
+# never mixed" (see SELECT_PROMPT) and takes the opener generic, and then the
+# descriptor is the only thing on the card saying what is counted.
+# ⚠️ Single source of truth: the scope section in compose() reads these same
+# strings. Adding a vein here without its scope entry, or the reverse, puts the
+# words in one place and not the other.
+DESCRIPTOR_SCOPES = {
+    'library': ('Members of Seoul Library', '서울도서관 등록 회원'),
+    'complaint': ('Reports to Seoul, complete years', '서울시 접수 신고, 연도별'),
+}
+# Non-live veins carrying a scope of their own, by either route. When one of
+# these crosses with a live vein the card reads two frames at once, so the scope
+# heads its OWN group instead of flying as a masthead over the whole card: a
+# masthead is a claim about every line under it, and "Members of Seoul Library"
+# over a live crowd line is simply false. The four period veins added here
+# (infant, daynight, water, price) were doing exactly that — their period lifted
+# to the masthead because nothing marked them groupable.
+SCOPED_CATS = (DATED_PERIOD_CATS | set(DESCRIPTOR_SCOPES)
+               | {'infant', 'daynight', 'water', 'price'})
 
 
 def _strip_live_frame(label, korean):
@@ -3748,13 +3769,14 @@ def compose(sel, pool):
         raise RuntimeError(f'selector returned too few valid picks: {len(picks)}')
     spotlight = any(by_id[p['id']]['cat'] == 'spotlight' for p in picks)
     precats = {by_id[p['id']]['cat'] for p in picks}
-    # A live "right now" vein beside a single dated (month/quarter) vein reads two
-    # time-frames, so it groups: dated lines first under their month, live lines
-    # under "Right now". Whether a date is actually liftable is settled later by
-    # the dateline logic; grouped is confirmed then (needs dateline_en). This
-    # early flag only steers the ordering below.
+    # A live "right now" vein beside a scoped one reads two frames at once, so it
+    # groups: the scoped lines first under their own subhead (their month, or the
+    # descriptor that says what they count), live lines under "Right now".
+    # Whether a head can actually be resolved is settled later, once the dateline
+    # logic has run; grouped is confirmed there. This early flag only steers the
+    # ordering below.
     maybe_grouped = (not spotlight and bool(precats & LIVE_CATS)
-                     and bool(precats & DATED_PERIOD_CATS))
+                     and bool(precats & SCOPED_CATS))
 
     def _val(p):
         k = _sortkey(by_id[p['id']]['value_en'])
@@ -3995,13 +4017,13 @@ def compose(sel, pool):
         # exactly as it owns every value.
         scope_en.append((None, INFANT_PERIOD['en']))
         scope_ko.append((None, INFANT_PERIOD['ko']))
-    if 'library' in cats:
-        # ⚠️ Seoul Library, not Seoul's 215 public libraries.
-        scope_en.append(('Members of Seoul Library', None))
-        scope_ko.append(('서울도서관 등록 회원', None))
-    if 'complaint' in cats:
-        scope_en.append(('Reports to Seoul, complete years', None))
-        scope_ko.append(('서울시 접수 신고, 연도별', None))
+    # ⚠️ library: Seoul Library, not Seoul's 215 public libraries. Both of these
+    # read from DESCRIPTOR_SCOPES so the words a cross pair promotes to a group
+    # subhead and the words in the footnote can never be two different things.
+    for _c in ('library', 'complaint'):
+        if _c in cats:
+            scope_en.append((DESCRIPTOR_SCOPES[_c][0], None))
+            scope_ko.append((DESCRIPTOR_SCOPES[_c][1], None))
     if 'price' in cats and PRICE_PERIOD['en']:
         # The date and the item are keys to the figures: a price means
         # nothing without what was bought and when.
@@ -4076,6 +4098,16 @@ def compose(sel, pool):
     # the masthead is suppressed (see _card_payload) and the period rides the
     # dated group's subhead. The footnote already dropped it via _scope_strs.
     grouped = maybe_grouped and bool(dateline_en)
+    # The subheads a grouped card draws. A period that lifted is the head (the
+    # dated case); otherwise the descriptor of the single scoped vein on the
+    # card. Two scoped veins would leave no one true head, so the card simply
+    # does not group and every scope stays in the footnote, as before.
+    group_en, group_ko = (dateline_en, dateline_ko) if grouped else ('', '')
+    if maybe_grouped and not grouped:
+        descs = sorted(precats & set(DESCRIPTOR_SCOPES))
+        if len(descs) == 1:
+            group_en, group_ko = DESCRIPTOR_SCOPES[descs[0]]
+            grouped = True
 
     # Bare-place-name cards (nation) with an opener that did not name the metric
     # lift it onto the masthead subtitle — under the title, above the rows. This
@@ -4086,14 +4118,17 @@ def compose(sel, pool):
         dateline_en, dateline_ko = card_metric_en, card_metric_ko
 
     def _scope_strs(entries, promoted):
-        # A promoted period is dropped from its entry (it now rides the dateline);
-        # every other entry keeps its "<descriptor>, <period>" form.
+        # A promoted period is dropped from its entry (it now rides the dateline
+        # or a group subhead); a whole entry goes when the descriptor itself was
+        # promoted, or the footnote repeats the subhead two lines below it.
         out = []
         for desc, per in entries:
+            if promoted and desc == promoted and not per:
+                continue
             out.append(f'{desc}, {per}' if per and per != promoted else desc)
         return out
-    scope_en = _scope_strs(scope_en, dateline_en)
-    scope_ko = _scope_strs(scope_ko, dateline_ko)
+    scope_en = _scope_strs(scope_en, group_en or dateline_en)
+    scope_ko = _scope_strs(scope_ko, group_ko or dateline_ko)
     # NOTE: the KT-estimate caveat is deliberately NOT added to the source line.
     # It is a caveat, not a credit, and it already rides on the card footnote
     # below; putting it in both made the reply repeat what the card had just
@@ -4171,11 +4206,11 @@ def compose(sel, pool):
                  'value': l[f'value_{lang}']} for l in lines]
         if not grouped:
             return rows
-        date_head = dateline_en if lang == 'en' else dateline_ko
+        scoped_head = group_en if lang == 'en' else group_ko
         live_head = 'Right now' if lang == 'en' else '지금'
-        dated = [r for r, l in zip(rows, lines) if not l['live']]
+        scoped = [r for r, l in zip(rows, lines) if not l['live']]
         live = [r for r, l in zip(rows, lines) if l['live']]
-        return [{'subhead': date_head}, *dated, {'subhead': live_head}, *live]
+        return [{'subhead': scoped_head}, *scoped, {'subhead': live_head}, *live]
     items_en, items_ko = _items('en'), _items('ko')
 
     # curly() so the alt text / plaintext fallback matches the card, which the

@@ -225,5 +225,138 @@ class NationCardNamesTheMetric(unittest.TestCase):
         self.assertNotIn('Births per woman', c['src_en'])  # never in the credit
 
 
+class ScopedVeinHeadsItsOwnGroup(unittest.TestCase):
+    """A scope must never fly over lines it does not describe.
+
+    Regression guard for the card posted 22 Aug 2026, which crossed Seoul
+    Library membership with the live crowd and came out as:
+
+        Seoul by the numbers:
+        60s: 14,003
+        Estimated crowd in Gwanghwamun right now: 11,000
+        Teens: 10,917
+        Seoul Station: 7,750
+        Crowds are KT-estimated · Members of Seoul Library
+
+    "60s" and "Teens" count library members, and the only thing on the card
+    saying so sat in the footnote next to a KT caveat, where it reads as
+    attribution. The vein carries "own post, never mixed" for exactly this
+    reason, but a cross-vein collision overrides that rule and takes the opener
+    generic, so the opener could not carry the meaning either.
+
+    The fix is NOT to fly the descriptor as a masthead: it would then sit above
+    the Gwanghwamun crowd line and claim it as library members too. It heads its
+    own group, over its own lines.
+    """
+
+    LIBRARY = [('library_60', '60s', '60대', '14,003', 14003),
+               ('library_10', 'Teens', '10대', '10,917', 10917)]
+    CROWD = [('crowd_Gwanghwamun', 'Estimated crowd in Gwanghwamun right now',
+              '지금 광화문의 추정 인파', '11,000', 11000),
+             ('crowd_Seoul Station', 'Estimated crowd at Seoul Station right now',
+              '지금 서울역의 추정 인파', '7,750', 7750)]
+
+    def _sel_pool(self, rows):
+        pool, picks = [], []
+        for fid, en, ko, v, n in rows:
+            cat = fid.split('_')[0]
+            pool.append(S.fact(fid, cat, en, v, v, pair=f'{cat}_pair',
+                               estimated=(cat == 'crowd'), pin=(cat == 'library'),
+                               num=n, unit='people', label_ko=None))
+            picks.append({'id': fid, 'label_en': en, 'label_ko': ko, 'emoji': ''})
+        return ({'opener_en': 'Seoul by the numbers', 'opener_ko': '숫자로 보는 서울',
+                 'opener_emoji': '🏙️', 'picks': picks}, pool)
+
+    def _subheads(self, items):
+        return [it['subhead'] for it in items if 'subhead' in it]
+
+    def _rows_under(self, items, subhead):
+        out, on = [], False
+        for it in items:
+            if 'subhead' in it:
+                on = it['subhead'] == subhead
+                continue
+            if on:
+                out.append(it['label'])
+        return out
+
+    def test_descriptor_heads_its_own_lines_not_the_card(self):
+        c = S.compose(*self._sel_pool(self.LIBRARY + self.CROWD))
+        self.assertTrue(c['grouped'])
+        self.assertEqual(self._subheads(c['items_en']),
+                         ['Members of Seoul Library', 'Right now'])
+        # Each subhead covers ITS OWN lines and no others. This is the assertion
+        # that a masthead lift would fail.
+        self.assertEqual(self._rows_under(c['items_en'], 'Members of Seoul Library'),
+                         ['60s', 'Teens'])
+        self.assertEqual(len(self._rows_under(c['items_en'], 'Right now')), 2)
+        # Off the masthead: _card_payload suppresses it on a grouped card, so a
+        # non-empty dateline here would print the scope over all four lines.
+        self.assertEqual(S._card_payload(c, 'en')[3], '')
+
+    def test_descriptor_leaves_the_footnote_when_it_heads_a_group(self):
+        c = S.compose(*self._sel_pool(self.LIBRARY + self.CROWD))
+        self.assertNotIn('Members of Seoul Library', c['note_en'])
+        self.assertNotIn('서울도서관 등록 회원', c['note_ko'])
+        # The KT caveat is a warning about the numbers, not a key to them, and
+        # stays where it was.
+        self.assertIn('KT', c['note_en'])
+        # Once, on the card face, in the alt text a screen reader gets.
+        self.assertEqual(c['en_body'].count('Members of Seoul Library'), 1)
+
+    def test_korean_card_groups_too(self):
+        c = S.compose(*self._sel_pool(self.LIBRARY + self.CROWD))
+        self.assertEqual(self._subheads(c['items_ko']),
+                         ['서울도서관 등록 회원', '지금'])
+        self.assertEqual(c['ko_body'].count('서울도서관 등록 회원'), 1)
+
+    def test_own_post_library_card_is_unchanged(self):
+        """No live lines, no grouping: the opener carries the meaning there."""
+        c = S.compose(*self._sel_pool(self.LIBRARY + [
+            ('library_20', '20s', '20대', '9,800', 9800)]))
+        self.assertFalse(c['grouped'])
+        self.assertEqual(self._subheads(c['items_en']), [])
+        self.assertIn('Members of Seoul Library', c['note_en'])
+
+    def test_a_period_vein_heads_a_group_instead_of_the_masthead(self):
+        """Same fault, other route in: infant/daynight/water/price carry their
+        scope as a PERIOD, which lifted to the masthead over the live lines.
+        The age band is the case that bites — it is the only thing saying which
+        of the four child series the bare years belong to."""
+        S.INFANT_PERIOD['en'], S.INFANT_PERIOD['ko'] = 'Under-ones', '0세'
+        try:
+            rows = [('infant_2016', '2016', '2016년', '75,536', 75536),
+                    ('infant_2025', '2025', '2025년', '41,600', 41600)]
+            c = S.compose(*self._sel_pool(rows + self.CROWD))
+            self.assertTrue(c['grouped'])
+            self.assertEqual(self._subheads(c['items_en']),
+                             ['Under-ones', 'Right now'])
+            self.assertEqual(self._rows_under(c['items_en'], 'Under-ones'),
+                             ['2016', '2025'])
+            self.assertEqual(S._card_payload(c, 'en')[3], '')
+        finally:
+            S.INFANT_PERIOD['en'] = S.INFANT_PERIOD['ko'] = None
+
+    def test_two_scoped_veins_do_not_group(self):
+        """No single head is true, so nothing is promoted and every scope stays
+        in the footnote: the old behaviour, which is merely cramped, not wrong."""
+        rows = (self.LIBRARY[:1] + self.CROWD[:1] +
+                [('complaint_2019', '2019', '2019년', '412,000', 412000),
+                 ('complaint_2024', '2024', '2024년', '498,000', 498000)])
+        c = S.compose(*self._sel_pool(rows))
+        self.assertFalse(c['grouped'])
+        self.assertIn('Members of Seoul Library', c['note_en'])
+        self.assertIn('Reports to Seoul', c['note_en'])
+
+    def test_the_two_scope_tables_cannot_drift(self):
+        """DESCRIPTOR_SCOPES is the single source of the words; compose() reads
+        it for the footnote and the subhead alike. If a vein is ever listed in
+        one place only, the card says one thing and the footnote another."""
+        for cat, (en, ko) in S.DESCRIPTOR_SCOPES.items():
+            self.assertTrue(en and ko, f'{cat} is missing a language')
+            self.assertIn(cat, S.SCOPED_CATS,
+                          f'{cat} has a descriptor but would never group')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
