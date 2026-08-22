@@ -84,6 +84,7 @@ CLAUDE_TIMEOUT = 300
 # the program being run: importers (seoul_index_methodology.py) have their own
 # flags, and validating their argv here rejected `--pin` on 23 Jul 2026.
 _KNOWN_ARGS = {'--dry-run', '--spotlight', '--show-cross', '--tail'}
+_ONLY_PREFIX = '--only='       # --only=<cat>: build the card from one vein
 
 
 def _tail_n(argv):
@@ -106,16 +107,26 @@ if __name__ == '__main__':
         if _t + 1 < len(sys.argv) and sys.argv[_t + 1].isdigit():
             _skip = _t + 1
     _unknown = [a for j, a in enumerate(sys.argv[1:], 1)
-                if a not in _KNOWN_ARGS and j != _skip]
+                if a not in _KNOWN_ARGS and j != _skip
+                and not a.startswith(_ONLY_PREFIX)]
     if _unknown:
         sys.exit(f'Unknown argument(s): {" ".join(_unknown)}. '
-                 f'Recognised: {" ".join(sorted(_KNOWN_ARGS))} [N]. '
+                 f'Recognised: {" ".join(sorted(_KNOWN_ARGS))} [N], '
+                 f'{_ONLY_PREFIX}<cat>. '
                  f'Refusing to run (a bare run posts live).')
 
 DRY_RUN = '--dry-run' in sys.argv
 FORCE_SPOTLIGHT = '--spotlight' in sys.argv   # for testing the single-place card
 SHOW_CROSS = '--show-cross' in sys.argv       # print cross-vein collisions, then exit
 TAIL_N = _tail_n(sys.argv)                    # read the card log, then exit
+# --only=<cat> builds the card from ONE vein, the way the vein floor does when
+# it promotes a starved one. It exists because there was no way to show a
+# particular vein on demand: the floor picks whichever vein has waited longest,
+# so asking to see a new one meant either waiting for its turn or posting the
+# wrong card to find out. Takes the promoted path (strict=False), because the
+# overlap rule would reject every card a single small vein can build.
+ONLY_CAT = next((a[len(_ONLY_PREFIX):] for a in sys.argv
+                 if a.startswith(_ONLY_PREFIX)), None) or None
 MAX_POST_CHARS = 285  # buffer under Bluesky's 300-grapheme limit
 SEOUL_TZ = ZoneInfo('Asia/Seoul')
 SOURCE_URL = 'https://data.seoul.go.kr/'
@@ -4570,7 +4581,15 @@ def main():
         # it: the promoted vein IS the card, so there is nothing to rotate away
         # from (and a promoted vein cannot be last_cat anyway — it has not
         # posted for STARVE_DAYS).
-        pool, promoted = promote_starved(pool, state)
+        if ONLY_CAT:
+            only = [f for f in pool if f['cat'] == ONLY_CAT]
+            if len(only) < 3:
+                sys.exit(f'--only={ONLY_CAT}: {len(only)} fact(s) in that vein, '
+                         f'need at least 3 to build a card. Pool has: '
+                         f'{", ".join(sorted({f["cat"] for f in pool}))}.')
+            pool, promoted = only, ONLY_CAT
+        else:
+            pool, promoted = promote_starved(pool, state)
 
         if promoted:
             print(f'Harvested {len(pool)} candidate facts (vein floor: {promoted}).')
