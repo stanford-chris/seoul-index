@@ -54,6 +54,7 @@ from zoneinfo import ZoneInfo
 
 from atproto import Client, client_utils, models
 
+import limit_guard
 import net_guard
 from seoul_index_card import render_card, CardRenderError, curly
 
@@ -3374,7 +3375,9 @@ def select(pool, state):
                'OPENERS': [list(o) for o in OPENERS], 'AVOID_IDS': avoid}
     prompt = SELECT_PROMPT + '\n\n' + json.dumps(payload, ensure_ascii=False)
     attempts = 4
-    for attempt in range(attempts):
+    attempt = 0
+    limit_waited = False
+    while True:
         last = attempt == attempts - 1
         try:
             r = subprocess.run(['claude', '-p', '--model', CLAUDE_MODEL, prompt],
@@ -3384,15 +3387,31 @@ def select(pool, state):
             if last:
                 raise RuntimeError(
                     f'claude -p timed out after {CLAUDE_TIMEOUT}s, {attempts} times')
+            attempt += 1
             continue
         if r.returncode != 0:
             err = (r.stderr or r.stdout or '').strip() or '(no output)'
+            # ⚠️ A spent quota is checked BEFORE the backoff below, and its
+            # retry deliberately does not count as an attempt. The backoff is
+            # 5s, 10s and 15s: against a quota that clears in hours it burns
+            # all four attempts in half a minute and loses the post, which is
+            # how Old Seoul lost its 9 p.m. post on 20 August 2026.
+            if limit_guard.is_usage_limit(err) and not limit_waited:
+                limit_waited = True
+                if limit_guard.wait_for_reset(err):
+                    continue
+                # Exit 0 rather than raise: a spent quota is not this bot's
+                # fault, and a run that skips itself is still caught by
+                # bot_health_check.py, which alerts when last_success_at goes
+                # over 26 hours old.
+                sys.exit(0)
             # A transient network blip at fire time (EHOSTUNREACH etc.) surfaces
             # as a nonzero exit here — back off and retry rather than crashing
             # the run and skipping the post.
             if last:
                 raise RuntimeError(f'claude -p failed (exit {r.returncode}): {err}')
             time.sleep(5 * (attempt + 1))
+            attempt += 1
             continue
         text = re.sub(r'^```[a-z]*\n?|\n?```$', '', r.stdout.strip()).strip()
         try:
@@ -3400,6 +3419,7 @@ def select(pool, state):
         except json.JSONDecodeError:
             if last:
                 raise RuntimeError(f'claude -p returned invalid JSON: {text[:200]!r}')
+            attempt += 1
             continue
 
 
