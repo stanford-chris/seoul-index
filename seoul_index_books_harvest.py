@@ -82,8 +82,9 @@ Output (books_agg.json):
     "source": "SeoulLibraryBookRentNumInfo",
     "scope_en": "Seoul Library", "scope_ko": "서울도서관",
     "window_days": 60,                       # read from the library, not assumed
-    "period": {"label_en": "22 August", "label_ko": "8월 22일"},   # as-of date
-    "records": 3000, "unclassified": 0,
+    "records": 3000, "unclassified": 0,   # no "period": the card carries no
+                                          # dateline — see BOOKS_WINDOW in the
+                                          # poster for why
     "subjects": [ {"code": "8", "name_en": "Literature", "name_ko": "문학",
                    "loans": 3625, "titles": 631}, ... ]   # loans desc
   }
@@ -157,9 +158,6 @@ _unknown = [a for a in sys.argv[1:] if a not in _KNOWN_ARGS]
 if _unknown:
     sys.exit(f'Unknown argument(s): {" ".join(_unknown)}. '
              f'Recognised: {" ".join(sorted(_KNOWN_ARGS))}.')
-
-_MONTHS_KO = ['', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
-
 
 def http_get(url):
     """GET as text via curl, matching the rest of the project (Homebrew py3.13
@@ -304,16 +302,15 @@ def main():
     top = sorted(parsed, key=lambda t: (-t[1], t[0]))[:TOP_FOR_CHECK]
     days = verify_window([t[0] for t in top])
 
-    now = datetime.now(SEOUL_TZ)
-    label_en = now.strftime('%-d %B')
-    label_ko = f'{_MONTHS_KO[now.month]}월 {now.day}일'
+    # For the operator's line below only: the card carries no date, because the
+    # figures' period is the rolling window and not the day they were read.
+    label_en = datetime.now(SEOUL_TZ).strftime('%-d %B')
     out = {
         'generated_at': datetime.now(timezone.utc).isoformat(),
         'source': SERVICE,
         'scope_en': 'Seoul Library',
         'scope_ko': '서울도서관',
         'window_days': days,
-        'period': {'label_en': label_en, 'label_ko': label_ko},
         'records': len(parsed),
         'unclassified': unclassified,
         'subjects': subjects,

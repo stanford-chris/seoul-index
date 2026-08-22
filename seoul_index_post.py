@@ -1869,13 +1869,21 @@ def complaint_facts(api_key):
 
 
 BOOKS_AGG = HERE / 'books_agg.json'
-# Set by books_facts() so compose() can footnote the loan window on the card, the
-# same split sales/property make (the publisher stays a clickable credit in the
-# reply; the window and the as-of date are keys to the figures and ride beside
-# them). The window and the scope are read from the harvest rather than written
-# here: the library publishes the window and can change it, and only the file
-# knows which harvest the numbers on this card came from.
-BOOKS_PERIOD = {'en': None, 'ko': None}
+# Set by books_facts() so compose() can footnote the loan window on the card (the
+# publisher stays a clickable credit in the reply; the window and the library are
+# keys to the figures and ride beside them). Both are read from the harvest
+# rather than written here, because the library publishes the window and can
+# change it.
+#
+# ⚠️ **This vein carries NO dateline, unlike the other scoped ones, and that is
+# deliberate.** It briefly showed the harvest date at the top while the footnote
+# said "last 60 days", and the two read as contradicting each other. Everywhere
+# else on this bot the dateline slot means "the period these figures cover" — a
+# month, a quarter, an hour. Here the data's period IS the rolling 60 days in the
+# footnote, and the harvest date is only when it was read, so putting it in that
+# slot said something the slot does not mean. The post's own timestamp answers
+# "when", and BOOKS_MAX_AGE_DAYS keeps the cache from ever being old enough for
+# the question to matter.
 BOOKS_WINDOW = {'days': None, 'scope_en': None, 'scope_ko': None}
 # A rolling 60-day window read months ago is not a fact about now. The harvest is
 # monthly, so anything older than this means the job has stopped and the vein
@@ -1914,7 +1922,6 @@ def books_facts():
         subs = [s for s in agg['subjects']
                 if isinstance(s.get('loans'), int) and s['loans'] > 0
                 and s.get('name_en') and s.get('name_ko')]
-        period = agg['period']
         days = int(agg['window_days'])
         # ⚠️ The subtraction lives INSIDE the try: a timezone-NAIVE stamp parses
         # fine and then raises TypeError here, so catching only the parse would
@@ -1926,12 +1933,16 @@ def books_facts():
     # Four is what a card needs to be a spread rather than a pair of numbers.
     if len(subs) < 4:
         return []
+    # ⚠️ With no dateline on this vein, the footnote's window is the ONLY thing
+    # on the card saying what period these counts cover. A missing or nonsense
+    # window would leave compose() with nothing to footnote and the card would
+    # publish ten subject totals over no stated period at all.
+    if days <= 0:
+        return []
     # See BOOKS_MAX_AGE_DAYS: a stale cache goes quiet rather than dating a
     # rolling window by a run nobody ran.
     if age > BOOKS_MAX_AGE_DAYS:
         return []
-    BOOKS_PERIOD['en'] = period.get('label_en')
-    BOOKS_PERIOD['ko'] = period.get('label_ko')
     BOOKS_WINDOW['days'] = days
     BOOKS_WINDOW['scope_en'] = agg.get('scope_en') or 'Seoul Library'
     BOOKS_WINDOW['scope_ko'] = agg.get('scope_ko') or '서울도서관'
@@ -3260,7 +3271,7 @@ Rules:
 - "airport", "health" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split (labels carry their months). A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. These are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
-- "books" lines are checkouts at SEOUL LIBRARY over the last 60 days, counted by SUBJECT: literature, philosophy, 어학 and the rest, in the library's own classification. Labels are BARE SUBJECT NAMES, so the opener MUST name the library and say these are loans ("What Seoul Library lent, by subject"), exactly as the "library" membership lines do. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries — never imply otherwise. ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post, never mixed with any other category. The spread is the point, and the two pairs mark where it lives: a "book_heat" pair is two subjects that came out level, a "book_gap" pair is the least- and most-borrowed of the ten. Never say which way the gap runs, never call a subject popular or neglected, and never draw a conclusion about what Seoul reads — set the numbers down and let the reader do it.
+- "books" lines are checkouts at SEOUL LIBRARY over the last 60 days, counted by SUBJECT: literature, philosophy, 어학 and the rest, in the library's own classification. Labels are BARE SUBJECT NAMES, so the opener MUST name the library and say these are loans, exactly as the "library" membership lines do — and MUST NOT settle on one wording: "What Seoul Library lent, by subject", "Seoul Library's loans, by subject", "Borrowing at Seoul Library, by subject" and "What went out of Seoul Library" are four of many, so write a fresh one rather than reusing the last. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries — never imply otherwise. ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post, never mixed with any other category. ⚠️ TEN subjects are offered and a card takes four, so there is no one right card and THE EXTREMES ARE NOT COMPULSORY. Do not reach for the biggest subject at the top and the smallest at the bottom every time: four subjects from the middle of the list is a card, the four smallest is a card, and a set leaving out the largest number altogether is a card. The two pairs are two arrangements among many rather than the default — a "book_heat" pair is two subjects that came out level, a "book_gap" pair is the least- and most-borrowed of the ten; use at most ONE of them on a card, and prefer neither if the plain four you have chosen already say something. Deliberately vary which subjects appear from post to post and lean hard on AVOID_IDS here: with only ten subjects this vein repeats itself faster than any other. Never say which way the gap runs, never call a subject popular or neglected, and never draw a conclusion about what Seoul reads — set the numbers down and let the reader do it.
 - Keep the opener neutral (a time or place framing), EXCEPT on a world post, where it must name the metric as described above. Pick one from OPENERS, or write a short neutral one (max ~5 words) — it must NOT give away or hint at the pairing. Provide it in English and Korean.
 - You may lightly reword an English label for wit, but keep its meaning and DO NOT put any digit in a label.
 - Translate every chosen label to natural Korean (labels only — never restate the number in the label).
@@ -3756,7 +3767,7 @@ LIVE_CATS = {'crowd', 'air', 'bike', 'traffic'}
 # Veins that carry a liftable month/quarter period (they set a dateline). Same
 # four the dateline logic promotes; used early, before scope is built, to spot a
 # groupable live+dated cross pair while ordering the lines.
-DATED_PERIOD_CATS = {'tourism', 'property', 'spending', 'avgbill', 'books'}
+DATED_PERIOD_CATS = {'tourism', 'property', 'spending', 'avgbill'}
 # Veins whose lines are BARE LABELS ("60s", "2019") explained by a DESCRIPTOR
 # rather than by a date. On an own post the opener carries that meaning, so this
 # is only a reminder in the footnote — but a cross pair OVERRIDES "own post,
@@ -3777,7 +3788,7 @@ DESCRIPTOR_SCOPES = {
 # (infant, daynight, water, price) were doing exactly that — their period lifted
 # to the masthead because nothing marked them groupable.
 SCOPED_CATS = (DATED_PERIOD_CATS | set(DESCRIPTOR_SCOPES)
-               | {'infant', 'daynight', 'water', 'price'})
+               | {'infant', 'daynight', 'water', 'price', 'books'})
 
 
 def _strip_live_frame(label, korean):
@@ -4058,17 +4069,15 @@ def compose(sel, pool):
         if TOUR_M['en']:
             scope_en.append(('Paid-admission sites', TOUR_M['en']))
             scope_ko.append(('유료 관광지 입장객', TOUR_M['ko']))
-    if uses_books and BOOKS_PERIOD['en']:
+    if uses_books and BOOKS_WINDOW['days']:
         # ⚠️ The window is the whole reason this vein is publishable and it is
         # not in the API: 서울도서관 states it on its own page and the harvester
-        # re-reads it every run (see seoul_index_books_harvest.py). The date is
-        # when the figures were read, not the window's end, which is why the two
-        # are worded separately: the date lifts to the dateline and the window
-        # and the library stay in the footnote, where they qualify every line.
+        # re-reads it every run (see seoul_index_books_harvest.py). Period slot
+        # None on purpose — see BOOKS_WINDOW for why this vein has no dateline.
         scope_en.append((f'Loans at {BOOKS_WINDOW["scope_en"]}, '
-                         f'last {BOOKS_WINDOW["days"]} days', BOOKS_PERIOD['en']))
+                         f'last {BOOKS_WINDOW["days"]} days', None))
         scope_ko.append((f'{BOOKS_WINDOW["scope_ko"]} 대출, '
-                         f'최근 {BOOKS_WINDOW["days"]}일', BOOKS_PERIOD['ko']))
+                         f'최근 {BOOKS_WINDOW["days"]}일', None))
     if 'water' in cats and WATER_PERIOD['en']:
         # Not "Raw water drawn": that only repeats an opener already required
         # to name the metric. What the reader cannot know from the card is that

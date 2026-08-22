@@ -9,7 +9,10 @@ as a claim about Seoul, and it is wrong by two orders of magnitude.
 
 **Period.** The API publishes no date of any kind. The 60-day window comes from
 서울도서관's own page, so the harvester re-reads it every run — and a card that
-loses it is a set of loan counts covering nobody knows what.
+loses it is a set of loan counts covering nobody knows what. The card carries no
+dateline: the harvest date is when the figures were READ, not the period they
+cover, and shown in the slot that means "period" on every other vein it read as
+contradicting the footnote.
 
 No network, no model call, no posting: the HTTP layer is stubbed per test.
 """
@@ -47,7 +50,6 @@ def agg(days=60, age_days=0, n=10, scope_en='Seoul Library', subjects=None, **ov
         'source': 'SeoulLibraryBookRentNumInfo',
         'scope_en': scope_en, 'scope_ko': '서울도서관',
         'window_days': days,
-        'period': {'label_en': '22 August', 'label_ko': '8월 22일'},
         'records': 3000, 'unclassified': 0,
         'subjects': subs,
     }
@@ -69,7 +71,6 @@ class Cache:
             self.tmp.write_text(json.dumps(self.data, ensure_ascii=False))
         self.real = S.BOOKS_AGG
         S.BOOKS_AGG = self.tmp
-        S.BOOKS_PERIOD.update({'en': None, 'ko': None})
         S.BOOKS_WINDOW.update({'days': None, 'scope_en': None, 'scope_ko': None})
         return self
 
@@ -150,6 +151,14 @@ class TheCacheIsReadOrTheVeinGoesQuiet(unittest.TestCase):
         with Cache(agg(age_days=S.BOOKS_MAX_AGE_DAYS - 1)):
             self.assertNotEqual(S.books_facts(), [])
 
+    def test_the_window_is_what_makes_the_vein_speak_at_all(self):
+        # With no dateline, the footnote is the ONLY thing on the card saying
+        # what period these counts cover.
+        d = agg()
+        d['window_days'] = 0
+        with Cache(d):
+            self.assertEqual(S.books_facts(), [])
+
     def test_a_cache_with_no_window_is_never_posted(self):
         # Counts whose period is unknown are exactly what the old source\'s
         # rejection was about. Silence, not a card with no window on it.
@@ -186,11 +195,13 @@ class TheCardCarriesTheLibraryAndTheWindow(unittest.TestCase):
         self.assertIn('last 30 days', c['note_en'])
         self.assertIn('최근 30일', c['note_ko'])
 
-    def test_the_as_of_date_heads_the_card_and_is_not_the_window(self):
-        # Two different things, worded separately on purpose: the date is when
-        # the figures were read, not the window's end.
-        self.assertEqual(self.c['dateline_en'], '22 August')
-        self.assertNotIn('22 August', self.c['note_en'])
+    def test_the_card_carries_no_dateline(self):
+        # The harvest date is when the figures were read, not the period they
+        # cover. In the slot that means "period" on every other vein, it read as
+        # contradicting the "last 60 days" in the footnote.
+        self.assertEqual(self.c['dateline_en'], '')
+        self.assertEqual(self.c['dateline_ko'], '')
+        self.assertNotIn('August', self.c['en_body'])
 
     def test_the_subjects_reach_the_card(self):
         self.assertIn('Literature: 3,600', self.c['en_body'])
