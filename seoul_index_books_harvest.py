@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Refresh the cached "most-borrowed books at Seoul Library" aggregation.
+Refresh the cached "what Seoul Library lent, by subject" aggregation.
 
 Source: Seoul Open Data, `SeoulLibraryBookRentNumInfo` (OA-15475), read with the
 SAME key the rest of the bot uses. Like seoul_index_sales.py this writes a small
@@ -44,12 +44,33 @@ harvest and takes the number from it. Two consequences, both deliberate:
     whose period is unknown is not publishable. Failing loudly is the point: the
     job exits non-zero and harden_audit.sh check 5 reports it.
 
-⚠️ **Counts are per RECORD, not per title, and that follows the library.** 모순
-appears twice with different ISBNs (two editions) at 30 and 9, and the library's
-own TOP 100 lists them separately rather than summing to 39. Aggregating would
-give a truer answer to "which book" and would break the one public cross-check
-this vein has, so it is left alone. It affects 22 of 2,971 ISBN keys and does not
-touch the top four.
+⚠️ **The vein counts SUBJECTS, not the top ten, and that was a second pass.**
+The first version published the checkouts of the most-borrowed book (32), of the
+tenth (20) and of the ten combined (245) — three numbers off one short list, none
+of which told a reader anything they had not already assumed. The same 3,000
+records carry a KDC class on every one, so the interesting figure was there all
+along and was being thrown away: literature outruns 어학 eight to one.
+
+⚠️ **The classification is KDC, not DDC, and the two disagree exactly where it
+would hurt.** Under DDC a 4 is language and a 7 is the arts; under KDC a 4 is
+natural science and a 7 is language. Getting it backwards would file 이기적 유전자
+under language and 여행영어 under the arts, and the card would read perfectly.
+Verified 22 August 2026 against 서울도서관's own category filter
+(`favorLoan?category=N00`, whose tabs name 총류 … 역사, 지리 in KDC order): for
+each of the ten classes, the API's top five titles in that class appear on the
+library's page for that same class. The labels below are therefore the library's
+own words, not a translation table from memory.
+
+⚠️ **Every record must land in a class.** A row whose CLASS_NO is not a digit is
+counted as `unclassified` and its loans appear in no subject, which quietly
+understates every line without changing their relative order — the shape of
+error that reads as a smaller library rather than as a bug. The harvest ABORTS
+above UNCLASSIFIED_MAX, and the count rides in the output either way. It was 0 of
+3,000 on 22 August 2026.
+
+Counts are per RECORD, not per title: 모순 appears twice with different ISBNs at
+30 and 9 and the library's own list keeps them separate. That matters less now
+that the vein sums whole classes, but it is why no de-duplication happens here.
 
 ⛔ **Do NOT try to manufacture a calendar month by diffing two snapshots.** The
 window is ROLLING, so old loans fall out of it and a delta is net change, not
@@ -62,9 +83,14 @@ Output (books_agg.json):
     "scope_en": "Seoul Library", "scope_ko": "서울도서관",
     "window_days": 60,                       # read from the library, not assumed
     "period": {"label_en": "22 August", "label_ko": "8월 22일"},   # as-of date
-    "books": [ {"ranking": 1, "bookname": "...", "authors": "...",
-                "loan_count": 32}, ... ]     # top TOP_N, ranking order
+    "records": 3000, "unclassified": 0,
+    "subjects": [ {"code": "8", "name_en": "Literature", "name_ko": "문학",
+                   "loans": 3625, "titles": 631}, ... ]   # loans desc
   }
+
+The labels live HERE rather than in the poster, so the words on the card and the
+words in this file can never be two different things — the same reason scope_en
+travels with the figures. A subject with no name is dropped by the poster.
 
 Usage:
   python3 seoul_index_books_harvest.py            # refresh
@@ -88,8 +114,32 @@ OUT = HERE / 'books_agg.json'
 
 SERVICE = 'SeoulLibraryBookRentNumInfo'
 PAGE = 1000                     # Seoul's per-call row cap
-TOP_N = 10
 SEOUL_TZ = ZoneInfo('Asia/Seoul')
+
+# KDC main classes, in the library's own words (see the docstring: taken from the
+# category tabs on lib.seoul.go.kr/statistics/favorLoan, not from a translation
+# table). '기술과학' is glossed 'Applied sciences' rather than 'Technology'
+# because its most-borrowed titles are medicine and health, which 'Technology'
+# beside them would misdescribe.
+KDC = {
+    '0': ('General works', '총류'),
+    '1': ('Philosophy', '철학'),
+    '2': ('Religion', '종교'),
+    '3': ('Social sciences', '사회과학'),
+    '4': ('Natural sciences', '자연과학'),
+    '5': ('Applied sciences', '기술과학'),
+    '6': ('Arts', '예술'),
+    '7': ('Language', '어학'),
+    '8': ('Literature', '문학'),
+    '9': ('History and geography', '역사·지리'),
+}
+# Share of records allowed to carry no readable class before the run aborts. Any
+# is a smell; a schema change would push it to 100%.
+UNCLASSIFIED_MAX = 0.05
+# How many of the API's top titles verify_window() checks against the library's
+# page. They are no longer published, but they are still the proof that the two
+# are the same table, which is what the 60-day window rests on.
+TOP_FOR_CHECK = 3
 
 # 서울도서관's own rendering of this same table, and the only place the period is
 # stated. See the module docstring: this is a load-bearing dependency, not a
@@ -99,7 +149,7 @@ _WINDOW_RE = re.compile(r'최근\s*(\d+)\s*일\s*자료집계')
 # How many of the API's top titles must appear on that page for the two to count
 # as the same aggregate. Three is enough to be decisive and loose enough to
 # survive one title falling off the page's TOP 100 between the extract and now.
-CORRESPONDENCE_N = 3
+CORRESPONDENCE_N = TOP_FOR_CHECK
 
 DRY_RUN = '--dry-run' in sys.argv
 _KNOWN_ARGS = {'--dry-run'}
@@ -163,6 +213,40 @@ def verify_window(top_titles):
     return days
 
 
+def tally(parsed):
+    """Sum (title, loans, class) triples into KDC subjects.
+
+    Returns (subjects, unclassified) and raises ValueError rather than writing
+    anything the card would misreport. Split out from main() so both refusals
+    can be tested without a network call — they are the two that would
+    otherwise fail silently and plausibly."""
+    loans = {c: 0 for c in KDC}
+    titles = {c: 0 for c in KDC}
+    unclassified = 0
+    for _title, cnt, cls in parsed:
+        if cls not in KDC:
+            unclassified += 1
+            continue
+        loans[cls] += cnt
+        titles[cls] += 1
+    share = unclassified / len(parsed) if parsed else 1.0
+    if share > UNCLASSIFIED_MAX:
+        raise ValueError(
+            f'{unclassified} of {len(parsed)} records ({share:.1%}) carry no KDC '
+            f'class — above the {UNCLASSIFIED_MAX:.0%} ceiling. Their loans would '
+            f'go missing from every subject without changing the order, so the '
+            f'shares would read fine and be wrong. Refusing to write; check '
+            f'CLASS_NO against a live response.')
+    subjects = [{'code': c, 'name_en': KDC[c][0], 'name_ko': KDC[c][1],
+                 'loans': loans[c], 'titles': titles[c]}
+                for c in KDC if titles[c]]
+    subjects.sort(key=lambda s: (-s['loans'], s['code']))
+    if len(subjects) < 4:
+        raise ValueError(f'Only {len(subjects)} subject(s) have any loans — '
+                         f'refusing to write a set too small to build a card from.')
+    return subjects, unclassified
+
+
 def main():
     # Monthly: a skipped run waits a month, so give the network a generous half
     # hour before giving up on the harvest.
@@ -194,7 +278,7 @@ def main():
         end = min(start + PAGE - 1, total)
         rows += http_get_json(f'{base}/{start}/{end}/').get(SERVICE, {}).get('row', [])
 
-    books = []
+    parsed = []
     for x in rows:
         try:
             cnt = int(str(x.get('CNT', '')).replace(',', ''))
@@ -203,21 +287,22 @@ def main():
         title = (x.get('TITLE') or '').strip()
         if not title:
             continue
-        books.append({'bookname': title,
-                      'authors': (x.get('AUTHOR') or '').strip(),
-                      'loan_count': cnt})
-    # Ties are broken by title so the same day's harvest always ranks the same
-    # way: several records share a count well inside the top ten.
-    books.sort(key=lambda b: (-b['loan_count'], b['bookname']))
-    books = books[:TOP_N]
-    for i, b in enumerate(books, 1):
-        b['ranking'] = i
+        parsed.append((title, cnt, (x.get('CLASS_NO') or '').strip()[:1]))
 
-    if len(books) < 2:
-        sys.exit(f'Only {len(books)} book(s) parsed from {len(rows)} row(s) — '
+    if len(parsed) < 2:
+        sys.exit(f'Only {len(parsed)} record(s) parsed from {len(rows)} row(s) — '
                  f'refusing to write a set too small to post.')
 
-    days = verify_window([b['bookname'] for b in books])
+    try:
+        subjects, unclassified = tally(parsed)
+    except ValueError as e:
+        sys.exit(str(e))
+
+    # Ties broken by title so the check is deterministic; these titles are used
+    # ONLY to prove the API is still serving the library's own list (see
+    # verify_window) and are never published.
+    top = sorted(parsed, key=lambda t: (-t[1], t[0]))[:TOP_FOR_CHECK]
+    days = verify_window([t[0] for t in top])
 
     now = datetime.now(SEOUL_TZ)
     label_en = now.strftime('%-d %B')
@@ -229,20 +314,25 @@ def main():
         'scope_ko': '서울도서관',
         'window_days': days,
         'period': {'label_en': label_en, 'label_ko': label_ko},
-        'books': books,
+        'records': len(parsed),
+        'unclassified': unclassified,
+        'subjects': subjects,
     }
 
-    print(f'Most-borrowed at Seoul Library, last {days} days '
-          f'(as of {label_en}; {total:,} records scanned):')
-    for b in books:
-        print(f'  #{b["ranking"]:>2}  {b["loan_count"]:>5}  {b["bookname"][:60]}')
+    print(f'Seoul Library loans by subject, last {days} days '
+          f'(as of {label_en}; {total:,} records scanned, '
+          f'{unclassified} unclassified):')
+    for s in subjects:
+        print(f'  {s["name_ko"]:<6} {s["name_en"]:<22} {s["loans"]:>6}  '
+              f'({s["titles"]} titles)')
     if DRY_RUN:
         print('\n(dry run — parsed, not writing books_agg.json)')
         return
     tmp = OUT.with_name(OUT.name + '.tmp')
     tmp.write_text(json.dumps(out, ensure_ascii=False))
     tmp.replace(OUT)
-    print(f'Wrote {OUT} ({len(books)} books).')
+    print(f'Wrote {OUT} ({len(subjects)} subjects, '
+          f'{sum(s["loans"] for s in subjects):,} loans).')
 
 
 if __name__ == '__main__':

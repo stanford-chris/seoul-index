@@ -1883,38 +1883,37 @@ BOOKS_WINDOW = {'days': None, 'scope_en': None, 'scope_ko': None}
 BOOKS_MAX_AGE_DAYS = 45
 
 
-def _ordinal(n):
-    """1 -> '1st', 2 -> '2nd', 10 -> '10th'. Used for the loan-rank labels."""
-    if 10 <= n % 100 <= 20:
-        suf = 'th'
-    else:
-        suf = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
-    return f'{n}{suf}'
-
-
 def books_facts():
-    """Loan counts for the most-borrowed books at SEOUL LIBRARY, from the cached
-    scan (books_agg.json, refreshed monthly by seoul_index_books_harvest.py).
-    Silent until that file exists — the same safe-by-default pattern as
-    traffic_facts.
+    """What Seoul Library lent over the last 60 days, by KDC subject, from the
+    cached scan (books_agg.json, refreshed weekly by
+    seoul_index_books_harvest.py). Silent until that file exists — the same
+    safe-by-default pattern as traffic_facts.
 
     ⚠️ ONE library, the city's flagship, not Seoul's 215 public libraries. The
     source changed on 22 August 2026 from data4library (citywide, calendar
-    months, and never activated) to Seoul's own SeoulLibraryBookRentNumInfo, and
-    the counts are correspondingly small: 32 checkouts topped the list that day.
-    A reader who takes those for a citywide figure has been misled, which is why
-    the opener is required to name the library and the footnote carries the scope.
+    months, and never activated) to Seoul's own SeoulLibraryBookRentNumInfo. A
+    reader who takes these for citywide figures has been misled, which is why the
+    opener is required to name the library and the footnote carries the scope.
 
-    Titles are deliberately NOT posted: they are Korean proper nouns that would
-    strand mixed script on the English card. The vein publishes the loan COUNTS
-    only — the checkouts of the most-borrowed book, of the lowest-ranked in the
-    scanned set, and of that set combined — so every figure is fully owned by
-    Python and reads identically in both languages. The metric rides on the
-    opener, like the world/traffic/tourism lines; the labels are pinned because
-    each carries a rank or a set size that Python owns."""
+    ⚠️ **This counted the top ten books until 22 August 2026, and it was a dull
+    card**: the most-borrowed book (32), the tenth (20) and the ten combined
+    (245) are three numbers off one short list, none of which tells a reader
+    anything they had not assumed. The same records carry a subject on every one,
+    and summed by subject they say something — literature outruns 어학 eight to
+    one. Titles are still never posted: they are Korean proper nouns that would
+    strand mixed script on the English card.
+
+    The subject NAMES come from the harvest rather than from a table here, so
+    the words on the card and the words in the file cannot drift apart; a subject
+    arriving without a name is dropped rather than guessed at. Labels are pinned
+    because they are the library's own classification: the selector rewording
+    'Applied sciences' to 'Tech' would mislabel a class whose most-borrowed books
+    are medicine."""
     try:
         agg = json.loads(BOOKS_AGG.read_text())
-        books = [b for b in agg['books'] if isinstance(b.get('loan_count'), int)]
+        subs = [s for s in agg['subjects']
+                if isinstance(s.get('loans'), int) and s['loans'] > 0
+                and s.get('name_en') and s.get('name_ko')]
         period = agg['period']
         days = int(agg['window_days'])
         # ⚠️ The subtraction lives INSIDE the try: a timezone-NAIVE stamp parses
@@ -1924,10 +1923,11 @@ def books_facts():
                - datetime.fromisoformat(agg['generated_at'])).days
     except (OSError, ValueError, KeyError, TypeError):
         return []
-    if len(books) < 2:
+    # Four is what a card needs to be a spread rather than a pair of numbers.
+    if len(subs) < 4:
         return []
     # See BOOKS_MAX_AGE_DAYS: a stale cache goes quiet rather than dating a
-    # rolling window by a harvest nobody ran.
+    # rolling window by a run nobody ran.
     if age > BOOKS_MAX_AGE_DAYS:
         return []
     BOOKS_PERIOD['en'] = period.get('label_en')
@@ -1935,22 +1935,32 @@ def books_facts():
     BOOKS_WINDOW['days'] = days
     BOOKS_WINDOW['scope_en'] = agg.get('scope_en') or 'Seoul Library'
     BOOKS_WINDOW['scope_ko'] = agg.get('scope_ko') or '서울도서관'
-    books.sort(key=lambda b: b['ranking'])
-    top, low = books[0], books[-1]
-    n = len(books)
-    total = sum(b['loan_count'] for b in books)
-    rank_low = low['ranking']
-    return [
-        fact('book_top', 'books', 'The most-borrowed book',
-             grouped(top['loan_count']), grouped(top['loan_count']),
-             pair='book_gap', pin=True, label_ko='가장 많이 대출된 책'),
-        fact('book_low', 'books', f'The {_ordinal(rank_low)} most-borrowed',
-             grouped(low['loan_count']), grouped(low['loan_count']),
-             pair='book_gap', pin=True, label_ko=f'대출 {rank_low}위 도서'),
-        fact('book_sum', 'books', f'The top {n} combined',
-             grouped(total), grouped(total), pin=True,
-             label_ko=f'대출 상위 {n}종 합계'),
-    ]
+
+    subs.sort(key=lambda s: (-s['loans'], s['code']))
+    facts = [fact(f'book_{s["code"]}', 'books', s['name_en'],
+                  grouped(s['loans']), grouped(s['loans']),
+                  pin=True, label_ko=s['name_ko'])
+             for s in subs]
+    # Dead heat and widest gap, the same two detectors the sales vein carries:
+    # what is worth posting about a ranking is where it is level and where it is
+    # not, and neither is visible from the list order alone.
+    best = None
+    for i in range(len(subs)):
+        for j in range(i + 1, len(subs)):
+            a, b = subs[i]['loans'], subs[j]['loans']
+            gap = abs(a - b) / max(a, b)
+            if gap <= 0.02 and (best is None or gap < best[0]):
+                best = (gap, subs[i], subs[j])
+    if best:
+        for s in (best[1], best[2]):
+            facts.append(fact(f'bookheat_{s["code"]}', 'books', s['name_en'],
+                              grouped(s['loans']), grouped(s['loans']),
+                              pair='book_heat', pin=True, label_ko=s['name_ko']))
+    for s in (subs[-1], subs[0]):
+        facts.append(fact(f'bookgap_{s["code"]}', 'books', s['name_en'],
+                          grouped(s['loans']), grouped(s['loans']),
+                          pair='book_gap', pin=True, label_ko=s['name_ko']))
+    return facts
 
 
 # Industry categories worth surfacing (Korean name -> English gloss).
@@ -3250,7 +3260,7 @@ Rules:
 - "airport", "health" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split (labels carry their months). A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. These are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
-- "books" lines are library-loan COUNTS at SEOUL LIBRARY over the last 60 days — the checkouts of the most-borrowed book, of a lower-ranked one, and of the top titles combined. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries, and the counts are small (the top book runs to a few dozen): the opener MUST name the library as well as the metric ("What Seoul Library lent most"), exactly as the "library" membership lines do, or a reader takes a two-figure number for a citywide one. Titles are never named, so the labels are bare ranks ("The most-borrowed book", "The 10th most-borrowed", "The top 10 combined"). ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post; the pair is the point: the gap between the most-borrowed book's checkouts and the lower-ranked one's. Never mix a books line with any other category.
+- "books" lines are checkouts at SEOUL LIBRARY over the last 60 days, counted by SUBJECT: literature, philosophy, 어학 and the rest, in the library's own classification. Labels are BARE SUBJECT NAMES, so the opener MUST name the library and say these are loans ("What Seoul Library lent, by subject"), exactly as the "library" membership lines do. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries — never imply otherwise. ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post, never mixed with any other category. The spread is the point, and the two pairs mark where it lives: a "book_heat" pair is two subjects that came out level, a "book_gap" pair is the least- and most-borrowed of the ten. Never say which way the gap runs, never call a subject popular or neglected, and never draw a conclusion about what Seoul reads — set the numbers down and let the reader do it.
 - Keep the opener neutral (a time or place framing), EXCEPT on a world post, where it must name the metric as described above. Pick one from OPENERS, or write a short neutral one (max ~5 words) — it must NOT give away or hint at the pairing. Provide it in English and Korean.
 - You may lightly reword an English label for wit, but keep its meaning and DO NOT put any digit in a label.
 - Translate every chosen label to natural Korean (labels only — never restate the number in the label).

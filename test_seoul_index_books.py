@@ -2,11 +2,10 @@
 
 Two failures are worth defending against here, and neither announces itself.
 
-**Scope.** `SeoulLibraryBookRentNumInfo` counts loans at ONE library, 서울도서관,
-where the most-borrowed book runs to a few dozen checkouts. The vein it replaced
-(data4library) covered all 215 public libraries. A card that loses the scope
-still reads perfectly: "The most-borrowed book: 32" is simply understood as a
-claim about Seoul, and it is wrong by two orders of magnitude.
+**Scope.** `SeoulLibraryBookRentNumInfo` counts loans at ONE library, 서울도서관.
+The vein it replaced (data4library) covered all 215 public libraries. A card that
+loses the scope still reads perfectly: "Literature: 3,625" is simply understood
+as a claim about Seoul, and it is wrong by two orders of magnitude.
 
 **Period.** The API publishes no date of any kind. The 60-day window comes from
 서울도서관's own page, so the harvester re-reads it every run — and a card that
@@ -26,16 +25,31 @@ import seoul_index_post as S
 import seoul_index_books_harvest as H
 
 
-def agg(days=60, age_days=0, n=10, scope_en='Seoul Library', **over):
+# Ten subjects, the real classes, with counts that are deliberately NOT a dead
+# heat and NOT near each other — a fixture that happens to tie would make the
+# detector tests pass without testing anything.
+SUBJECTS = [
+    ('8', 'Literature', '문학', 3600), ('3', 'Social sciences', '사회과학', 1700),
+    ('4', 'Natural sciences', '자연과학', 1200), ('9', 'History and geography', '역사·지리', 1000),
+    ('1', 'Philosophy', '철학', 900), ('5', 'Applied sciences', '기술과학', 800),
+    ('6', 'Arts', '예술', 700), ('0', 'General works', '총류', 600),
+    ('2', 'Religion', '종교', 500), ('7', 'Language', '어학', 400),
+]
+
+
+def agg(days=60, age_days=0, n=10, scope_en='Seoul Library', subjects=None, **over):
     stamp = datetime.now(timezone.utc) - timedelta(days=age_days)
+    subs = subjects if subjects is not None else [
+        {'code': c, 'name_en': en, 'name_ko': ko, 'loans': v, 'titles': 10}
+        for c, en, ko, v in SUBJECTS[:n]]
     out = {
         'generated_at': stamp.isoformat(),
         'source': 'SeoulLibraryBookRentNumInfo',
         'scope_en': scope_en, 'scope_ko': '서울도서관',
         'window_days': days,
         'period': {'label_en': '22 August', 'label_ko': '8월 22일'},
-        'books': [{'ranking': i, 'bookname': f'책 {i}', 'authors': '지음',
-                   'loan_count': 33 - i} for i in range(1, n + 1)],
+        'records': 3000, 'unclassified': 0,
+        'subjects': subs,
     }
     out.update(over)
     return out
@@ -73,20 +87,59 @@ def card(facts):
 
 class TheCacheIsReadOrTheVeinGoesQuiet(unittest.TestCase):
 
-    def test_a_good_cache_makes_three_facts(self):
+    def test_a_good_cache_makes_one_fact_per_subject(self):
         with Cache(agg()):
             f = S.books_facts()
-        self.assertEqual([x['id'] for x in f],
-                         ['book_top', 'book_low', 'book_sum'])
-        self.assertEqual([x['value_en'] for x in f], ['32', '23', '275'])
+        subs = [x for x in f if x['id'].startswith('book_')]
+        self.assertEqual([x['id'] for x in subs[:3]],
+                         ['book_8', 'book_3', 'book_4'])
+        self.assertEqual([x['value_en'] for x in subs[:3]],
+                         ['3,600', '1,700', '1,200'])
+
+    def test_the_subject_names_are_the_harvest_s_words_and_are_pinned(self):
+        # The selector rewording 'Applied sciences' to 'Tech' would mislabel a
+        # class whose most-borrowed titles are medicine.
+        with Cache(agg()):
+            f = S.books_facts()
+        five = next(x for x in f if x['id'] == 'book_5')
+        self.assertEqual(five['label_en'], 'Applied sciences')
+        self.assertEqual(five['label_ko'], '기술과학')
+        self.assertTrue(all(x['pin'] for x in f))
+
+    def test_a_subject_with_no_name_is_dropped_not_guessed(self):
+        subs = [{'code': c, 'name_en': en, 'name_ko': ko, 'loans': v, 'titles': 10}
+                for c, en, ko, v in SUBJECTS]
+        subs[0]['name_en'] = ''
+        with Cache(agg(subjects=subs)):
+            ids = [x['id'] for x in S.books_facts()]
+        self.assertNotIn('book_8', ids)
+        self.assertIn('book_3', ids)
+
+    def test_a_dead_heat_is_detected_only_when_it_exists(self):
+        with Cache(agg()):
+            self.assertEqual([x for x in S.books_facts()
+                              if x['pair'] == 'book_heat'], [])
+        subs = [{'code': c, 'name_en': en, 'name_ko': ko, 'loans': v, 'titles': 10}
+                for c, en, ko, v in SUBJECTS]
+        subs[3]['loans'] = 1190          # 1,200 vs 1,190 — inside 2%
+        with Cache(agg(subjects=subs)):
+            heat = [x['id'] for x in S.books_facts() if x['pair'] == 'book_heat']
+        self.assertEqual(sorted(heat), ['bookheat_4', 'bookheat_9'])
+
+    def test_the_gap_pair_is_the_least_and_most_borrowed(self):
+        with Cache(agg()):
+            gap = [x['id'] for x in S.books_facts() if x['pair'] == 'book_gap']
+        self.assertEqual(gap, ['bookgap_7', 'bookgap_8'])
 
     def test_no_file_is_silence_not_an_error(self):
         with Cache(None):
             self.assertEqual(S.books_facts(), [])
 
-    def test_one_book_is_not_a_pair(self):
-        with Cache(agg(n=1)):
+    def test_too_few_subjects_is_not_a_spread(self):
+        with Cache(agg(n=3)):
             self.assertEqual(S.books_facts(), [])
+        with Cache(agg(n=4)):
+            self.assertNotEqual(S.books_facts(), [])
 
     def test_a_stale_harvest_goes_quiet(self):
         # The window is ROLLING. A 60-day window last measured months ago is not
@@ -95,10 +148,10 @@ class TheCacheIsReadOrTheVeinGoesQuiet(unittest.TestCase):
         with Cache(agg(age_days=S.BOOKS_MAX_AGE_DAYS + 1)):
             self.assertEqual(S.books_facts(), [])
         with Cache(agg(age_days=S.BOOKS_MAX_AGE_DAYS - 1)):
-            self.assertEqual(len(S.books_facts()), 3)
+            self.assertNotEqual(S.books_facts(), [])
 
     def test_a_cache_with_no_window_is_never_posted(self):
-        # Counts whose period is unknown are exactly what the old source's
+        # Counts whose period is unknown are exactly what the old source\'s
         # rejection was about. Silence, not a card with no window on it.
         d = agg()
         del d['window_days']
@@ -114,7 +167,9 @@ class TheCardCarriesTheLibraryAndTheWindow(unittest.TestCase):
 
     def setUp(self):
         with Cache(agg()):
-            self.c = card(S.books_facts())
+            f = S.books_facts()
+        self.c = card([x for x in f if x['id'] in
+                       ('book_8', 'book_3', 'book_1', 'book_7')])
 
     def test_the_footnote_names_the_library(self):
         # The whole risk of this source: 32 read as a citywide figure.
@@ -136,6 +191,10 @@ class TheCardCarriesTheLibraryAndTheWindow(unittest.TestCase):
         # the figures were read, not the window's end.
         self.assertEqual(self.c['dateline_en'], '22 August')
         self.assertNotIn('22 August', self.c['note_en'])
+
+    def test_the_subjects_reach_the_card(self):
+        self.assertIn('Literature: 3,600', self.c['en_body'])
+        self.assertIn('문학: 3,600', self.c['ko_body'])
 
     def test_the_credit_is_seoul_not_the_old_publisher(self):
         self.assertIn('data.seoul.go.kr', self.c['src_en'])
@@ -185,6 +244,46 @@ class TheWindowIsVerifiedNotAssumed(unittest.TestCase):
         self.page('(최근 9999일 자료집계) ' + ' '.join(self.titles))
         with self.assertRaises(RuntimeError):
             H.verify_window(self.titles)
+
+
+class EveryRecordMustLandInASubject(unittest.TestCase):
+    """`tally()`'s two refusals. Both failure modes are silent by nature: loans
+    that fall out of every class shrink each line by an invisible amount without
+    changing their order, so the card reads as a quieter library rather than as
+    a bug — `portfolio_brief.py`'s trap in another costume."""
+
+    def rows(self, n, cls='8'):
+        return [(f'책 {i}', 10, cls) for i in range(n)]
+
+    def test_a_normal_spread_tallies(self):
+        rows = sum((self.rows(5, c) for c in '8341'), [])
+        subs, unclassified = H.tally(rows)
+        self.assertEqual(unclassified, 0)
+        self.assertEqual({s['code'] for s in subs}, set('8341'))
+        self.assertEqual(subs[0]['loans'], 50)
+
+    def test_a_few_unclassifiable_records_are_counted_not_hidden(self):
+        rows = sum((self.rows(50, c) for c in '8341'), []) + self.rows(2, '')
+        subs, unclassified = H.tally(rows)
+        self.assertEqual(unclassified, 2)
+
+    def test_too_many_unclassifiable_records_abort(self):
+        rows = sum((self.rows(50, c) for c in '8341'), []) + self.rows(50, 'X')
+        with self.assertRaises(ValueError):
+            H.tally(rows)
+
+    def test_the_names_come_from_the_library_s_own_categories(self):
+        # KDC, not DDC: under DDC a 4 is language and a 7 is the arts, which
+        # would file 이기적 유전자 under language and 여행영어 under the arts —
+        # and the card would read perfectly. Verified 22 Aug 2026 against
+        # lib.seoul.go.kr/statistics/favorLoan?category=N00.
+        self.assertEqual(H.KDC['4'], ('Natural sciences', '자연과학'))
+        self.assertEqual(H.KDC['7'], ('Language', '어학'))
+        self.assertEqual(H.KDC['8'], ('Literature', '문학'))
+
+    def test_too_few_subjects_aborts(self):
+        with self.assertRaises(ValueError):
+            H.tally(sum((self.rows(5, c) for c in '83'), []))
 
 
 # ⚠️ Keep this at the END of the file: above the last class it runs before those
