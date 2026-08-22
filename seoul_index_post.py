@@ -1572,6 +1572,16 @@ def water_facts(api_key):
             continue
         if v <= 0:
             continue
+        # ⚠️ These labels stay BARE PLACE NAMES on purpose. de1028e gave the
+        # price and daynight extremes a leading "what this means" phrase
+        # ("Dearest, a traditional market (Gangdong-gu)") because their cards
+        # buried the point in the sort order — and doing the same here ("Most
+        # drawn (Amsa)") is the obvious next step for consistency. It was
+        # considered on 22 Aug 2026 and DECLINED: this vein's own rule is that
+        # a centre is never called bigger or busier than another, and a leading
+        # superlative is exactly that claim. The card is legible without it,
+        # because the dateline names what the places are and the arrangement
+        # carries the rest. Do not "finish" de1028e by extending it here.
         facts.append(fact(f'water_{r["BUSNP_NM"]}', 'water', en,
                           f'{grouped(v)} m³', f'{grouped(v)}m³',
                           pair='water_intake', pin=True,
