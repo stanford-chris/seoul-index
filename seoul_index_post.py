@@ -1895,7 +1895,9 @@ BOOKS_AGG = HERE / 'books_agg.json'
 # slot said something the slot does not mean. The post's own timestamp answers
 # "when", and BOOKS_MAX_AGE_DAYS keeps the cache from ever being old enough for
 # the question to matter.
-BOOKS_WINDOW = {'days': None, 'scope_en': None, 'scope_ko': None}
+# 'records' is pre-formatted here rather than in compose(), where a LOCAL named
+# `grouped` (the cross-pair layout flag) shadows the grouped() helper.
+BOOKS_WINDOW = {'days': None, 'scope_en': None, 'scope_ko': None, 'records': None}
 # A rolling 60-day window read months ago is not a fact about now. The harvest is
 # monthly, so anything older than this means the job has stopped and the vein
 # should go quiet rather than keep posting a window it no longer knows the end of.
@@ -1934,6 +1936,7 @@ def books_facts():
                 if isinstance(s.get('loans'), int) and s['loans'] > 0
                 and s.get('name_en') and s.get('name_ko')]
         days = int(agg['window_days'])
+        records = int(agg['records'])
         # ⚠️ The subtraction lives INSIDE the try: a timezone-NAIVE stamp parses
         # fine and then raises TypeError here, so catching only the parse would
         # crash the whole run on a hand-edited cache file.
@@ -1950,11 +1953,17 @@ def books_facts():
     # publish ten subject totals over no stated period at all.
     if days <= 0:
         return []
+    # ⚠️ And the size of the set matters just as much, for the same reason: see
+    # BOOKS_WINDOW['records'] and the footnote in compose(). Without it the card
+    # would claim every loan the library made.
+    if records <= 0:
+        return []
     # See BOOKS_MAX_AGE_DAYS: a stale cache goes quiet rather than dating a
     # rolling window by a run nobody ran.
     if age > BOOKS_MAX_AGE_DAYS:
         return []
     BOOKS_WINDOW['days'] = days
+    BOOKS_WINDOW['records'] = grouped(records)
     BOOKS_WINDOW['scope_en'] = agg.get('scope_en') or 'Seoul Library'
     BOOKS_WINDOW['scope_ko'] = agg.get('scope_ko') or '서울도서관'
 
@@ -4085,9 +4094,22 @@ def compose(sel, pool):
         # not in the API: 서울도서관 states it on its own page and the harvester
         # re-reads it every run (see seoul_index_books_harvest.py). Period slot
         # None on purpose — see BOOKS_WINDOW for why this vein has no dateline.
-        scope_en.append((f'Loans at {BOOKS_WINDOW["scope_en"]}, '
-                         f'last {BOOKS_WINDOW["days"]} days', None))
-        scope_ko.append((f'{BOOKS_WINDOW["scope_ko"]} 대출, '
+        #
+        # ⚠️ **"3,000 most-borrowed items" is not padding: the feed is a CUT and
+        # the footnote said so wrongly for one evening.** list_total_count is
+        # exactly 3,000, and the record counts per loan-count are 590 at two
+        # loans against 1,248 at three — a natural tail has the MOST records at
+        # the lowest count, so that inversion is the list being truncated
+        # part-way through the two-loan books. Everything borrowed once, and
+        # most of what was borrowed twice, is missing. A footnote reading
+        # "Loans at Seoul Library" therefore claimed every loan the library
+        # made, and the truncation need not fall evenly across subjects, so it
+        # bends the comparison between the lines as well as their totals.
+        scope_en.append((f'{BOOKS_WINDOW["scope_en"]}\u2019s '
+                         f'{BOOKS_WINDOW["records"]} most-borrowed '
+                         f'items, last {BOOKS_WINDOW["days"]} days', None))
+        scope_ko.append((f'{BOOKS_WINDOW["scope_ko"]} 대출 상위 자료 '
+                         f'{BOOKS_WINDOW["records"]}건, '
                          f'최근 {BOOKS_WINDOW["days"]}일', None))
     if 'water' in cats and WATER_PERIOD['en']:
         # Not "Raw water drawn": that only repeats an opener already required

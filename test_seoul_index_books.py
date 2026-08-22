@@ -71,7 +71,8 @@ class Cache:
             self.tmp.write_text(json.dumps(self.data, ensure_ascii=False))
         self.real = S.BOOKS_AGG
         S.BOOKS_AGG = self.tmp
-        S.BOOKS_WINDOW.update({'days': None, 'scope_en': None, 'scope_ko': None})
+        S.BOOKS_WINDOW.update({'days': None, 'scope_en': None,
+                               'scope_ko': None, 'records': None})
         return self
 
     def __exit__(self, *exc):
@@ -188,6 +189,27 @@ class TheCardCarriesTheLibraryAndTheWindow(unittest.TestCase):
     def test_the_footnote_carries_the_window(self):
         self.assertIn('last 60 days', self.c['note_en'])
         self.assertIn('최근 60일', self.c['note_ko'])
+
+    def test_the_footnote_says_the_set_is_a_cut(self):
+        # ⚠️ The feed is the 3,000 most-borrowed items, truncated part-way
+        # through the books borrowed twice — everything borrowed once is
+        # missing. A footnote reading "Loans at Seoul Library" claimed every
+        # loan the library made, which it posted once before this was caught.
+        self.assertIn('3,000 most-borrowed items', self.c['note_en'])
+        self.assertIn('상위 자료 3,000건', self.c['note_ko'])
+        self.assertNotIn('Loans at Seoul Library,', self.c['note_en'])
+
+    def test_a_cache_with_no_record_count_is_never_posted(self):
+        # Without it the footnote cannot say the set is a cut, and a card that
+        # cannot say so must not be built.
+        d = agg()
+        d['records'] = 0
+        with Cache(d):
+            self.assertEqual(S.books_facts(), [])
+        d = agg()
+        del d['records']
+        with Cache(d):
+            self.assertEqual(S.books_facts(), [])
 
     def test_the_window_follows_the_harvest_rather_than_the_code(self):
         with Cache(agg(days=30)):
