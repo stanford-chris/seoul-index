@@ -358,5 +358,88 @@ class ScopedVeinHeadsItsOwnGroup(unittest.TestCase):
                           f'{cat} has a descriptor but would never group')
 
 
+class LibraryRatioOnTheCard(unittest.TestCase):
+    """The "1 in N" beside a library count is a ratio between two publishers.
+
+    The numerator is Seoul Library's members and the denominator is KOSIS's
+    registered population of that age — and the two do NOT cover the same
+    people: 서울도서관's 준회원 class is open to any Korean national with no Seoul
+    connection at all, and 정회원 covers people who work or study in Seoul while
+    living elsewhere. So the card may state the ratio and must never state a
+    share, which is what "Members need not live in Seoul" is doing in the
+    footnote. A card that ships the ratio without it is misreporting, and
+    nothing in the rendered output would look wrong.
+    """
+
+    RATIO = [('library_30', '30s', '30대', '70,339 (1 in 21)', 70339),
+             ('library_10', 'Teens', '10대', '10,921 (1 in 65)', 10921),
+             ('library_80', '80s', '80대', '684 (1 in 551)', 684)]
+    BARE = [('library_30', '30s', '30대', '70,339', 70339),
+            ('library_10', 'Teens', '10대', '10,921', 10921),
+            ('library_80', '80s', '80대', '684', 684)]
+
+    def setUp(self):
+        S.LIBRARY_POP['en'], S.LIBRARY_POP['ko'] = 'July 2026', '2026년 7월'
+
+    def tearDown(self):
+        S.LIBRARY_POP['en'] = S.LIBRARY_POP['ko'] = ''
+
+    def _compose(self, rows):
+        pool, picks = [], []
+        for fid, en, ko, v, n in rows:
+            cat = fid.split('_')[0]
+            pool.append(S.fact(fid, cat, en, v, v, pair=f'{cat}_pair',
+                               estimated=(cat == 'crowd'), pin=(cat == 'library'),
+                               num=n, unit='people'))
+            picks.append({'id': fid, 'label_en': en, 'label_ko': ko, 'emoji': ''})
+        return S.compose({'opener_en': 'Who holds a card at Seoul Library',
+                          'opener_ko': '서울도서관 회원증을 가진 사람',
+                          'opener_emoji': '📚', 'picks': picks}, pool)
+
+    def test_the_ratio_credits_kosis_as_a_national_card_does(self):
+        c = self._compose(self.RATIO)
+        self.assertIn('kosis.kr', c['src_en'])
+        self.assertIn('Statistics Korea', c['src_en'])
+        self.assertIn('통계청', c['src_ko'])
+
+    def test_the_footnote_says_what_is_divided_by_and_who_is_counted(self):
+        c = self._compose(self.RATIO)
+        self.assertIn('registered population that age', c['note_en'])
+        self.assertIn('July 2026', c['note_en'])
+        self.assertIn('Members need not live in Seoul', c['note_en'])
+        self.assertIn('주민등록인구 대비', c['note_ko'])
+        self.assertIn('서울 거주자에 한정되지 않음', c['note_ko'])
+
+    def test_the_population_month_never_becomes_the_cards_dateline(self):
+        """The vintage rides in the DESCRIPTOR, not the period slot.
+
+        A period there would be the card's only one, lift to the masthead, and
+        date the MEMBERSHIP figures as July 2026 — and the membership service
+        publishes no date at all, so that masthead would be an invention.
+        """
+        c = self._compose(self.RATIO)
+        self.assertEqual(c.get('dateline_en', ''), '')
+        self.assertEqual(S._card_payload(c, 'en')[3], '')
+        self.assertEqual(S._card_payload(c, 'ko')[3], '')
+
+    def test_the_card_still_sorts_by_member_count(self):
+        """_sortkey strips the trailing parenthetical, so the size order that
+        every library card has always had survives the ratio."""
+        labels = [it['label'] for it in self._compose(self.RATIO)['items_en']
+                  if 'subhead' not in it]
+        self.assertEqual(labels, ['30s', 'Teens', '80s'])
+
+    def test_no_ratio_means_no_kosis_credit_and_no_claim_about_one(self):
+        """A KOSIS outage leaves the same library lines with bare counts. The
+        credit and both notes must go with the ratio, not linger from it."""
+        S.LIBRARY_POP['en'] = S.LIBRARY_POP['ko'] = ''
+        c = self._compose(self.BARE)
+        self.assertNotIn('kosis.kr', c['src_en'])
+        self.assertNotIn('Statistics Korea', c['src_en'])
+        self.assertNotIn('registered population', c['note_en'])
+        self.assertNotIn('Members need not live in Seoul', c['note_en'])
+        self.assertIn('Members of Seoul Library', c['note_en'])   # unchanged
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

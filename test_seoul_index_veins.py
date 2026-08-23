@@ -631,6 +631,94 @@ class LibraryBands(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# The library "1 in N": one publisher's numerator over another's denominator
+# ---------------------------------------------------------------------------
+# Every failure mode here is silent. A KOSIS outage returns a well-formed JSON
+# OBJECT rather than a list; an off-by-one in the five-year band codes divides
+# the teens by the twenty-somethings and prints a plausible number; and a stale
+# LIBRARY_POP puts a footnote on a card whose values carry no ratio at all.
+# None of those looks wrong in the output, so each is asserted here.
+
+MEMBER_ROWS = [{'AGE_RANGE': '10', 'MBR_CNT': '10921'},
+               {'AGE_RANGE': '20', 'MBR_CNT': '49876'},
+               {'AGE_RANGE': '30', 'MBR_CNT': '70339'}]
+
+# Real July 2026 figures. The teens are 342,321 + 372,808 = 715,129, and
+# 715,129 / 10,921 rounds to 65 — a fixture of one band per decade would let a
+# half-built denominator pass.
+POP_BANDS = {'15': 342321, '20': 372808,        # 10-14 + 15-19 = the teens
+             '25': 600000, '30': 627845,        # 20s: 1,227,845
+             '35': 700000, '40': 769932}        # 30s: 1,469,932
+
+
+class LibraryRatio(unittest.TestCase):
+    def pop_rows(self, bands=None, prd='202607'):
+        return [{'C1': '11', 'C2': c, 'DT': str(v), 'PRD_DE': prd}
+                for c, v in (POP_BANDS if bands is None else bands).items()]
+
+    def facts(self, kosis_payload, key='KOSIS-KEY'):
+        # Seed the module dict with a lie: every test then proves the run
+        # either replaced it or cleared it, never that it merely survived.
+        S.LIBRARY_POP['en'], S.LIBRARY_POP['ko'] = 'STALE', 'STALE'
+        payloads = {'SeoulLibraryMemberInfo': ok('SeoulLibraryMemberInfo', MEMBER_ROWS)}
+        if kosis_payload is not None:
+            payloads['kosis.kr'] = kosis_payload
+        with Stub(payloads):
+            return {f['id']: f for f in S.library_facts('KEY', key)}
+
+    def test_a_decade_is_the_sum_of_two_published_five_year_bands(self):
+        f = self.facts(self.pop_rows())
+        # 715,129 / 10,921 = 65.5. Dividing by either half alone gives 31 or 34,
+        # which is what an off-by-one in LIBRARY_POP_BANDS would print.
+        self.assertEqual(f['library_10']['value_en'], '10,921 (1 in 65)')
+        self.assertEqual(f['library_30']['value_en'], '70,339 (1 in 21)')
+        self.assertEqual(S.LIBRARY_POP['en'], 'July 2026')
+
+    def test_the_five_year_band_codes_are_the_ones_kosis_publishes(self):
+        # KOSIS names a band by where the NEXT one starts: '15' is 10-14세.
+        self.assertEqual(S.LIBRARY_POP_BANDS['10'], ('15', '20'))
+        self.assertEqual(S.LIBRARY_POP_BANDS['80'], ('85', '90'))
+
+    def test_the_ratio_is_a_trailing_parenthetical_so_the_card_still_sorts(self):
+        f = self.facts(self.pop_rows())
+        # _sortkey strips one trailing parenthetical. A "10,921 · 1 in 65" form
+        # would return None here and silently drop the size sort on the card.
+        self.assertEqual(S._sortkey(f['library_10']['value_en']), ('num', 10921.0))
+        self.assertEqual(f['library_10']['num'], 10921)   # collisions unaffected
+
+    def test_korean_counts_people_rather_than_translating_the_english(self):
+        f = self.facts(self.pop_rows())
+        self.assertEqual(f['library_10']['value_ko'], '10,921 (65명 중 1명)')
+
+    def test_no_kosis_key_leaves_bare_counts_and_claims_nothing(self):
+        f = self.facts(None, key=None)
+        self.assertEqual(f['library_10']['value_en'], '10,921')
+        self.assertEqual(S.LIBRARY_POP['en'], '')       # the seeded lie is gone
+
+    def test_a_kosis_error_object_is_not_a_population(self):
+        # KOSIS answers an outage, a dead key or a moved table with a DICT, not
+        # a list, and with HTTP 200. Iterating it yields its keys as strings.
+        f = self.facts({'err': '30', 'errMsg': '데이터가 존재하지 않습니다.'})
+        self.assertEqual(f['library_10']['value_en'], '10,921')
+        self.assertEqual(S.LIBRARY_POP['en'], '')
+
+    def test_a_ratio_whose_month_cannot_be_stated_is_not_published(self):
+        f = self.facts(self.pop_rows(prd='2026'))
+        self.assertEqual(f['library_10']['value_en'], '10,921')
+        self.assertEqual(S.LIBRARY_POP['en'], '')
+
+    def test_a_decade_missing_half_its_population_gets_no_ratio(self):
+        # Drop 15-19세 and nothing else: the teens must lose their ratio rather
+        # than quietly divide by the 10-14 half, and every other decade keeps
+        # its own. Halving the denominator would print "1 in 31" and look fine.
+        half = {c: v for c, v in POP_BANDS.items() if c != '20'}
+        f = self.facts(self.pop_rows(half))
+        self.assertEqual(f['library_10']['value_en'], '10,921')
+        self.assertEqual(f['library_30']['value_en'], '70,339 (1 in 21)')
+        self.assertEqual(S.LIBRARY_POP['en'], 'July 2026')   # ratios did go out
+
+
+# ---------------------------------------------------------------------------
 # Card ordering
 # ---------------------------------------------------------------------------
 class SequenceVeinsKeepTheirOrder(unittest.TestCase):

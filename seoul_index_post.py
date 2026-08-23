@@ -1818,8 +1818,83 @@ LIBRARY_BANDS = {'10': ('Teens', '10대'), '20': ('20s', '20대'),
                  '50': ('50s', '50대'), '60': ('60s', '60대'),
                  '70': ('70s', '70대'), '80': ('80s', '80대')}
 
+# The "1 in N" denominator: Seoul's registered population of each decade, from
+# KOSIS DT_1B04005N (주민등록인구, five-year bands). Two published bands make one
+# decade — 10-14세 plus 15-19세 is the teens — and summing published rows is
+# counting, which the account allows. A bare count says how many teens hold a
+# card; it does not say whether that is many, and the city's own teen population
+# is the only honest thing to set it against.
+#
+# ⚠️⚠️ THE NUMERATOR IS NOT A SUBSET OF THIS DENOMINATOR, which is why the value
+# reads "1 in 65" and the footnote says members need not live in Seoul. Read off
+# 서울도서관's own 회원증 발급 page, 23 Aug 2026: 준회원 is open to ANY 대한민국 국민
+# or registered foreign resident of Korea, with no Seoul connection required at
+# all, and even 정회원 covers people who merely work or study in Seoul while
+# living outside it. The API returns AGE_RANGE, BRDT and MBR_CNT only — no
+# member class — so the two cannot be separated. The card may therefore state
+# the RATIO and must never state a SHARE: "1 in 65" is honest, "1.5% of Seoul's
+# teens hold a card" is a claim the data cannot carry.
+# ⚠️ 주민등록인구 counts Korean nationals on the resident register; registered
+# foreign residents are a separate count. Hence "registered population" in the
+# footnote rather than the bare word.
+LIBRARY_POP_TBL = 'DT_1B04005N'
+LIBRARY_POP_ITM = 'T2'                  # 총인구수
+LIBRARY_POP_SEOUL = '11'                # 행정구역: 서울특별시
+# KOSIS names a five-year band by the age its NEXT band starts at: '15' is
+# 10-14세 and '20' is 15-19세, so a decade is (d+5, d+10). Verified against the
+# service's own meta (type=ITM, OBJ B) on 23 Aug 2026 rather than assumed — an
+# off-by-one here would divide by the wrong generation and nothing in the output
+# would look wrong.
+LIBRARY_POP_BANDS = {d: (str(int(d) + 5), str(int(d) + 10)) for d in LIBRARY_BANDS}
+LIBRARY_POP_MIN = 2     # "1 in 1" is not a ratio; "1 in 0" is a bug
+# The population month, set by library_facts() only when a ratio actually
+# reached a line. Read by compose() for the footnote: empty means bare counts
+# went out and no scope note may claim otherwise.
+LIBRARY_POP = {'en': '', 'ko': ''}
 
-def library_facts(api_key):
+
+def library_pop(kosis_key):
+    """({decade: Seoul's registered population}, 'July 2026', '2026년 7월').
+
+    ({}, '', '') on any failure, which costs the ratio and nothing else: the
+    vein falls back to bare member counts and the footnote note falls with it."""
+    if not kosis_key:
+        return {}, '', ''
+    from urllib.parse import quote
+    codes = sorted({c for pair in LIBRARY_POP_BANDS.values() for c in pair}, key=int)
+    url = ('https://kosis.kr/openapi/Param/statisticsParameterData.do'
+           f'?method=getList&apiKey={quote(kosis_key, safe="")}&format=json'
+           f'&jsonVD=Y&orgId=101&tblId={LIBRARY_POP_TBL}&itmId={LIBRARY_POP_ITM}'
+           f'&objL1={LIBRARY_POP_SEOUL}&objL2={"+".join(codes)}'
+           '&prdSe=M&newEstPrdCnt=1')
+    try:
+        rows = http_get_json(url)
+    except RuntimeError:
+        return {}, '', ''
+    # KOSIS reports its own errors as a DICT ({"err":"30", ...}) and its data as
+    # a list, so the type is the error check: a dict here is an outage, a bad
+    # key or a table that has moved, never a population.
+    if not isinstance(rows, list) or not rows:
+        return {}, '', ''
+    by_code, prd = {}, ''
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        try:
+            by_code[str(r['C2'])] = int(r['DT'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        prd = prd or str(r.get('PRD_DE') or '')
+    pop = {d: by_code[lo] + by_code[hi]
+           for d, (lo, hi) in LIBRARY_POP_BANDS.items()
+           if by_code.get(lo) and by_code.get(hi)}
+    if not pop or not (len(prd) == 6 and prd.isdigit() and 1 <= int(prd[4:]) <= 12):
+        return {}, '', ''       # a ratio whose vintage cannot be stated is not postable
+    y, m = int(prd[:4]), int(prd[4:])
+    return pop, f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
+
+
+def library_facts(api_key, kosis_key=None):
     """Who holds a card at Seoul Library, by decade of life."""
     try:
         d = http_get_json(f'http://openapi.seoul.go.kr:8088/{api_key}/json/'
@@ -1839,15 +1914,33 @@ def library_facts(api_key):
             tally[band] = tally.get(band, 0) + int(str(r.get('MBR_CNT')).strip())
         except (TypeError, ValueError):
             continue
-    facts = []
+    pop, pop_en, pop_ko = library_pop(kosis_key)
+    facts, ratios = [], 0
     for band, total in sorted(tally.items(), key=lambda kv: -kv[1]):
         if total <= 0:
             continue
         en, ko = LIBRARY_BANDS[band]
-        facts.append(fact(f'library_{band}', 'library', en, grouped(total),
-                          grouped(total), pair='library_ages', pin=True,
+        v_en = v_ko = grouped(total)
+        # "1 in 65", not "1.5%": the ratio is the Harper's form and it is also
+        # the honest one here (see the ⚠️ above LIBRARY_POP_TBL). It rides in a
+        # TRAILING PARENTHETICAL on purpose — _sortkey() strips one before
+        # reading the magnitude, so the card still orders these lines by member
+        # count, and cross_vein_pairs still collides on `num`. A "10,921 · 1 in
+        # 65" form would have made every value unparseable and silently dropped
+        # the size sort on this card.
+        n = round(pop[band] / total) if pop.get(band) else 0
+        if n >= LIBRARY_POP_MIN:
+            v_en, v_ko = f'{v_en} (1 in {grouped(n)})', f'{v_ko} ({grouped(n)}명 중 1명)'
+            ratios += 1
+        facts.append(fact(f'library_{band}', 'library', en, v_en, v_ko,
+                          pair='library_ages', pin=True,
                           label_ko=ko, num=total, unit='people'))
-    return facts if len(facts) >= LIBRARY_MIN_LINES else []
+    facts = facts if len(facts) >= LIBRARY_MIN_LINES else []
+    # Only claim the ratio in the footnote if one actually went out on a line,
+    # and only alongside lines that survived the minimum-count cut.
+    LIBRARY_POP['en'] = pop_en if (facts and ratios) else ''
+    LIBRARY_POP['ko'] = pop_ko if (facts and ratios) else ''
+    return facts
 
 
 # --- complaints ------------------------------------------------------------
@@ -3441,7 +3534,9 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += water_facts(api_key)
     pool += daynight_facts(api_key, state)
     pool += infant_facts(api_key, state)
-    pool += library_facts(api_key)
+    # kosis_key is the library ratio's denominator (Seoul's registered
+    # population that age); without it the vein still posts bare counts.
+    pool += library_facts(api_key, kosis_key)
     pool += complaint_facts(api_key)
     pool += books_facts()
     pool += sales_facts()
@@ -3498,7 +3593,7 @@ Rules:
 - "water" lines are the raw water drawn at each of Seoul's purification centres on one day. Labels are BARE PLACE NAMES (Amsa, Ttukdo), and the card's dateline says they are purification centres, so the opener MUST name the METRIC and nothing more ("Water drawn for Seoul"). ⚠️ Do NOT put the day, the date or the words "one day" in the opener: the date rides on the card automatically and an opener that repeats it spends the line saying nothing. Own post, never mixed. Every line is an intake figure at the same measure — never say one centre is bigger or busier than another.
 - "daynight" lines are HOW MANY PEOPLE ARE PRESENT in each district, either by DAY or by NIGHT, never both in one card. Labels are BARE DISTRICT NAMES, so the opener MUST name BOTH what is counted — people, a population — AND which half of the day: "Seoul's daytime population", "How many people are in Seoul after dark". ⚠️ An opener naming only the time ("Seoul by day") is NOT enough and leaves the reader guessing whether the figures are people, money or anything else. The measure is 생활인구: everyone present at that hour, residents and workers and visitors together — so never call it the district's population in the sense of who LIVES there, and never call it a crowd. Own post, never mixed. The KT-estimate caveat rides on the card already: do not restate it in a line.
 - "infant" lines count Seoul's children in ONE age band, one line per year across a decade. Labels are BARE YEARS. ⚠️ The card already names the age band on its own line, and YOU ARE NOT TOLD WHICH BAND IT IS — so the opener must NEVER state an age or an age range. Writing "Children aged 0" over the under-six figures is the exact mistake this rule exists to stop. Give a neutral opener that says only that these are Seoul's children over time: "Seoul's children, a decade apart", "Fewer every year in Seoul". Own post, never mixed, and keep the first and last years: the fall between them is the card. State it and stop — never call it a decline, a crisis, or a collapse, and never mention birth rates.
-- "library" lines are the registered members of Seoul Library by decade of life. Labels are BARE AGE BANDS, so the opener MUST name the library and what is counted ("Who holds a card at Seoul Library"). Own post, never mixed. It is ONE library, not the city's 215 — never imply otherwise.
+- "library" lines are the registered members of Seoul Library by decade of life. Labels are BARE AGE BANDS, so the opener MUST name the library and what is counted ("Who holds a card at Seoul Library"). Own post, never mixed. It is ONE library, not the city's 215 — never imply otherwise. ⚠️ The value may carry a trailing "(1 in N)" — that is Python's, and it sets the members of that band against Seoul's registered population of that age. Leave it exactly where it is and NEVER restate it, convert it to a percentage, explain it, or build the opener or a label on it: the card footnote says what it is, and members need not live in Seoul, so the opener must never call it a share of Seoul's teens or of any other age.
 - "complaint" lines are how many faults Seoul's residents reported in a whole year, one line per year. Labels are BARE YEARS, so the opener MUST name what is counted ("Things reported broken in Seoul"). Own post, never mixed, and never characterise a year as better or worse than another.
 - "airport", "health" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split (labels carry their months). A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. These are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
@@ -4271,6 +4366,11 @@ def compose(sel, pool):
                  'boxhist'}
     uses_seoul = any(c not in non_seoul for c in cats)
     uses_kosis = 'national' in cats
+    # The library "1 in N" divides by KOSIS's registered population, so a card
+    # carrying the ratio credits KOSIS exactly as a national card does. Guarded
+    # on LIBRARY_POP rather than on the category, because a KOSIS outage leaves
+    # the same library lines on the card with no ratio and nothing to credit.
+    lib_ratio = 'library' in cats and bool(LIBRARY_POP['en'])
     uses_oecd = 'world' in cats
     uses_wb = 'nation' in cats
     uses_molit = 'property' in cats
@@ -4284,7 +4384,7 @@ def compose(sel, pool):
     uses_books = 'books' in cats
     uses_kobis = bool({'boxoffice', 'boxhist'} & cats)
     srcs = (['data.seoul.go.kr'] if uses_seoul else []) + \
-           (['kosis.kr'] if uses_kosis else []) + \
+           (['kosis.kr'] if uses_kosis or lib_ratio else []) + \
            ([OECD_DOMAIN] if uses_oecd else []) + \
            (['rt.molit.go.kr'] if uses_molit else []) + \
            (['data.kma.go.kr'] if uses_kma else []) + \
@@ -4322,11 +4422,12 @@ def compose(sel, pool):
     if ('spending' in cats or 'avgbill' in cats) and SALES_Q['en']:
         scope_en.append(('Commercial districts', SALES_Q['en']))
         scope_ko.append(('상권', SALES_Q['ko']))
+    if uses_kosis or lib_ratio:
+        src_en += ' · Statistics Korea'
+        src_ko += ' · 통계청'
     if uses_kosis:
         years = sorted({by_id[p['id']].get('year') for p in picks
                         if by_id[p['id']]['cat'] == 'national' and by_id[p['id']].get('year')})
-        src_en += ' · Statistics Korea'
-        src_ko += ' · 통계청'
         if years:
             scope_en.append((f'{"/".join(years)} figures', None))
             scope_ko.append((f'{"/".join(years)}년 자료', None))
@@ -4514,6 +4615,22 @@ def compose(sel, pool):
         if _c in cats:
             scope_en.append((DESCRIPTOR_SCOPES[_c][0], None))
             scope_ko.append((DESCRIPTOR_SCOPES[_c][1], None))
+    if lib_ratio:
+        # ⚠️ The population month rides in the DESCRIPTOR, not the period slot,
+        # for the same reason the OECD vintage does: a period here would be the
+        # card's only one, lift to the masthead dateline, and date the
+        # MEMBERSHIP figures — which carry no date at all, the service
+        # publishing neither a period nor a stamp.
+        scope_en.append((f'Ratio is to Seoul’s registered population that age, '
+                         f'{LIBRARY_POP["en"]}', None))
+        scope_ko.append((f'서울 해당 연령 주민등록인구 대비, {LIBRARY_POP["ko"]}', None))
+        # ⚠️ Not decoration and not a hedge: 준회원 needs no Seoul connection
+        # whatever, so the members counted are NOT a subset of the population
+        # divided by. Without this line the card reads as "one Seoul teen in 65
+        # holds a card", which is a claim the data cannot carry. If the ratio
+        # ever ships without this note, the vein is misreporting.
+        scope_en.append(('Members need not live in Seoul', None))
+        scope_ko.append(('회원 자격은 서울 거주자에 한정되지 않음', None))
     if 'price' in cats and PRICE_PERIOD['en']:
         # The date and the item are keys to the figures: a price means
         # nothing without what was bought and when.
