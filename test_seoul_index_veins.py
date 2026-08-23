@@ -16,6 +16,13 @@ sys.argv = ['test']
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import seoul_index_post as S
 
+# ⚠️ compose() ends by checking its labels against the pool's own with a model
+# call (see check_labels). These tests promise no network and no model call, so
+# it is stubbed out here: what they exercise is selection and composition, and a
+# live checker would make them slow, non-deterministic and quota-hungry. The
+# checker's own behaviour is tested in test_seoul_index_labels.py.
+S.check_labels = lambda *a, **k: None
+
 
 class Stub:
     """Swap http_get_json for a canned payload, restoring it afterwards."""
