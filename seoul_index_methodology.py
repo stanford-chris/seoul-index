@@ -80,14 +80,19 @@ HERE = Path(__file__).parent
 # example list is now drawn from across the veins, and the closing sentence
 # points at the credits rather than repeating a publisher name that would go
 # stale the next time a vein lands.
+# Two paragraphs since 23 Aug 2026: the card had grown to nine unbroken lines,
+# which is a wall rather than a card. The break falls where the subject changes,
+# from where the figures come from to how they are handled. render_prose_card
+# takes a list, so a paragraph is added by adding an element, and _alt() joins
+# them with a blank line so the alt text breaks where the card does.
 EN_INTRO = ('This account provides a portrait of Seoul, based mainly on the city’s own '
             'open data (data.seoul.go.kr), with other publishers’ figures alongside it: '
             'weather, rivers, property, health, tourism, and Seoul set against other '
-            'cities and countries. Counts appear exactly as published: subway taps, '
-            'libraries and their loans, quarterly sales, apartment filings. An A.I. '
-            'chooses which '
-            'to set side by side and largely writes the posts. Every publisher is '
-            'credited at the end of this thread.')
+            'cities and countries.')
+EN_INTRO_2 = ('Counts appear exactly as published: subway taps, libraries and their '
+              'loans, quarterly sales, apartment filings. An A.I. chooses which to set '
+              'side by side and largely writes the posts. Every publisher is credited '
+              'at the end of this thread.')
 EN_CAVEAT = ('Crowd figures are different: How many people are in a place, and '
              'their age, gender and visitor split, are not head counts. KT models '
              'them from mobile-signal data and scales to the whole city, so read '
@@ -96,10 +101,13 @@ KO_INTRO = ('‘숫자로 보는 서울’은 주로 서울시 '
             '공공데이터(data.seoul.go.kr)에 기상·하천·부동산·보건·관광 '
             '등 다른 기관의 자료를 더해 그리는 서울의 '
             '초상입니다. 다른 도시·국가와 비교한 수치도 '
-            '있습니다. 지하철 승하차, 도서관 수와 대출, 분기별 '
-            '매출, 아파트 실거래 등 고정 수치는 '
-            '공개된 값 그대로입니다. 조합과 글쓰기는 대부분 '
-            'A.I.가 하며, 모든 출처는 이 스레드 마지막에 있습니다.')
+            '있습니다.')
+# Broken at the same turn as the English: 지하철 승하차… is the sentence that
+# answers "Counts appear exactly as published".
+KO_INTRO_2 = ('지하철 승하차, 도서관 수와 대출, 분기별 매출, '
+              '아파트 실거래 등 고정 수치는 공개된 값 '
+              '그대로입니다. 조합과 글쓰기는 대부분 A.I.가 하며, '
+              '모든 출처는 이 스레드 마지막에 있습니다.')
 # The original plaintext thread signed off "🤖 자동 계정"; the card era
 # dropped the emoji but stranded "자동 계정" as a cut-off-looking fragment.
 # Dropped entirely (23 Jul 2026): the EN card has no equivalent line and
@@ -139,10 +147,12 @@ KO_CITIES = ('일부 게시물은 서울을 다른 '
              '뜻합니다.')
 
 CARDS = [
-    {'lang': 'en', 'heading': 'About this account', 'emoji': '\U0001f3d9️', 'body': [EN_INTRO]},
+    {'lang': 'en', 'heading': 'About this account', 'emoji': '\U0001f3d9️',
+     'body': [EN_INTRO, EN_INTRO_2]},
     {'lang': 'en', 'heading': 'About the crowd figures', 'emoji': '\U0001f465', 'body': [EN_CAVEAT]},
     {'lang': 'en', 'heading': 'About the comparisons', 'emoji': '\U0001f30f', 'body': [EN_CITIES]},
-    {'lang': 'ko', 'heading': '이 계정에 대하여', 'emoji': '\U0001f3d9️', 'body': [KO_INTRO]},
+    {'lang': 'ko', 'heading': '이 계정에 대하여', 'emoji': '\U0001f3d9️',
+     'body': [KO_INTRO, KO_INTRO_2]},
     {'lang': 'ko', 'heading': '인구 수치에 대하여', 'emoji': '\U0001f465', 'body': [KO_CAVEAT]},
     {'lang': 'ko', 'heading': '비교 수치에 대하여', 'emoji': '\U0001f30f', 'body': [KO_CITIES]},
 ]
