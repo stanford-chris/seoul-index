@@ -2134,14 +2134,21 @@ def books_facts():
         ratio = {s['code']: round(total / s['loans']) for s in subs}
         BOOKS_WINDOW['loans'] = grouped(total)
 
-    def _val(s):
-        # Trailing parenthetical, as on the membership lines: _sortkey() strips
-        # one before reading a magnitude, so the card keeps its size order.
+    def _vals(s):
+        # (English, Korean). Trailing parenthetical, as on the membership lines:
+        # _sortkey() strips one before reading a magnitude, so the card keeps its
+        # size order. ⚠️ The two languages are built separately here because they
+        # were once built once and used twice, which put "(1 in 3)" on the KOREAN
+        # card — the counter is 건, a checkout, and Korean counts "1 of every 3"
+        # head-final. Every value on this bot is two strings for exactly this.
         v = grouped(s['loans'])
-        return f'{v} (1 in {grouped(ratio[s["code"]])})' if s['code'] in ratio else v
+        if s['code'] not in ratio:
+            return v, v
+        n = grouped(ratio[s['code']])
+        return f'{v} (1 in {n})', f'{v} ({n}건 중 1건)'
 
     facts = [fact(f'book_{s["code"]}', 'books', s['name_en'],
-                  _val(s), _val(s), pin=True, label_ko=s['name_ko'])
+                  *_vals(s), pin=True, label_ko=s['name_ko'])
              for s in subs]
     # Dead heat and widest gap, the same two detectors the sales vein carries:
     # what is worth posting about a ranking is where it is level and where it is
@@ -2156,11 +2163,11 @@ def books_facts():
     if best:
         for s in (best[1], best[2]):
             facts.append(fact(f'bookheat_{s["code"]}', 'books', s['name_en'],
-                              _val(s), _val(s),
+                              *_vals(s),
                               pair='book_heat', pin=True, label_ko=s['name_ko']))
     for s in (subs[-1], subs[0]):
         facts.append(fact(f'bookgap_{s["code"]}', 'books', s['name_en'],
-                          _val(s), _val(s),
+                          *_vals(s),
                           pair='book_gap', pin=True, label_ko=s['name_ko']))
     return facts
 
@@ -3651,7 +3658,7 @@ Rules:
 - "airport", "health" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split (labels carry their months). A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. These are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
-- "books" lines are checkouts at SEOUL LIBRARY over the last 60 days, counted by SUBJECT: literature, philosophy, 어학 and the rest, in the library's own classification. Labels are BARE SUBJECT NAMES, so the opener MUST name the library and say these are loans, exactly as the "library" membership lines do — and MUST NOT settle on one wording: "What Seoul Library lent, by subject", "Seoul Library's loans, by subject", "Borrowing at Seoul Library, by subject" and "What went out of Seoul Library" are four of many, so write a fresh one rather than reusing the last. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries — never imply otherwise. ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post, never mixed with any other category. ⚠️ TEN subjects are offered and a card takes four, so there is no one right card and THE EXTREMES ARE NOT COMPULSORY. Do not reach for the biggest subject at the top and the smallest at the bottom every time: four subjects from the middle of the list is a card, the four smallest is a card, and a set leaving out the largest number altogether is a card. The two pairs are two arrangements among many rather than the default — a "book_heat" pair is two subjects that came out level, a "book_gap" pair is the least- and most-borrowed of the ten; use at most ONE of them on a card, and prefer neither if the plain four you have chosen already say something. Deliberately vary which subjects appear from post to post and lean hard on AVOID_IDS here: with only ten subjects this vein repeats itself faster than any other. Never say which way the gap runs, never call a subject popular or neglected, and never draw a conclusion about what Seoul reads — set the numbers down and let the reader do it.
+- "books" lines are checkouts at SEOUL LIBRARY over the last 60 days, counted by SUBJECT: literature, philosophy, 어학 and the rest, in the library's own classification. Labels are BARE SUBJECT NAMES, so the opener MUST name the library and say these are loans, exactly as the "library" membership lines do — and MUST NOT settle on one wording: "What Seoul Library lent, by subject", "Seoul Library's loans, by subject", "Borrowing at Seoul Library, by subject" and "What went out of Seoul Library" are four of many, so write a fresh one rather than reusing the last. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries — never imply otherwise. ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post, never mixed with any other category. ⚠️ The value may carry a trailing "(1 in N)" — that is Python's, and it is the subject's share of every checkout counted, which is why four lines can still say what the other six weigh. Leave it exactly where it is and NEVER restate it, convert it to a percentage, explain it, or build the opener or a label on it; the card footnote gives the total it divides by. ⚠️ TEN subjects are offered and a card takes four, so there is no one right card and THE EXTREMES ARE NOT COMPULSORY. Do not reach for the biggest subject at the top and the smallest at the bottom every time: four subjects from the middle of the list is a card, the four smallest is a card, and a set leaving out the largest number altogether is a card. The two pairs are two arrangements among many rather than the default — a "book_heat" pair is two subjects that came out level, a "book_gap" pair is the least- and most-borrowed of the ten; use at most ONE of them on a card, and prefer neither if the plain four you have chosen already say something. Deliberately vary which subjects appear from post to post and lean hard on AVOID_IDS here: with only ten subjects this vein repeats itself faster than any other. Never say which way the gap runs, never call a subject popular or neglected, and never draw a conclusion about what Seoul reads — set the numbers down and let the reader do it.
 - "boxoffice" lines are cinema ADMISSIONS on SEOUL screens for ONE day, film by film, from the Korean Film Council's ticketing network. Labels are BARE FILM TITLES, so the opener MUST say IN WORDS that the figures are admissions or tickets, and that they are Seoul's: a title and a bare number leave the reader to guess whether it is people, screens or won. "Seoul at the cinema" is NOT enough on its own and neither is "What Seoul watched" — write e.g. "Cinema admissions in Seoul", "Tickets sold in Seoul's cinemas", "Seats filled in Seoul's cinemas" (관객수 / 티켓 in the Korean), the same case as the world, traffic, price and books lines — and MUST NOT settle on one wording, so write a fresh one rather than reusing the last. ⚠️ These are SEOUL's admissions, NOT the country's: never write "nationwide", "across Korea" or any national framing, and never imply the figures are a film's total. ⚠️ Do NOT put the date in the opener: the day rides on the card automatically as its dateline. ⚠️ Titles are printed exactly as they come, in each language: never translate, shorten or reword a film title. ⚠️ EVERY film on this card gets an "emoji", with no exceptions: the general rule above lets you leave one blank where nothing obvious fits, and that is right for an abstract line but wrong here, since a film is always ABOUT something. Take it from the subject, the genre or the title itself: 🕷 for a Spider-Man film, 👻 for a horror, 🕵 for a detective story, 🐋 for a whale, 🏛 or ⛵ for an ancient epic, 🎞 or 🍿 as a last resort. If a card would go out with one film tagged and another bare, every emoji on it is stripped instead, so a lazy blank costs the whole card its emoji rather than just that line. Own post, never mixed with any other category. ⚠️ The four films offered are the day's FOUR most-watched in Seoul, and you must use ALL FOUR, every time: this card is the complete top four in order, not a selection from a longer list, and dropping one leaves a hole in a ranking that a reader will take for the ranking. Do not number the lines (they are already sorted by value) and do not write an opener that ranks them ("the day's winners", "Seoul's biggest"): the footnote says what the set is, and the arrangement does the rest. Never call a film a hit, a flop or a winner, never say which is beating which, and never remark on the gap between them.
 - "boxhist" lines are a DIFFERENT card from the box office one and never share a post with it: how many SEOUL SCREENS the day's number-one film was on, this date, against the same date five and ten years ago. Each label is a YEAR, then a colon, then the film title (the renderer bolds the year), and each value is a screen count, so the opener MUST say the figures are screens in Seoul and that the years are the same date (e.g. "Screens for Seoul's most-watched film, the same date", "What the most-watched film was playing on"). ⚠️ Say MOST-WATCHED, never "top" or "number one" on their own: the value on this card is a count of SCREENS, so an unqualified "top film" reads as top BY screens and makes the card circular. The ranking is by admissions, and MUST NOT settle on one wording. ⚠️ The lines are a SEQUENCE, newest first, and are never reordered: they are years, not a ranking. ⚠️ Titles and years are printed exactly as given: never translate a title, never drop a year. Every line gets an emoji or the card loses them all, as with the other film card. Never say cinemas grew, shrank, recovered or collapsed, never mention the pandemic, and never explain the change: three numbers and their years are the whole card, and the reader is better at drawing the conclusion than you are.
 - Keep the opener neutral (a time or place framing), EXCEPT on a world post, where it must name the metric as described above. Pick one from OPENERS, or write a short neutral one (max ~5 words) — it must NOT give away or hint at the pairing. Provide it in English and Korean.
@@ -4826,6 +4833,16 @@ def compose(sel, pool):
         scope_ko.append((f'{BOOKS_WINDOW["scope_ko"]} 대출 상위 자료 '
                          f'{BOOKS_WINDOW["records"]}건, '
                          f'최근 {BOOKS_WINDOW["days"]}일', None))
+        if BOOKS_WINDOW['loans']:
+            # The denominator goes ON the card, not just into the arithmetic: a
+            # "1 in 3" whose total the reader cannot see is a number they cannot
+            # check. "Counted", never "all", for the truncation reason above —
+            # and the period slot stays None, as everywhere in this vein, which
+            # carries no dateline at all.
+            scope_en.append((f'Ratio is to all {BOOKS_WINDOW["loans"]} '
+                             f'checkouts counted', None))
+            scope_ko.append((f'집계된 대출 {BOOKS_WINDOW["loans"]}건 전체 대비',
+                             None))
     if 'water' in cats and WATER_PERIOD['en']:
         # Not "Raw water drawn": that only repeats an opener already required
         # to name the metric. What the reader cannot know from the card is that

@@ -79,7 +79,8 @@ class Cache:
         self.real = S.BOOKS_AGG
         S.BOOKS_AGG = self.tmp
         S.BOOKS_WINDOW.update({'days': None, 'scope_en': None,
-                               'scope_ko': None, 'records': None})
+                               'scope_ko': None, 'records': None,
+                               'loans': None})
         return self
 
     def __exit__(self, *exc):
@@ -102,8 +103,10 @@ class TheCacheIsReadOrTheVeinGoesQuiet(unittest.TestCase):
         subs = [x for x in f if x['id'].startswith('book_')]
         self.assertEqual([x['id'] for x in subs[:3]],
                          ['book_8', 'book_3', 'book_4'])
+        # The counts carry their share of the counted total: 11,400 loans
+        # across the ten subjects, so 3,600 is 1 in 3 (see TheShareOfTheCheckouts).
         self.assertEqual([x['value_en'] for x in subs[:3]],
-                         ['3,600', '1,700', '1,200'])
+                         ['3,600 (1 in 3)', '1,700 (1 in 7)', '1,200 (1 in 10)'])
 
     def test_the_subject_names_are_the_harvest_s_words_and_are_pinned(self):
         # The selector rewording 'Applied sciences' to 'Tech' would mislabel a
@@ -331,3 +334,105 @@ class EveryRecordMustLandInASubject(unittest.TestCase):
 # where exactly that hid 8 tests in test_update_projects_note.py).
 if __name__ == '__main__':
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# The share of the checkouts counted: "Literature: 3,700 (1 in 3)"
+# ---------------------------------------------------------------------------
+# A count of 3,700 says nothing about whether that is many, and a card shows
+# FOUR of the ten subjects, so the four alone cannot say what the other six
+# weigh. The ratio does. Both halves of it come from the SAME truncated feed,
+# which is what makes it honest — but that also means it is a share of the
+# checkouts COUNTED and never of all checkouts, and the footnote must say so.
+
+class TheShareOfTheCheckouts(unittest.TestCase):
+    TOTAL = 11400        # the ten fixture subjects, summed
+
+    def facts(self, **kw):
+        with Cache(agg(**kw)):
+            return {f['id']: f for f in S.books_facts()}
+
+    def test_the_ratio_is_the_subjects_share_of_the_counted_total(self):
+        f = self.facts()
+        self.assertEqual(f['book_8']['value_en'], '3,600 (1 in 3)')   # 11,400/3,600
+        # 11,400/400 is 28.5 exactly, and round() is banker's rounding, so it
+        # goes to the EVEN 28 rather than up to 29. Pinned rather than
+        # "corrected": at these magnitudes a half unit means nothing, and the
+        # membership vein rounds the same way.
+        self.assertEqual(f['book_7']['value_en'], '400 (1 in 28)')
+        self.assertEqual(S.BOOKS_WINDOW['loans'], '11,400')
+
+    def test_korean_counts_checkouts_in_korean(self):
+        """Regression: both languages were built from one string, which put the
+        English "(1 in 3)" on the KOREAN card. The counter is 건, and Korean
+        counts one of every three head-final."""
+        f = self.facts()
+        self.assertEqual(f['book_8']['value_ko'], '3,600 (3건 중 1건)')
+        self.assertNotIn('1 in', f['book_7']['value_ko'])
+
+    def test_the_pair_facts_carry_the_same_value_as_their_plain_siblings(self):
+        """book_7 and bookgap_7 are the same subject. Two values for one subject
+        would put a card at odds with itself the moment a pair was picked."""
+        f = self.facts()
+        for pid, plain in (('bookgap_7', 'book_7'), ('bookgap_8', 'book_8')):
+            self.assertEqual(f[pid]['value_en'], f[plain]['value_en'])
+            self.assertEqual(f[pid]['value_ko'], f[plain]['value_ko'])
+
+    def test_a_dead_heat_pair_carries_it_too(self):
+        subs = [{'code': c, 'name_en': en, 'name_ko': ko, 'loans': v, 'titles': 10}
+                for c, en, ko, v in SUBJECTS]
+        subs[2]['loans'] = subs[3]['loans'] = 1200      # 자연과학 / 역사·지리 level
+        f = self.facts(subjects=subs)
+        self.assertEqual(f['bookheat_4']['value_en'], f['book_4']['value_en'])
+        self.assertEqual(f['bookheat_9']['value_en'], f['book_9']['value_en'])
+
+    def test_the_card_still_sorts_by_checkouts(self):
+        """_sortkey strips one trailing parenthetical. A "3,600 · 1 in 3" form
+        would return None and silently drop the size sort off this card."""
+        f = self.facts()
+        self.assertEqual(S._sortkey(f['book_8']['value_en']), ('num', 3600.0))
+        labels = [it['label'] for it in
+                  card([f['book_7'], f['book_8'], f['book_3']])['items_en']]
+        self.assertEqual(labels, ['Literature', 'Social sciences', 'Language'])
+
+    def test_the_footnote_states_the_denominator_and_says_counted(self):
+        """A ratio whose total the reader cannot see is a number they cannot
+        check — and the feed is a cut, so it is the checkouts COUNTED, never
+        all of them."""
+        f = self.facts()
+        c = card([f['book_8'], f['book_3'], f['book_1'], f['book_7']])
+        self.assertIn('11,400', c['note_en'])
+        self.assertIn('checkouts counted', c['note_en'])
+        self.assertNotIn('all checkouts', c['note_en'])
+        self.assertIn('집계된 대출 11,400건', c['note_ko'])
+
+    def test_the_ratio_never_reaches_the_masthead(self):
+        """This vein carries no dateline at all; the note's period slot is None
+        so nothing can lift out of it."""
+        f = self.facts()
+        c = card([f['book_8'], f['book_3'], f['book_1'], f['book_7']])
+        self.assertEqual(S._card_payload(c, 'en')[3], '')
+
+    def test_one_subject_swamping_the_rest_drops_the_ratio_everywhere(self):
+        """All-or-nothing. One total divides every line, so a per-line guard
+        could leave the largest subject bare while the rest carried a ratio:
+        one card, two forms, for no reason a reader could see."""
+        subs = [{'code': c, 'name_en': en, 'name_ko': ko, 'loans': v, 'titles': 10}
+                for c, en, ko, v in SUBJECTS]
+        subs[0]['loans'] = 90000        # 1 in 1 is not a ratio
+        f = self.facts(subjects=subs)
+        self.assertEqual(f['book_8']['value_en'], '90,000')
+        self.assertEqual(f['book_7']['value_en'], '400')     # and not just the big one
+        self.assertIsNone(S.BOOKS_WINDOW['loans'])
+        c = card([f['book_8'], f['book_3'], f['book_1'], f['book_7']])
+        self.assertNotIn('checkouts counted', c['note_en'])
+        self.assertIn('most-borrowed', c['note_en'])         # the scope is unchanged
+
+    def test_the_denominator_is_recomputed_rather_than_kept(self):
+        """Seeded with a lie, a good run must replace it. The footnote prints
+        this number, so a value carried over from an earlier harvest would
+        state a total the card's own figures do not add up to."""
+        with Cache(agg()):
+            S.BOOKS_WINDOW['loans'] = '999,999'
+            S.books_facts()
+        self.assertEqual(S.BOOKS_WINDOW['loans'], '11,400')
