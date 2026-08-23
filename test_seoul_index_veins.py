@@ -702,15 +702,22 @@ class BoxOfficeIsSeoulOnly(unittest.TestCase):
         self.assertTrue(facts)
         self.assertGreaterEqual(state['n'], 2, 'it gave up on the first empty day')
 
-    def test_a_film_without_an_english_title_is_dropped(self):
-        """The English card carries no Hangul, and a romanisation is a guess."""
+    def test_a_film_without_an_english_title_silences_the_day(self):
+        """The English card carries no Hangul and a romanisation is a guess, so
+        a film KOFIC has no English title for cannot go on the card. Since the
+        card is the complete top four, that means no card at all: promoting the
+        fifth film would fill the gap and hide it, which is the fault this vein
+        was rebuilt to remove. The run must say why, or a vein that quietly
+        stops posting looks like one that is simply never chosen."""
         titles = dict(TITLES, **{'movieCd=2': _bo_info('')})
+        import io, contextlib
+        out = io.StringIO()
         with Stub({'searchDailyBoxOfficeList': _bo_rows(FIVE), **titles}):
-            facts = S.boxoffice_facts('KEY')
-        labels = [f['label_en'] for f in facts]
-        self.assertNotIn('스파이더맨', labels)
-        self.assertNotIn('', labels)
-        self.assertIn('The Odyssey', labels)
+            with contextlib.redirect_stdout(out):
+                facts = S.boxoffice_facts('KEY')
+        self.assertEqual(facts, [])
+        self.assertIn('no English title', out.getvalue())
+        self.assertIn('스파이더맨', out.getvalue())
 
     def test_both_titles_are_pinned_as_published(self):
         """A film's Korean title is not a translation of its English one, so
@@ -732,10 +739,63 @@ class BoxOfficeIsSeoulOnly(unittest.TestCase):
     def test_no_key_means_silence_not_an_error(self):
         self.assertEqual(S.boxoffice_facts(None), [])
 
-    def test_a_thin_day_produces_no_card(self):
-        """Two films is not a card, and a two-line card is worse than none."""
-        with Stub({'searchDailyBoxOfficeList': _bo_rows(FIVE[:2]), **TITLES}):
+    def test_a_short_day_produces_no_card(self):
+        """Three films is not this card. The card IS the day's top four, so a
+        short set is not a smaller card but a misleading one: a reader takes
+        four lines with a hole in them for the ranking itself."""
+        with Stub({'searchDailyBoxOfficeList': _bo_rows(FIVE[:3]), **TITLES}):
             self.assertEqual(S.boxoffice_facts('KEY'), [])
+
+    def test_exactly_the_top_four_and_no_pair_facts(self):
+        """Sales and tourism offer ten-odd candidates and a pair is a reason to
+        choose two. This vein offers only what goes on the card, so a pair
+        would be the same films again under another id."""
+        with Stub({'searchDailyBoxOfficeList': _bo_rows(FIVE), **TITLES}):
+            facts = S.boxoffice_facts('KEY')
+        self.assertEqual(len(facts), S.BOXOFFICE_N)
+        self.assertTrue(all(f['pair'] is None for f in facts))
+        self.assertEqual([f['label_en'] for f in facts],
+                         ['The Odyssey', 'Spider-Man', 'Insidious', 'Conan'])
+
+
+class BoxOfficeCardIsAlwaysComplete(unittest.TestCase):
+    """A selector that returns three films must not produce a three-film card.
+
+    The hole is invisible on the card: four titles in descending order read as
+    the ranking whether or not one is missing, which is why this is enforced
+    rather than asked for.
+    """
+
+    def _pool(self):
+        with Stub({'searchDailyBoxOfficeList': _bo_rows(FIVE), **TITLES}):
+            return S.boxoffice_facts('KEY')
+
+    def test_a_missing_film_is_added_back(self):
+        pool = self._pool()
+        picks = [{'id': f['id'], 'emoji': '🎬'} for f in pool[:3]]
+        out = S.complete_boxoffice(picks, pool)
+        self.assertEqual({p['id'] for p in out}, {f['id'] for f in pool})
+
+    def test_a_film_added_back_carries_no_emoji(self):
+        """So even_out_emoji strips the rest: a complete card with no emoji
+        beats a partial one that looks styled."""
+        pool = self._pool()
+        picks = [{'id': f['id'], 'emoji': '🎬'} for f in pool[:3]]
+        added = [p for p in S.complete_boxoffice(picks, pool)
+                 if p['id'] == pool[3]['id']]
+        self.assertEqual(added[0]['emoji'], '')
+
+    def test_a_complete_card_is_untouched(self):
+        pool = self._pool()
+        picks = [{'id': f['id'], 'emoji': ''} for f in pool]
+        self.assertEqual(S.complete_boxoffice(picks, pool), picks)
+
+    def test_a_cross_pair_card_is_left_alone(self):
+        """One film beside another vein's line is a legitimate cross pair, and
+        completing the chart there would wreck the pairing."""
+        pool = self._pool() + [S.fact('crowd_x', 'crowd', 'Hongdae', '1', '1')]
+        picks = [{'id': pool[0]['id'], 'emoji': ''}, {'id': 'crowd_x', 'emoji': ''}]
+        self.assertEqual(S.complete_boxoffice(picks, pool), picks)
 
 class BoxOfficeEmojiAreAllOrNone(unittest.TestCase):
     """Every film carries an emoji or none does.

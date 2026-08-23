@@ -2892,7 +2892,7 @@ def tour_facts(key):
 # Every posted figure is a published row (관객수), never a share or an average.
 KOBIS_BASE = 'https://www.kobis.or.kr/kobisopenapi/webservice/rest'
 KOBIS_SEOUL = '0105001'
-BOXOFFICE_N = 5        # films a card draws from, and English-title calls per run
+BOXOFFICE_N = 4        # films on the card, and English-title calls per run
 SMALL_NUMBERS_EN = {3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven'}
 # Native Korean numerals, which is what 편 takes: 다섯 편, never 오 편.
 SMALL_NUMBERS_KO = {3: '세', 4: '네', 5: '다섯', 6: '여섯', 7: '일곱'}
@@ -2941,7 +2941,7 @@ def boxoffice_facts(kobis_key):
     if not rows:
         return []
 
-    films = []
+    films, dropped = [], []
     for r in rows[:BOXOFFICE_N]:
         try:
             audi = int(r['audiCnt'])
@@ -2950,9 +2950,25 @@ def boxoffice_facts(kobis_key):
         ko_name = (r.get('movieNm') or '').strip()
         en_name = _kobis_title_en(kobis_key, r.get('movieCd', ''))
         if not (audi and ko_name and en_name):
+            dropped.append(ko_name or r.get('movieCd', '?'))
             continue
         films.append((r.get('movieCd'), ko_name, en_name, audi))
-    if len(films) < 3:
+    # ⚠️ All four or nothing. The card IS the day's top four in order, so a
+    # short set is not a smaller card, it is a different and misleading one: a
+    # reader takes four films with a hole in the ranking for the ranking. The
+    # tempting repair, filling the gap from the fifth film, is the same fault
+    # wearing a full card's clothes.
+    #
+    # Say WHY out loud. The likeliest cause is a film with no English title on
+    # file at KOFIC, and a vein that goes quiet for days without explaining
+    # itself is how the books vein spent 34 days dead. If this line turns up
+    # often, the answer is a title table like seoul_index_names_en.json, not a
+    # silent fallback to the next rank.
+    if len(films) < BOXOFFICE_N:
+        if dropped:
+            print(f'boxoffice: no English title for {", ".join(dropped)} '
+                  f'— vein silent this run (needs {BOXOFFICE_N} of the top '
+                  f'{BOXOFFICE_N})')
         return []
 
     BOXOFFICE_D['en'] = f'{day.day} {MONTHS_EN[day.month - 1]} {day.year}'
@@ -2966,26 +2982,13 @@ def boxoffice_facts(kobis_key):
         facts.append(fact(f'bo_{cd}', 'boxoffice', en_name,
                           grouped(audi), grouped(audi), label_ko=ko_name,
                           pin=True, num=audi, unit='people'))
-    # The sales detectors once more: two films that came out level, and the
-    # spread across the five.
-    best = None
-    for i in range(len(films)):
-        for j in range(i + 1, len(films)):
-            a, b = films[i][3], films[j][3]
-            gap = abs(a - b) / max(a, b)
-            if gap <= 0.02 and (best is None or gap < best[0]):
-                best = (gap, films[i], films[j])
-    if best:
-        for cd, ko_name, en_name, audi in (best[1], best[2]):
-            facts.append(fact(f'boheat_{cd}', 'boxoffice', en_name,
-                              grouped(audi), grouped(audi), label_ko=ko_name,
-                              pin=True, pair='bo_heat'))
-    hi, lo = films[0], min(films, key=lambda f: f[3])
-    if hi[3] / max(lo[3], 1) >= 3:
-        for cd, ko_name, en_name, audi in (hi, lo):
-            facts.append(fact(f'bogap_{cd}', 'boxoffice', en_name,
-                              grouped(audi), grouped(audi), label_ko=ko_name,
-                              pin=True, pair='bo_gap'))
+    # No dead-heat or gap pairs here, unlike sales and tourism. Those veins
+    # offer ten-odd candidates and a pair is a reason to choose two of them;
+    # this vein offers exactly the four that go on the card, so a pair would
+    # only be the same films a second time under another id. The arrangement
+    # is already the point: on 22 Aug 2026 Spider-Man alone outsold the three
+    # films beneath it combined, and the four lines in order say so without a
+    # detector pointing at it.
     return facts
 
 
@@ -3429,7 +3432,7 @@ Rules:
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
 - "books" lines are checkouts at SEOUL LIBRARY over the last 60 days, counted by SUBJECT: literature, philosophy, 어학 and the rest, in the library's own classification. Labels are BARE SUBJECT NAMES, so the opener MUST name the library and say these are loans, exactly as the "library" membership lines do — and MUST NOT settle on one wording: "What Seoul Library lent, by subject", "Seoul Library's loans, by subject", "Borrowing at Seoul Library, by subject" and "What went out of Seoul Library" are four of many, so write a fresh one rather than reusing the last. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries — never imply otherwise. ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post, never mixed with any other category. ⚠️ TEN subjects are offered and a card takes four, so there is no one right card and THE EXTREMES ARE NOT COMPULSORY. Do not reach for the biggest subject at the top and the smallest at the bottom every time: four subjects from the middle of the list is a card, the four smallest is a card, and a set leaving out the largest number altogether is a card. The two pairs are two arrangements among many rather than the default — a "book_heat" pair is two subjects that came out level, a "book_gap" pair is the least- and most-borrowed of the ten; use at most ONE of them on a card, and prefer neither if the plain four you have chosen already say something. Deliberately vary which subjects appear from post to post and lean hard on AVOID_IDS here: with only ten subjects this vein repeats itself faster than any other. Never say which way the gap runs, never call a subject popular or neglected, and never draw a conclusion about what Seoul reads — set the numbers down and let the reader do it.
-- "boxoffice" lines are cinema ADMISSIONS on SEOUL screens for ONE day, film by film, from the Korean Film Council's ticketing network. Labels are BARE FILM TITLES, so the opener MUST say IN WORDS that the figures are admissions or tickets, and that they are Seoul's: a title and a bare number leave the reader to guess whether it is people, screens or won. "Seoul at the cinema" is NOT enough on its own and neither is "What Seoul watched" — write e.g. "Cinema admissions in Seoul", "Tickets sold in Seoul's cinemas", "Seats filled in Seoul's cinemas" (관객수 / 티켓 in the Korean), the same case as the world, traffic, price and books lines — and MUST NOT settle on one wording, so write a fresh one rather than reusing the last. ⚠️ These are SEOUL's admissions, NOT the country's: never write "nationwide", "across Korea" or any national framing, and never imply the figures are a film's total. ⚠️ Do NOT put the date in the opener: the day rides on the card automatically as its dateline. ⚠️ Titles are printed exactly as they come, in each language: never translate, shorten or reword a film title. ⚠️ EVERY film on this card gets an "emoji", with no exceptions: the general rule above lets you leave one blank where nothing obvious fits, and that is right for an abstract line but wrong here, since a film is always ABOUT something. Take it from the subject, the genre or the title itself: 🕷 for a Spider-Man film, 👻 for a horror, 🕵 for a detective story, 🐋 for a whale, 🏛 or ⛵ for an ancient epic, 🎞 or 🍿 as a last resort. If a card would go out with one film tagged and another bare, every emoji on it is stripped instead, so a lazy blank costs the whole card its emoji rather than just that line. Own post, never mixed with any other category. ⚠️ The films offered are the day's FIVE most-watched in Seoul, and a card takes three or four of them, so what you build is a SELECTION and not a complete chart: the card says so in its own footnote, so NEVER write an opener claiming a ranking ("the top four", "Seoul's biggest films", "the day's winners") and never number the lines. You are free to leave out the top film or take four from the middle, exactly as with the books subjects. Never call a film a hit, a flop or a winner, never say which is beating which, and never remark on the gap between them.
+- "boxoffice" lines are cinema ADMISSIONS on SEOUL screens for ONE day, film by film, from the Korean Film Council's ticketing network. Labels are BARE FILM TITLES, so the opener MUST say IN WORDS that the figures are admissions or tickets, and that they are Seoul's: a title and a bare number leave the reader to guess whether it is people, screens or won. "Seoul at the cinema" is NOT enough on its own and neither is "What Seoul watched" — write e.g. "Cinema admissions in Seoul", "Tickets sold in Seoul's cinemas", "Seats filled in Seoul's cinemas" (관객수 / 티켓 in the Korean), the same case as the world, traffic, price and books lines — and MUST NOT settle on one wording, so write a fresh one rather than reusing the last. ⚠️ These are SEOUL's admissions, NOT the country's: never write "nationwide", "across Korea" or any national framing, and never imply the figures are a film's total. ⚠️ Do NOT put the date in the opener: the day rides on the card automatically as its dateline. ⚠️ Titles are printed exactly as they come, in each language: never translate, shorten or reword a film title. ⚠️ EVERY film on this card gets an "emoji", with no exceptions: the general rule above lets you leave one blank where nothing obvious fits, and that is right for an abstract line but wrong here, since a film is always ABOUT something. Take it from the subject, the genre or the title itself: 🕷 for a Spider-Man film, 👻 for a horror, 🕵 for a detective story, 🐋 for a whale, 🏛 or ⛵ for an ancient epic, 🎞 or 🍿 as a last resort. If a card would go out with one film tagged and another bare, every emoji on it is stripped instead, so a lazy blank costs the whole card its emoji rather than just that line. Own post, never mixed with any other category. ⚠️ The four films offered are the day's FOUR most-watched in Seoul, and you must use ALL FOUR, every time: this card is the complete top four in order, not a selection from a longer list, and dropping one leaves a hole in a ranking that a reader will take for the ranking. Do not number the lines (they are already sorted by value) and do not write an opener that ranks them ("the day's winners", "Seoul's biggest"): the footnote says what the set is, and the arrangement does the rest. Never call a film a hit, a flop or a winner, never say which is beating which, and never remark on the gap between them.
 - Keep the opener neutral (a time or place framing), EXCEPT on a world post, where it must name the metric as described above. Pick one from OPENERS, or write a short neutral one (max ~5 words) — it must NOT give away or hint at the pairing. Provide it in English and Korean.
 - You may lightly reword an English label for wit, but keep its meaning and DO NOT put any digit in a label.
 - Translate every chosen label to natural Korean (labels only — never restate the number in the label).
@@ -3734,6 +3737,28 @@ def _valid_emoji(s):
     return s
 
 
+def complete_boxoffice(picks, pool):
+    """A box office card carries the day's top four films, or it is not one.
+
+    The vein offers exactly four and the guidance asks for all four, but a
+    selector that returns three would produce a card with a hole in its
+    ranking, which a reader takes for the ranking: that is the fault the
+    "of the day's five most-watched" footnote was invented to admit to, and it
+    is better prevented than admitted.
+
+    Own-vein cards only. A cross pair legitimately puts one or two films beside
+    another vein's line, and completing the chart there would wreck the pairing.
+    A film added back here carries no emoji, so even_out_emoji strips the rest:
+    a complete card with no emoji, rather than a partial one that looks styled.
+    """
+    by_id = {f['id']: f for f in pool}
+    if not picks or any(by_id[p['id']]['cat'] != 'boxoffice' for p in picks):
+        return picks
+    have = {p['id'] for p in picks}
+    return picks + [{'id': f['id'], 'emoji': ''} for f in pool
+                    if f['cat'] == 'boxoffice' and f['id'] not in have]
+
+
 def even_out_emoji(lines, cats):
     """All the films carry an emoji, or none of them do.
 
@@ -4026,6 +4051,7 @@ def unsaid_metrics(opener, metrics):
 def compose(sel, pool):
     by_id = {f['id']: f for f in pool}
     picks = [p for p in sel.get('picks', []) if p.get('id') in by_id]
+    picks = complete_boxoffice(picks, pool)
     if len(picks) < 3:
         raise RuntimeError(f'selector returned too few valid picks: {len(picks)}')
     spotlight = any(by_id[p['id']]['cat'] == 'spotlight' for p in picks)
@@ -4310,23 +4336,22 @@ def compose(sel, pool):
         src_en += ' · KOFIC'
         src_ko += ' · 영화진흥위원회'
         if BOXOFFICE_D['en']:
-            # ⚠️ "of the day's five most-watched" is not padding. The vein offers
-            # the day's top five and a card takes three or four of them, so the
-            # set is a SELECTION and a box office card reads as a chart: the
-            # first live card showed ranks 1, 2, 3 and 5, dropping the fourth
-            # film silently, and nothing on it said the ranking was not
-            # complete. The phrase stays true whichever subset is chosen,
-            # including the case where the top four are taken.
+            # The card is the day's top four, in order, always. It said "of the
+            # day's five most-watched" for an hour on 23 Aug 2026, while the
+            # selector was free to choose four of five: that was honest about a
+            # card with a hole in its ranking, but a hole in a ranking is a
+            # worse card than a fixed one. What the vein lost is variety
+            # between days, which the chart itself supplies as it moves.
             # Spelled out, as the card spells out months: "the day's 5
             # most-watched" is prose, not a figure, and the only numerals on
             # this card should be the ones being reported.
-            scope_en.append((f'Seoul screens, of the day’s '
+            scope_en.append((f'Seoul screens, the day’s '
                              f'{SMALL_NUMBERS_EN.get(BOXOFFICE_N, BOXOFFICE_N)} '
                              f'most-watched', BOXOFFICE_D['en']))
             # 편 is a counter and takes a space after a spelled-out numeral:
             # 다섯 편, not 다섯편, which the first render produced.
             scope_ko.append((f'서울 지역 상영, 그날 관객수 상위 '
-                             f'{SMALL_NUMBERS_KO.get(BOXOFFICE_N, BOXOFFICE_N)} 편 중',
+                             f'{SMALL_NUMBERS_KO.get(BOXOFFICE_N, BOXOFFICE_N)} 편',
                              BOXOFFICE_D['ko']))
     if uses_books and BOOKS_WINDOW['days']:
         # ⚠️ The window is the whole reason this vein is publishable and it is
