@@ -101,5 +101,72 @@ class PinnedThreadCreditsEveryPublisher(unittest.TestCase):
                              f'source reply is {n} characters')
 
 
+def _card(alt='About this account'):
+    """A methodology card as the repo returns it: no text, one image."""
+    return {'uri': 'at://did/app.bsky.feed.post/x', 'value': {
+        'text': '', 'createdAt': '2026-08-23T00:00:00Z',
+        'embed': {'images': [{'alt': alt}]}}}
+
+
+def _credits(text=None):
+    return {'uri': 'at://did/app.bsky.feed.post/y', 'value': {
+        'text': M.SOURCE_LINE if text is None else text,
+        'createdAt': '2026-08-23T00:00:01Z'}}
+
+
+def _thread(cards=None, last=None):
+    return [_card() for _ in range(len(M.CARDS) if cards is None else cards)] + [
+        _credits() if last is None else last]
+
+
+class ReplaceRecognisesItsOwnThread(unittest.TestCase):
+    """Guards --replace, which deletes whatever was pinned when it started.
+
+    Nothing guarantees the pinned post is a methodology thread. Pin a daily
+    card by hand, forget about it, and a later --replace would delete that card
+    and its source reply instead. is_methodology_thread is the only thing
+    standing between that mistake and a permanent deletion, so its false cases
+    matter more than its true one.
+    """
+
+    def test_a_real_thread_is_recognised(self):
+        self.assertTrue(M.is_methodology_thread(_thread()))
+
+    def test_the_wrong_number_of_records_is_refused(self):
+        for n in (0, len(M.CARDS) - 1, len(M.CARDS) + 1):
+            self.assertFalse(M.is_methodology_thread(_thread(cards=n)),
+                             f'{n} cards + credits should not be recognised')
+
+    def test_a_card_with_text_is_refused(self):
+        """A daily index card is an image WITH a caption of hashtags.
+
+        That is the shape most likely to be pinned by mistake, so it is the one
+        the check has to reject.
+        """
+        thread = _thread()
+        thread[0]['value']['text'] = '#Seoul #서울'
+        self.assertFalse(M.is_methodology_thread(thread))
+
+    def test_a_card_without_an_image_is_refused(self):
+        thread = _thread()
+        thread[1]['value'].pop('embed')
+        self.assertFalse(M.is_methodology_thread(thread))
+
+    def test_a_last_post_that_is_not_the_credits_is_refused(self):
+        self.assertFalse(M.is_methodology_thread(
+            _thread(last=_credits('Sources: data.seoul.go.kr'))))
+
+    def test_the_credits_still_open_with_the_prefix(self):
+        """The recogniser reads SOURCE_PREFIX, the thread posts SOURCE_LINE.
+
+        Reword the line without the prefix and every future --replace would
+        refuse to clean up after itself, silently, one run too late.
+        """
+        self.assertTrue(M.SOURCE_LINE.startswith(M.SOURCE_PREFIX))
+
+    def test_replace_is_a_recognised_argument(self):
+        self.assertIn('--replace', M._KNOWN_ARGS)
+
+
 if __name__ == '__main__':
     unittest.main()

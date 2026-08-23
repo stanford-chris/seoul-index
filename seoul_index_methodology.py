@@ -22,7 +22,21 @@ trailing source reply).
 Usage:
   python3 seoul_index_methodology.py --dry-run   # render cards to cwd, print plan
   python3 seoul_index_methodology.py             # post the thread
-  python3 seoul_index_methodology.py --pin        # post, then pin the root
+  python3 seoul_index_methodology.py --pin       # post, then pin the root
+  python3 seoul_index_methodology.py --replace   # post, pin, delete the old thread
+
+--replace exists because the thread is not edited, it is re-posted: a card is an
+image, so changing a word means seven new records. Without it the superseded
+thread stays in the feed, unpinned and wrong, and the only tool for removing it
+was wipe_posts.py, which takes the whole account. --replace implies --pin, and
+deletes ONLY the records of the thread that was pinned when the run started, and
+only after the new thread is up and pinned. The order matters: an account left
+without a pinned methodology thread for a few seconds is recoverable, one whose
+credits were deleted before the replacement posted is not.
+
+The superseded wording is printed before it goes rather than archived to a file
+(wipe_posts.py archives, because the wording of a daily card exists nowhere
+else). This thread's prose IS the code, so git already holds every version.
 """
 
 import sys
@@ -33,13 +47,17 @@ from atproto import Client, client_utils, models
 
 from seoul_index_card import render_prose_card, curly
 from seoul_index_post import CONFIG, KEYCHAIN_SERVICE, keychain_password
+# all_records only reads the repo. It lives in wipe_posts because that is where
+# it was first needed, and --replace needs the same listing: the records of one
+# thread, straight from the PDS rather than from a feed view.
+from wipe_posts import all_records
 import json
 
 # Same lesson as seoul_index_post: membership tests mean an unrecognised flag
 # would silently run LIVE, so refuse anything unknown before doing anything.
 # (Until 23 Jul 2026 seoul_index_post's import-time guard covered this file by
 # accident — and rejected the legitimate --pin while it was at it.)
-_KNOWN_ARGS = {'--dry-run', '--pin'}
+_KNOWN_ARGS = {'--dry-run', '--pin', '--replace'}
 _unknown = [a for a in sys.argv[1:] if a not in _KNOWN_ARGS]
 if _unknown:
     sys.exit(f'Unknown argument(s): {" ".join(_unknown)}. '
@@ -47,28 +65,40 @@ if _unknown:
              f'Refusing to run (a bare run posts live).')
 
 DRY_RUN = '--dry-run' in sys.argv
-PIN = '--pin' in sys.argv
+REPLACE = '--replace' in sys.argv
+# Replacing without pinning would leave the account with no pinned thread at all,
+# which is the one outcome worse than a stale one.
+PIN = '--pin' in sys.argv or REPLACE
 HERE = Path(__file__).parent
 
 # --- content (exact approved prose; thread-marker emoji dropped for the card) --
 
-EN_INTRO = ('This account provides a portrait of Seoul, based mainly on its open data '
-            '(data.seoul.go.kr). Fixed counts appear exactly as published: subway '
-            'taps, libraries, Wi-Fi, events, quarterly sales. The figures are the '
-            'city’s; an A.I. chooses which to set side by side and largely '
-            'writes the posts.')
+# Rewritten 23 Aug 2026. The old wording named five Seoul Open Data examples
+# and said the figures were “the city’s”, which was true when the account had one
+# publisher and misleading once it had eleven: a reader met a KMA temperature or
+# a World Bank line with nothing on the card to say the account went there. The
+# example list is now drawn from across the veins, and the closing sentence
+# points at the credits rather than repeating a publisher name that would go
+# stale the next time a vein lands.
+EN_INTRO = ('This account provides a portrait of Seoul, based mainly on the city’s own '
+            'open data (data.seoul.go.kr), with other publishers alongside it: weather, '
+            'rivers, property, health, tourism, and Seoul set against other cities and '
+            'countries. Counts appear exactly as published: subway taps, libraries, '
+            'quarterly sales, apartment filings, what the central library lends. An '
+            'A.I. chooses which to set side by side and largely writes the posts. '
+            'Every publisher is credited at the end of this thread.')
 EN_CAVEAT = ('Crowd figures are different: How many people are in a place, and '
              'their age, gender and visitor split, are not head counts. KT models '
              'them from mobile-signal data and scales to the whole city, so read '
              'them as directional, most reliable for ages 20–50.')
-KO_INTRO = ('‘숫자로 보는 서울’은 '
-            '주로 서울시 공공데이터(data.seoul.go.kr)로 '
-            '그리는 서울의 초상입니다. '
-            '지하철 승하차, 도서관·와이파이 '
-            '수, 행사, 분기별 매출 등 고정 '
-            '수치는 공개된 값 그대로입니다. '
-            '숫자는 서울시의 데이터 그대로이고, '
-            '조합과 글쓰기는 대부분 A.I.가 합니다.')
+KO_INTRO = ('‘숫자로 보는 서울’은 주로 서울시 '
+            '공공데이터(data.seoul.go.kr)에 기상·하천·부동산·보건·관광 '
+            '등 다른 기관의 자료를 더해 그리는 서울의 '
+            '초상입니다. 다른 도시·국가와 비교한 수치도 '
+            '있습니다. 지하철 승하차, 도서관 수, 분기별 매출, '
+            '아파트 실거래, 서울도서관 대출 등 고정 수치는 '
+            '공개된 값 그대로입니다. 조합과 글쓰기는 대부분 '
+            'A.I.가 하며, 모든 출처는 이 스레드 마지막에 있습니다.')
 # The original plaintext thread signed off "🤖 자동 계정"; the card era
 # dropped the emoji but stranded "자동 계정" as a cut-off-looking fragment.
 # Dropped entirely (23 Jul 2026): the EN card has no equivalent line and
@@ -117,7 +147,12 @@ CARDS = [
 ]
 
 # Every publisher the bot draws on, each hyperlinked in the trailing reply.
-SOURCE_LINE = ('Sources · 출처: data.seoul.go.kr, kosis.kr, data-explorer.oecd.org, '
+# The trailing reply always opens with this, and no card post carries text at
+# all, which is how --replace tells a methodology thread from any other thread
+# it might find pinned. Kept as its own constant so the recogniser and the line
+# itself cannot drift apart.
+SOURCE_PREFIX = 'Sources · 출처: '
+SOURCE_LINE = (SOURCE_PREFIX + 'data.seoul.go.kr, kosis.kr, data-explorer.oecd.org, '
                'rt.molit.go.kr, data.kma.go.kr, airport.co.kr, '
                'opendata.hira.or.kr, mcst.go.kr, know.tour.go.kr, '
                'hrfco.go.kr, data.worldbank.org')
@@ -185,6 +220,12 @@ def main():
     bsky = Client()
     bsky.login(handle, password)
 
+    # Read this before posting: once the new root is pinned the old uri is gone
+    # from the profile record, and with it the only pointer to what to delete.
+    old_root_uri = current_pinned_uri(bsky) if REPLACE else None
+    if REPLACE and old_root_uri is None:
+        print('--replace: nothing is pinned, so there is no thread to replace.')
+
     def _reply(parent_ref, root_ref):
         return models.AppBskyFeedPost.ReplyRef(parent=parent_ref, root=root_ref)
 
@@ -209,6 +250,9 @@ def main():
         pin_post(bsky, root_ref)
         print('Pinned the thread root.')
 
+    if REPLACE and old_root_uri:
+        replace_old_thread(bsky, old_root_uri)
+
 
 def pin_post(bsky, root_ref):
     """Pin root_ref by updating ONLY the pinned_post field of the existing
@@ -223,6 +267,80 @@ def pin_post(bsky, root_ref):
         models.ComAtprotoRepoPutRecord.Data(
             repo=bsky.me.did, collection='app.bsky.actor.profile', rkey='self',
             record=record, swap_record=got.cid))
+
+
+def current_pinned_uri(bsky):
+    """The uri of the currently pinned post, or None if nothing is pinned."""
+    got = bsky.com.atproto.repo.get_record(
+        models.ComAtprotoRepoGetRecord.Params(
+            repo=bsky.me.did, collection='app.bsky.actor.profile', rkey='self'))
+    pinned = getattr(got.value, 'pinned_post', None)
+    return pinned.uri if pinned else None
+
+
+def old_thread_records(did, root_uri):
+    """Every record of the thread rooted at root_uri, oldest first.
+
+    A reply names its root, so one pass over the repo collects the whole thread
+    without walking parent links. Listed from the PDS rather than from a thread
+    view for the same reason wipe_posts lists it that way: a view can drop
+    replies, and the source reply is the one post here with no image on it.
+    """
+    _, recs = all_records(did)
+    mine = [r for r in recs
+            if r['uri'] == root_uri
+            or (((r['value'].get('reply') or {}).get('root') or {}).get('uri')
+                == root_uri)]
+    return sorted(mine, key=lambda r: r['value']['createdAt'])
+
+
+def is_methodology_thread(recs):
+    """Does this look like a thread THIS script posted?
+
+    --replace deletes whatever was pinned, and what is pinned is not guaranteed
+    to be a methodology thread: pin a daily card by hand, forget, and a later
+    --replace would take that card and every reply under it. So the shape is
+    checked first, and it is a shape no daily post has: exactly len(CARDS)
+    captioned-nothing image posts, then one text reply opening with the credits.
+    A card post carries empty text by construction (Bluesky renders text above
+    the image, so a caption cannot sit under the card).
+    """
+    if len(recs) != len(CARDS) + 1:
+        return False
+    *cards, last = recs
+    if any((r['value'].get('text') or '') for r in cards):
+        return False
+    if not all((r['value'].get('embed') or {}).get('images') for r in cards):
+        return False
+    return (last['value'].get('text') or '').startswith(SOURCE_PREFIX)
+
+
+def replace_old_thread(bsky, old_root_uri):
+    """Delete the superseded thread, after printing the wording it takes with
+    it. Refuses, loudly and without deleting anything, if what was pinned is not
+    a methodology thread: by this point the replacement is already up, so the
+    safe failure is to leave both threads standing and say so."""
+    recs = old_thread_records(bsky.me.did, old_root_uri)
+    print(f'\nSuperseded thread, {len(recs)} record(s) '
+          f'(rooted at {old_root_uri.split("/")[-1]}):')
+    for r in recs:
+        v = r['value']
+        body = v.get('text') or ' / '.join(
+            i.get('alt', '') for i in (v.get('embed') or {}).get('images', []))
+        print(f'  {r["uri"].split("/")[-1]}  {body[:100].replace(chr(10), " ")}')
+
+    if not is_methodology_thread(recs):
+        sys.exit('\nThat is not the shape of a methodology thread, so nothing '
+                 'was deleted. The new thread is posted and pinned; the old one '
+                 'is still up. Sort it out by hand.')
+
+    failed = [r['uri'] for r in recs if not bsky.delete_post(r['uri'])]
+    _, left = all_records(bsky.me.did)
+    survivors = [r['uri'] for r in recs if r['uri'] in {x['uri'] for x in left}]
+    print(f'Deleted {len(recs) - len(survivors)} of {len(recs)}.')
+    if failed or survivors:
+        sys.exit(f'Deletion incomplete: {len(failed)} call(s) failed, '
+                 f'{len(survivors)} record(s) still in the repo.')
 
 
 if __name__ == '__main__':

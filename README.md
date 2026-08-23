@@ -134,12 +134,13 @@ Every post hyperlinks its source.
 | --- | --- |
 | `seoul_index_post.py` | Harvest, select, compose, render and post one index (English + Korean card thread). |
 | `seoul_index_card.py` | Render an index or prose card to a PNG (headless Chrome, cropped with Pillow); the poster falls back to plaintext if it fails. |
-| `seoul_index_methodology.py` | Post the pinned methodology / "about" thread as prose cards. |
+| `seoul_index_methodology.py` | Post the pinned methodology / "about" thread as prose cards. A card is an image, so changing a word means re-posting all seven records: `--replace` posts the new thread, pins it, then deletes the one that was pinned when the run started. It deletes only after the replacement is up, and only if what was pinned has the shape this script posts (six captionless image posts, then the credits reply), since whatever is pinned is not guaranteed to be its own thread. |
 | `seoul_index_sales.py` | Monthly full scan of the commercial-district sales dataset into `sales_agg.json` (the poster reads this cheaply). |
 | `seoul_index_books_harvest.py` | Weekly harvest of Seoul Library's 60-day loans by subject into `books_agg.json`, like the sales scan. Re-reads the library's own published window every run and aborts if it cannot (see Data sources). |
 | `seoul_index_crowd_log.py` | Crowd sampler, hourly from 05:00 to 23:00; appends observed readings to `crowd_history.jsonl` so the bot can say what a place is *usually* like. |
 | `net_guard.py` | Waits for a route out before harvesting, so a post is delayed rather than lost when the machine wakes without a network. |
 | `test_seoul_index_selection.py` | Tests for the vein floor, the repeat guard and the spotlight flatness rule. No network, no model call, nothing posted. |
+| `test_seoul_index_methodology.py` | Cross-file tests that the pinned thread still credits every publisher the daily posts credit, clickably, and that `--replace` refuses to delete a thread that is not its own. No network, nothing posted. |
 | `seoul_index_names_harvest.py` | Regenerate `seoul_index_names_en.json` from OpenStreetMap. Run occasionally: stations open a few times a year. |
 | `seoul_index_names_en.json` | Korean → English names for stations and districts, so the English card carries no Hangul. |
 | `seoul_index_config.example.json` | Template for the gitignored `seoul_index_config.json`. |
