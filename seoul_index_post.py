@@ -1366,8 +1366,18 @@ def level_facts(hrfco_key):
     if not tiers:
         return []
 
-    LEVEL_PERIOD['en'] = _ampm_en(when.hour)
-    LEVEL_PERIOD['ko'] = _ampm_ko(when.hour)
+    # Dated and capitalised on the same rule as the river card's hour, and for
+    # a sharper reason: this scope entry is the card's only datable period, so
+    # it is always the one lifted to the masthead dateline, where a bare
+    # lowercase "3 p.m." headed a card about a river in flood without saying
+    # which day it was in flood. A card that may be read back weeks later, and
+    # the one card on this account where the reader's question is when.
+    # ⚠️ Capitalise HERE, not in _ampm_en, which also feeds the spotlight
+    # labels that read "... (noon)" mid-phrase. See river_facts.
+    LEVEL_PERIOD['en'] = (_ampm_en(when.hour).capitalize()
+                          + f', {when.day} {MONTHS_EN[when.month - 1]}')
+    LEVEL_PERIOD['ko'] = (_ampm_ko(when.hour)
+                          + f', {when.month}월 {when.day}일')
     # Deliberately NOT "The Han at Jamsu Bridge": the opener already names the
     # river and the gauge, and a pinned label repeating it word for word gets
     # past dedupe_labels (pins are exempt) and onto the card twice. Sorted by

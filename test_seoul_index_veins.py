@@ -544,6 +544,23 @@ class LevelIsConditional(unittest.TestCase):
     def test_no_key_is_silence_not_a_crash(self):
         self.assertEqual(S.level_facts(None), [])
 
+    def test_the_hour_is_dated_and_capitalised(self):
+        # This period is the card's only datable one, so it is always lifted to
+        # the masthead dateline. It read a bare lowercase "7 p.m." until
+        # 23 August 2026 — no day at all, on the one card a reader may come back
+        # to weeks later asking exactly that. See RiverOpenerAndDateline.
+        self.facts([('202608211900', 4.62)])
+        self.assertEqual(S.LEVEL_PERIOD['en'], '7 p.m., 21 August')
+        self.assertEqual(S.LEVEL_PERIOD['ko'], '오후 7시, 8월 21일')
+
+    def test_the_word_hours_lift_but_the_numerals_do_not(self):
+        self.facts([('202608210000', 4.62)])
+        self.assertEqual(S.LEVEL_PERIOD['en'], 'Midnight, 21 August')
+        self.facts([('202608211200', 4.62)])
+        self.assertEqual(S.LEVEL_PERIOD['en'], 'Noon, 21 August')
+        self.facts([('202608210800', 4.62)])
+        self.assertEqual(S.LEVEL_PERIOD['en'], '8 a.m., 21 August')
+
 
 # ---------------------------------------------------------------------------
 # SeoulLibraryMemberInfo
