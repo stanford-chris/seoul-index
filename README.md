@@ -8,6 +8,45 @@ The account is written by A.I. and says so in its profile. This repository is pu
 
 **Python owns every number.** It harvests the data, formats each value and detects the sharp juxtapositions. A `claude -p` step only *curates* (which lines, in what order, and a neutral opener), lightly rewords English labels and *translates* the labels to Korean. Claude never emits a numeric value: the poster reuses Python's exact value string in both languages, and a digit-guard rejects any Claude-written label that contains a figure's digits. So a hallucinated number cannot reach a post.
 
+### The labels are checked too
+
+The digit-guard covers the numbers. It says nothing about the words beside
+them, and until 23 August 2026 nothing did: a reworded English label and every
+Korean label went to a live card unread.
+
+An audit of 71 published cards found 7 real problems. **Five were the same
+shape and all five were on a cross-vein card.** The reason is structural rather
+than careless. A collision card is required to take a neutral opener, because a
+vein-specific one would falsely frame the other vein's line; and every rule
+that makes a bare label safe assumes the opener names the metric. Both cannot
+hold, so on those cards the metric has nowhere to live, and one went out
+reading "Seodaemun Prison History Hall: 25,343" with nothing saying those were
+a month's visitors. Not one single-vein card was flagged. The other two were a
+Korean line saying 체결된 (concluded) where the English said "filed", which is a
+different stage of the same transaction.
+
+`check_labels` now runs at the end of `compose()`, after the trim and after the
+river and transport openers are rewritten, so it reads the wording the card
+will actually draw. It reports only three things: an English label that no
+longer says what the source label says, a Korean label that says something
+different from the English, and a label that means nothing read with its
+opener. Wit, brevity and a dropped unit conversion are explicitly not its
+business.
+
+A flagged label falls back to the pool's own label, the one wording on the card
+guaranteed to say what its number is. That fallback is the one `clean_label`
+already used for a label containing a figure's digits; this widens what can
+send a label back to it. ⚠️ A flagged **Korean** label falls back to the
+English source label, which is what the card already does when the selector
+returns no Korean at all. A line of English on a Korean card reads oddly, and
+is better than a Korean line making a claim the data does not carry.
+
+Every verdict is logged to `label_checks.jsonl`, rejections included, and a
+rejection is reported to `~/Scripts/observe.py` where that exists, so a check
+firing three weeks running reads as one recurring condition. A check that
+cannot run is not a failure: the card goes out unchecked, as every card did
+before, and the log says the check was the thing that failed.
+
 ## How a post is built
 
 1. **Harvest** a pool of candidate facts from the live and cached data sources (see below). Each fact carries an exact, pre-formatted value.

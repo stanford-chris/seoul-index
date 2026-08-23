@@ -2028,7 +2028,17 @@ BOOKS_AGG = HERE / 'books_agg.json'
 # the question to matter.
 # 'records' is pre-formatted here rather than in compose(), where a LOCAL named
 # `grouped` (the cross-pair layout flag) shadows the grouped() helper.
-BOOKS_WINDOW = {'days': None, 'scope_en': None, 'scope_ko': None, 'records': None}
+# 'loans' is the total across every subject, pre-formatted like 'records' and
+# for the same reason. It is the denominator behind each line's "(1 in N)" and
+# the footnote states it, because a ratio whose denominator is not on the card
+# is a number the reader cannot check.
+BOOKS_WINDOW = {'days': None, 'scope_en': None, 'scope_ko': None,
+                'records': None, 'loans': None}
+# A ratio needs a denominator at least twice its numerator; below that "1 in 1"
+# is not a ratio at all. Applied to the WHOLE card rather than line by line (see
+# books_facts): every line divides by the same total, so either the device works
+# for all of them or the card drops it and shows bare counts.
+BOOKS_RATIO_MIN = 2
 # A rolling 60-day window read months ago is not a fact about now. The harvest is
 # monthly, so anything older than this means the job has stopped and the vein
 # should go quiet rather than keep posting a window it no longer knows the end of.
@@ -2099,9 +2109,39 @@ def books_facts():
     BOOKS_WINDOW['scope_ko'] = agg.get('scope_ko') or '서울도서관'
 
     subs.sort(key=lambda s: (-s['loans'], s['code']))
+    # Each subject's share of the checkouts counted, as "1 in 3" rather than
+    # "32%" — the same form the membership vein uses, and the reason a card
+    # showing FOUR of the ten subjects can still say what the other six weigh.
+    #
+    # ⚠️ "of the checkouts COUNTED", never "of all checkouts". The feed is a cut
+    # at the 3,000 most-borrowed items and the truncation need not fall evenly
+    # across subjects, so it bends the shares exactly as it bends the totals.
+    # Both halves of this ratio come from that same cut, which is what makes it
+    # honest: unlike the membership ratio, there is no second population
+    # involved and so no caveat beyond the scope the footnote already carries.
+    #
+    # All-or-nothing, and deliberately so. One total divides every line, so a
+    # per-line guard could leave the largest subject bare while the rest carried
+    # a ratio — one card, two forms, for no reason a reader could see.
+    total = sum(s['loans'] for s in subs)
+    ratio = {}
+    # Cleared before it is set, never merely overwritten: a run that computes no
+    # ratio must not inherit the last run's denominator and footnote a card
+    # whose values carry none.
+    BOOKS_WINDOW['loans'] = None
+    if total > 0 and all(round(total / s['loans']) >= BOOKS_RATIO_MIN
+                         for s in subs):
+        ratio = {s['code']: round(total / s['loans']) for s in subs}
+        BOOKS_WINDOW['loans'] = grouped(total)
+
+    def _val(s):
+        # Trailing parenthetical, as on the membership lines: _sortkey() strips
+        # one before reading a magnitude, so the card keeps its size order.
+        v = grouped(s['loans'])
+        return f'{v} (1 in {grouped(ratio[s["code"]])})' if s['code'] in ratio else v
+
     facts = [fact(f'book_{s["code"]}', 'books', s['name_en'],
-                  grouped(s['loans']), grouped(s['loans']),
-                  pin=True, label_ko=s['name_ko'])
+                  _val(s), _val(s), pin=True, label_ko=s['name_ko'])
              for s in subs]
     # Dead heat and widest gap, the same two detectors the sales vein carries:
     # what is worth posting about a ranking is where it is level and where it is
@@ -2116,11 +2156,11 @@ def books_facts():
     if best:
         for s in (best[1], best[2]):
             facts.append(fact(f'bookheat_{s["code"]}', 'books', s['name_en'],
-                              grouped(s['loans']), grouped(s['loans']),
+                              _val(s), _val(s),
                               pair='book_heat', pin=True, label_ko=s['name_ko']))
     for s in (subs[-1], subs[0]):
         facts.append(fact(f'bookgap_{s["code"]}', 'books', s['name_en'],
-                          grouped(s['loans']), grouped(s['loans']),
+                          _val(s), _val(s),
                           pair='book_gap', pin=True, label_ko=s['name_ko']))
     return facts
 
