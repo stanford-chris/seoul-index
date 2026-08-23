@@ -189,11 +189,14 @@ STARVE_MIN_FACTS = 3
 # 2022, 2025, which a reader takes for a bug before they take it for an
 # ordering. The infant card escaped that only because its fall happens to be
 # monotonic — luck, not design, and it scrambles the moment a band ticks up.
-ORDERED_CATS = {'level', 'complaint', 'infant'}
+# 'boxhist' is three years of one date, newest first: a sequence, like the
+# complaint and infant year lines, and value-sorting it would scramble the
+# years the moment a middle one came out highest.
+ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist'}
 
 # Veins whose lines are all the same KIND of thing, where a partial set of line
 # emoji reads as an oversight rather than a judgement. See even_out_emoji.
-EMOJI_ALL_OR_NONE = {'boxoffice'}
+EMOJI_ALL_OR_NONE = {'boxoffice', 'boxhist'}
 
 # Curated live-crowd locations (citydata_ppltn AREA_NM, all verified to resolve).
 # A mix of packed / quiet / touristy / young so contrasts are available.
@@ -2897,6 +2900,15 @@ SMALL_NUMBERS_EN = {3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven'}
 # Native Korean numerals, which is what 편 takes: 다섯 편, never 오 편.
 SMALL_NUMBERS_KO = {3: '세', 4: '네', 5: '다섯', 6: '여섯', 7: '일곱'}
 BOXOFFICE_LOOKBACK = 3   # days to walk back before giving up on a day's rows
+# The screens frame: the top film's screen count on this date, this many years
+# back. ⚠️ NOT twenty. The ticketing network was still being rolled out in the
+# 2000s — about half of screens in 2005, 86% in 2006, 95% in 2007, 98% by 2008
+# — and the API's own numbers show it, the top film sitting on 27 Seoul screens
+# in Aug 2004 and 89 in 2006. A 2006 figure is a smaller share of cinemas
+# reporting, not a smaller audience, so setting it against today would compare
+# coverage while looking like it compares cinemas. Both years here are inside
+# the ≥98% era. Twenty years becomes honest in 2028 on its own.
+SCREENS_YEARS = (5, 10)
 # Set by boxoffice_facts() so compose() can date the card.
 BOXOFFICE_D = {'en': None, 'ko': None}
 
@@ -2993,7 +3005,60 @@ def boxoffice_facts(kobis_key):
     # is already the point: on 22 Aug 2026 Spider-Man alone outsold the three
     # films beneath it combined, and the four lines in order say so without a
     # detector pointing at it.
-    return facts
+    return facts + screens_facts(kobis_key, day, rows[0])
+
+
+def _same_date(day, years_back):
+    """This date, N years ago. 29 February falls back to the 28th, which is
+    what a leap day has to do rather than raise."""
+    try:
+        return day.replace(year=day.year - years_back)
+    except ValueError:
+        return day.replace(year=day.year - years_back, day=28)
+
+
+def screens_facts(kobis_key, day, today_row):
+    """How many Seoul screens the day's top film is on, against the same date
+    five and ten years ago.
+
+    A different card from the admissions one and a different kind of figure, so
+    a different category: this is about the cinemas rather than the audience,
+    and on 22 August it runs 382 screens against 224 five years back and 161
+    ten. Each line is a published scrnCnt for a published number-one film.
+
+    Three lines or none. Two years is a comparison, not a card, and a year
+    whose top film has no English title on file cannot be shown at all.
+    """
+    rows = [(day, today_row)]
+    for back in SCREENS_YEARS:
+        d = _same_date(day, back)
+        try:
+            r = http_get_json(f'{KOBIS_BASE}/boxoffice/searchDailyBoxOfficeList.json'
+                              f'?key={kobis_key}&targetDt={d:%Y%m%d}'
+                              f'&wideAreaCd={KOBIS_SEOUL}')
+            got = r['boxOfficeResult']['dailyBoxOfficeList']
+        except (RuntimeError, KeyError, TypeError):
+            continue
+        if got:
+            rows.append((d, got[0]))
+
+    facts = []
+    for d, r in rows:
+        try:
+            scrn = int(r['scrnCnt'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        ko_name = (r.get('movieNm') or '').strip()
+        en_name = _kobis_title_en(kobis_key, r.get('movieCd', ''))
+        if not (scrn and ko_name and en_name):
+            continue
+        # The year rides IN the label, not on a dateline: each line is a
+        # different year, so no single period covers the card, and the year is
+        # the thing being compared rather than a caption for the whole.
+        facts.append(fact(f'boxscrn_{d:%Y}', 'boxhist',
+                          f'{en_name}, {d.year}', grouped(scrn), grouped(scrn),
+                          label_ko=f'{ko_name}, {d.year}', pin=True))
+    return facts if len(facts) >= 3 else []
 
 
 def _url(s):
@@ -3437,6 +3502,7 @@ Rules:
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
 - "books" lines are checkouts at SEOUL LIBRARY over the last 60 days, counted by SUBJECT: literature, philosophy, 어학 and the rest, in the library's own classification. Labels are BARE SUBJECT NAMES, so the opener MUST name the library and say these are loans, exactly as the "library" membership lines do — and MUST NOT settle on one wording: "What Seoul Library lent, by subject", "Seoul Library's loans, by subject", "Borrowing at Seoul Library, by subject" and "What went out of Seoul Library" are four of many, so write a fresh one rather than reusing the last. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries — never imply otherwise. ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post, never mixed with any other category. ⚠️ TEN subjects are offered and a card takes four, so there is no one right card and THE EXTREMES ARE NOT COMPULSORY. Do not reach for the biggest subject at the top and the smallest at the bottom every time: four subjects from the middle of the list is a card, the four smallest is a card, and a set leaving out the largest number altogether is a card. The two pairs are two arrangements among many rather than the default — a "book_heat" pair is two subjects that came out level, a "book_gap" pair is the least- and most-borrowed of the ten; use at most ONE of them on a card, and prefer neither if the plain four you have chosen already say something. Deliberately vary which subjects appear from post to post and lean hard on AVOID_IDS here: with only ten subjects this vein repeats itself faster than any other. Never say which way the gap runs, never call a subject popular or neglected, and never draw a conclusion about what Seoul reads — set the numbers down and let the reader do it.
 - "boxoffice" lines are cinema ADMISSIONS on SEOUL screens for ONE day, film by film, from the Korean Film Council's ticketing network. Labels are BARE FILM TITLES, so the opener MUST say IN WORDS that the figures are admissions or tickets, and that they are Seoul's: a title and a bare number leave the reader to guess whether it is people, screens or won. "Seoul at the cinema" is NOT enough on its own and neither is "What Seoul watched" — write e.g. "Cinema admissions in Seoul", "Tickets sold in Seoul's cinemas", "Seats filled in Seoul's cinemas" (관객수 / 티켓 in the Korean), the same case as the world, traffic, price and books lines — and MUST NOT settle on one wording, so write a fresh one rather than reusing the last. ⚠️ These are SEOUL's admissions, NOT the country's: never write "nationwide", "across Korea" or any national framing, and never imply the figures are a film's total. ⚠️ Do NOT put the date in the opener: the day rides on the card automatically as its dateline. ⚠️ Titles are printed exactly as they come, in each language: never translate, shorten or reword a film title. ⚠️ EVERY film on this card gets an "emoji", with no exceptions: the general rule above lets you leave one blank where nothing obvious fits, and that is right for an abstract line but wrong here, since a film is always ABOUT something. Take it from the subject, the genre or the title itself: 🕷 for a Spider-Man film, 👻 for a horror, 🕵 for a detective story, 🐋 for a whale, 🏛 or ⛵ for an ancient epic, 🎞 or 🍿 as a last resort. If a card would go out with one film tagged and another bare, every emoji on it is stripped instead, so a lazy blank costs the whole card its emoji rather than just that line. Own post, never mixed with any other category. ⚠️ The four films offered are the day's FOUR most-watched in Seoul, and you must use ALL FOUR, every time: this card is the complete top four in order, not a selection from a longer list, and dropping one leaves a hole in a ranking that a reader will take for the ranking. Do not number the lines (they are already sorted by value) and do not write an opener that ranks them ("the day's winners", "Seoul's biggest"): the footnote says what the set is, and the arrangement does the rest. Never call a film a hit, a flop or a winner, never say which is beating which, and never remark on the gap between them.
+- "boxhist" lines are a DIFFERENT card from the box office one and never share a post with it: how many SEOUL SCREENS the day's number-one film was on, this date, against the same date five and ten years ago. Each label is a film title with its year and each value is a screen count, so the opener MUST say the figures are screens in Seoul and that the years are the same date (e.g. "Screens for Seoul's top film, the same date", "What the number one film was playing on"), and MUST NOT settle on one wording. ⚠️ The lines are a SEQUENCE, newest first, and are never reordered: they are years, not a ranking. ⚠️ Titles and years are printed exactly as given: never translate a title, never drop a year. Every line gets an emoji or the card loses them all, as with the other film card. Never say cinemas grew, shrank, recovered or collapsed, never mention the pandemic, and never explain the change: three numbers and their years are the whole card, and the reader is better at drawing the conclusion than you are.
 - Keep the opener neutral (a time or place framing), EXCEPT on a world post, where it must name the metric as described above. Pick one from OPENERS, or write a short neutral one (max ~5 words) — it must NOT give away or hint at the pairing. Provide it in English and Korean.
 - You may lightly reword an English label for wit, but keep its meaning and DO NOT put any digit in a label.
 - Translate every chosen label to natural Korean (labels only — never restate the number in the label).
@@ -4177,7 +4243,8 @@ def compose(sel, pool):
     # 'books' is deliberately NOT here: since 22 August 2026 the loan counts come
     # from Seoul's own portal (SeoulLibraryBookRentNumInfo), not data4library.
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
-                 'health', 'culture', 'tourism', 'level', 'boxoffice'}
+                 'health', 'culture', 'tourism', 'level', 'boxoffice',
+                 'boxhist'}
     uses_seoul = any(c not in non_seoul for c in cats)
     uses_kosis = 'national' in cats
     uses_oecd = 'world' in cats
@@ -4191,7 +4258,7 @@ def compose(sel, pool):
     uses_mcst = 'culture' in cats
     uses_tour = 'tourism' in cats
     uses_books = 'books' in cats
-    uses_kobis = 'boxoffice' in cats
+    uses_kobis = bool({'boxoffice', 'boxhist'} & cats)
     srcs = (['data.seoul.go.kr'] if uses_seoul else []) + \
            (['kosis.kr'] if uses_kosis else []) + \
            ([OECD_DOMAIN] if uses_oecd else []) + \
@@ -4339,7 +4406,13 @@ def compose(sel, pool):
         # to know which they are looking at. The day rides as the dateline.
         src_en += ' · KOFIC'
         src_ko += ' · 영화진흥위원회'
-        if BOXOFFICE_D['en']:
+        if 'boxhist' in cats:
+            # No dateline: every line is a different year and carries its own.
+            # What the footnote must supply is what the number counts, since
+            # the labels are titles and the values are bare counts.
+            scope_en.append(('Screens showing each year’s top film', None))
+            scope_ko.append(('각 연도 1위 영화의 상영 스크린 수', None))
+        elif BOXOFFICE_D['en']:
             # The card is the day's top four, in order, always. It said "of the
             # day's five most-watched" for an hour on 23 Aug 2026, while the
             # selector was free to choose four of five: that was honest about a

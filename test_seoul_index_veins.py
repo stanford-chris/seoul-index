@@ -751,7 +751,7 @@ class BoxOfficeIsSeoulOnly(unittest.TestCase):
         choose two. This vein offers only what goes on the card, so a pair
         would be the same films again under another id."""
         with Stub({'searchDailyBoxOfficeList': _bo_rows(FIVE), **TITLES}):
-            facts = S.boxoffice_facts('KEY')
+            facts = [f for f in S.boxoffice_facts('KEY') if f['cat'] == 'boxoffice']
         self.assertEqual(len(facts), S.BOXOFFICE_N)
         self.assertTrue(all(f['pair'] is None for f in facts))
         self.assertEqual([f['label_en'] for f in facts],
@@ -767,8 +767,10 @@ class BoxOfficeCardIsAlwaysComplete(unittest.TestCase):
     """
 
     def _pool(self):
+        """Only the admissions frame: boxoffice_facts also returns the screens
+        lines, and they belong to a different card."""
         with Stub({'searchDailyBoxOfficeList': _bo_rows(FIVE), **TITLES}):
-            return S.boxoffice_facts('KEY')
+            return [f for f in S.boxoffice_facts('KEY') if f['cat'] == 'boxoffice']
 
     def test_a_missing_film_is_added_back(self):
         pool = self._pool()
@@ -833,6 +835,93 @@ class BoxOfficeEmojiAreAllOrNone(unittest.TestCase):
                  {'emoji': '👥', 'cat': 'crowd'}]
         S.even_out_emoji(lines, {'boxoffice', 'crowd'})
         self.assertEqual([l['emoji'] for l in lines], ['', '', '👥'])
+
+def _scr_rows(scrn, cd, ko):
+    r = _bo_row(cd, ko, 50000, 1)
+    r['scrnCnt'] = str(scrn)
+    return _bo_rows([r])
+
+
+class ScreensFrameComparesLikeWithLike(unittest.TestCase):
+    """The screens card sets today's top film against the same date five and
+    ten years back. Two things can go wrong silently: the wrong dates, and the
+    Seoul filter falling off one of the historical calls, either of which
+    yields a plausible card that compares something else.
+    """
+
+    def _run(self, stub_extra=None):
+        payloads = {'searchDailyBoxOfficeList': _bo_rows(FIVE), **TITLES}
+        payloads.update(stub_extra or {})
+        with Stub(payloads) as stub:
+            facts = S.boxoffice_facts('KEY')
+        return facts, stub
+
+    def test_it_asks_for_the_same_date_five_and_ten_years_back(self):
+        facts, stub = self._run()
+        years = [f['id'].split('_')[-1] for f in facts if f['cat'] == 'boxhist']
+        self.assertEqual(len(years), 3)
+        newest = int(years[0])
+        self.assertEqual([int(y) for y in years], [newest, newest - 5, newest - 10])
+
+    def test_every_historical_call_keeps_the_seoul_filter(self):
+        """Without it the older years quietly become national numbers, which
+        are three to four times larger and would read as a collapse."""
+        _, stub = self._run()
+        box = [u for u in stub.calls if 'searchDailyBoxOfficeList' in u]
+        self.assertGreaterEqual(len(box), 3)
+        for url in box:
+            self.assertIn(f'wideAreaCd={S.KOBIS_SEOUL}', url)
+
+    def test_the_lines_are_a_sequence_not_a_ranking(self):
+        """Value-sorting would scramble the years the moment a middle one came
+        out highest, which is exactly what happened to the complaints card."""
+        self.assertIn('boxhist', S.ORDERED_CATS)
+
+    def test_the_label_carries_the_title_and_the_year(self):
+        facts, _ = self._run()
+        hist = [f for f in facts if f['cat'] == 'boxhist']
+        for f in hist:
+            self.assertRegex(f['label_en'], r', (19|20)\d\d$')
+            self.assertRegex(f['label_ko'], r', (19|20)\d\d$')
+            self.assertTrue(f['pin'])
+
+    def test_two_years_is_not_a_card(self):
+        """A year that returns nothing drops out, and two lines is a
+        comparison rather than a card."""
+        state = {'n': 0}
+
+        def get(url):
+            if 'searchMovieInfo' in url:
+                return TITLES[[k for k in TITLES if k in url][0]]
+            state['n'] += 1
+            return _bo_rows(FIVE) if state['n'] <= 2 else _bo_rows([])
+
+        real = S.http_get_json
+        S.http_get_json = get
+        try:
+            facts = S.boxoffice_facts('KEY')
+        finally:
+            S.http_get_json = real
+        self.assertEqual([f for f in facts if f['cat'] == 'boxhist'], [])
+        self.assertTrue([f for f in facts if f['cat'] == 'boxoffice'],
+                        'the admissions frame should survive on its own')
+
+    def test_a_leap_day_falls_back_to_the_28th(self):
+        """29 Feb 2028 has no counterpart in 2023, and replace() would raise."""
+        import datetime
+        leap = datetime.date(2028, 2, 29)
+        self.assertEqual(S._same_date(leap, 5), datetime.date(2023, 2, 28))
+        self.assertEqual(S._same_date(datetime.date(2026, 8, 22), 10),
+                         datetime.date(2016, 8, 22))
+
+    def test_the_years_compared_are_inside_the_reliable_era(self):
+        """⚠️ The ticketing network covered about half of screens in 2005 and
+        86% in 2006, so a twenty-year comparison would measure how many cinemas
+        reported rather than how many screens ran the film. Both offsets must
+        stay small enough to keep every year at ≥98% coverage, i.e. 2008 on.
+        """
+        self.assertEqual(S.SCREENS_YEARS, (5, 10))
+        self.assertLessEqual(max(S.SCREENS_YEARS), 17)
 
 
 if __name__ == '__main__':
