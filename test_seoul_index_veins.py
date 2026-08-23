@@ -383,6 +383,73 @@ class RiverNeedsTheHanAndASpread(unittest.TestCase):
         self.assertNotIn('점검중', vals)
 
 
+class RiverOpenerAndDateline(unittest.TestCase):
+    """Two rules that the noon card of 23 August 2026 broke, both requested
+    that day: the opener must name whichever of air and water the sort has put
+    on the TOP line, and the dateline must always say which day the hour is.
+
+    These go end to end — river_facts through the real compose() — because both
+    rules live on the far side of compose's same-unit sort, and a unit test of
+    either half alone would pass while the card still read wrong."""
+
+    HOT = [('선유', 27.2), ('탄천', 26.9), ('중랑천', 25.8), ('안양천', 28.5)]
+    COLD = [('선유', 20.4), ('탄천', 20.1), ('중랑천', 19.6), ('안양천', 19.9)]
+
+    def card(self, waters, air, hr, ymd='20260823'):
+        rows = [wp(n, v, hr, ymd) for n, v in waters]
+        with Stub({'WPOSInformationTime': ok('WPOSInformationTime', rows),
+                   'getUltraSrtNcst': kma(air)}):
+            facts = S.river_facts('KEY', 'GOVKEY')
+        self.assertTrue(facts, 'the vein went inert; check the spread guard')
+        # A deliberately wrong opener: the selector's river wording is discarded,
+        # so if the override ever stops firing this decoy lands on the card.
+        sel = {'opener_en': 'DECOY', 'opener_ko': 'DECOY', 'opener_emoji': '🌡️',
+               'picks': [{'id': f['id'], 'label_en': f['label_en'],
+                          'label_ko': f['label_ko'], 'emoji': ''}
+                         for f in facts]}
+        return S.compose(sel, facts)
+
+    def test_air_on_top_puts_air_first_in_the_opener(self):
+        c = self.card(self.HOT, 31.3, '12:00')
+        self.assertEqual(c['lines'][0]['label_en'], 'The air')
+        self.assertEqual(c['opener']['en'], 'Air and water in Seoul')
+        self.assertEqual(c['opener']['ko'], '서울의 공기와 물')
+
+    def test_water_on_top_puts_water_first_in_the_opener(self):
+        c = self.card(self.COLD, 14.8, '12:00')
+        self.assertEqual(c['lines'][0]['label_en'], 'The Han at Seonyu')
+        self.assertEqual(c['opener']['en'], 'Water and air in Seoul')
+        self.assertEqual(c['opener']['ko'], '서울의 물과 공기')
+
+    def test_noon_and_midnight_are_capitalised(self):
+        self.assertTrue(
+            self.card(self.HOT, 31.3, '12:00')['dateline_en'].startswith('Noon,'))
+        self.assertTrue(
+            self.card(self.HOT, 31.3, '00:00')['dateline_en'].startswith('Midnight,'))
+
+    def test_the_numeral_hours_are_left_alone(self):
+        # .capitalize() must not touch these: "3 P.m." would be worse than the
+        # bare lowercase it replaced.
+        self.assertEqual(self.card(self.HOT, 31.3, '15:00')['dateline_en'],
+                         '3 p.m., 23 August')
+        self.assertEqual(self.card(self.HOT, 31.3, '08:00')['dateline_en'],
+                         '8 a.m., 23 August')
+
+    def test_the_date_rides_even_when_the_reading_is_from_today(self):
+        # The old rule dated the hour only when it was NOT today, which left the
+        # ordinary card headed by a bare "noon". 선유 lags the other stations by
+        # about five hours, so "which day" is never safe to leave implied.
+        for hr in ('12:00', '00:00', '15:00'):
+            c = self.card(self.HOT, 31.3, hr)
+            self.assertIn('23 August', c['dateline_en'])
+            self.assertIn('8월 23일', c['dateline_ko'])
+
+    def test_a_reading_from_another_day_is_dated_to_that_day(self):
+        c = self.card(self.HOT, 31.3, '15:00', ymd='20260821')
+        self.assertEqual(c['dateline_en'], '3 p.m., 21 August')
+        self.assertEqual(c['dateline_ko'], '오후 3시, 8월 21일')
+
+
 class ImperialConversions(unittest.TestCase):
     """Conversions ride the ENGLISH card only, and a difference is not a
     temperature."""

@@ -1195,14 +1195,22 @@ def river_facts(api_key, gov_key):
     except ValueError:
         return []
     # The hour alone would mislead on a reading taken yesterday, which a
-    # late run plus 선유's lag can produce, so the date rides along unless
-    # the reading is from today.
-    today = datetime.now(SEOUL_TZ).date()
-    RIVER_PERIOD['en'] = _ampm_en(stamp_dt.hour)
-    RIVER_PERIOD['ko'] = _ampm_ko(stamp_dt.hour)
-    if stamp_dt.date() != today:
-        RIVER_PERIOD['en'] += f', {stamp_dt.day} {MONTHS_EN[stamp_dt.month - 1]}'
-        RIVER_PERIOD['ko'] += f', {stamp_dt.month}월 {stamp_dt.day}일'
+    # late run plus 선유's lag can produce, so THE DATE ALWAYS RIDES ALONG.
+    # Until 23 August 2026 it appeared only when the reading was not from today,
+    # which left the ordinary card headed by a bare "noon" — a dateline that
+    # dates nothing and quietly asks the reader to assume today, on a vein whose
+    # whole hazard is that 선유 lags the other stations by about five hours.
+    #
+    # .capitalize() rather than a noon/midnight special case: it is a no-op on
+    # the numeral hours ("3 p.m." stays "3 p.m.") and lifts exactly the two
+    # word-hours, which are the only ones that read as lowercase prose at the
+    # head of a card. ⚠️ Capitalise HERE, not in _ampm_en: that helper also
+    # feeds spotlight LABELS, where the hour sits mid-phrase inside brackets
+    # ("Estimated crowd right now (noon)") and a capital would be wrong.
+    RIVER_PERIOD['en'] = (_ampm_en(stamp_dt.hour).capitalize()
+                          + f', {stamp_dt.day} {MONTHS_EN[stamp_dt.month - 1]}')
+    RIVER_PERIOD['ko'] = (_ampm_ko(stamp_dt.hour)
+                          + f', {stamp_dt.month}월 {stamp_dt.day}일')
 
     facts = []
     for ko_name, en_label, ko_label in WPOS_STATIONS:
@@ -3280,7 +3288,7 @@ Rules:
 - "property" lines are one month's apartment-market filings from the national land ministry: actual sale prices (the dearest and cheapest single sales), a record jeonse deposit, and counts of filings. Build them into their own post — never alongside a live "right now" line, a spending line, a national line or a world line. The pairs are the point: the price gap (dearest vs cheapest sale) or the jeonse/monthly-rent split. Never put a month or date in a property label — the filing month rides on the card automatically.
 - "weather" lines are published readings from Seoul's official weather station: yesterday's high/low/rain, the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the yesterday set, the then-and-now monthly set, OR the season-to-date set (never blend the three). A season-to-date post is built around the swelter tally ("Days of 33°C or more, 1 Jun–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, every pair must put its two years in the SAME order, and the arrangement carries the half-century — never point it out. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
 - "tourism" lines are one month's visitor counts at named paid-admission Seoul attractions (the palaces, Lotte World, Seoul Sky…). Own post; ONE frame per post — total visitors OR foreign visitors, never both; the month rides on the card automatically. The pairs are the point: a dead heat or the widest gap between two named attractions.
-- "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and nothing more, e.g. "Water and air in Seoul" — the same case as the world, traffic and books lines. ⚠️ Do NOT put the hour, the time or the words "one hour" in the opener: the reading hour rides on the card automatically as its dateline, and an opener repeating it spends the line saying nothing. Do NOT write "right now" either: that hour can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
+- "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and nothing more, e.g. "Water and air in Seoul" (ℹ️ whatever you write here is REPLACED in compose(): the opener names air or water first to match whichever the sort puts on the top line, which is a fact about the readings rather than a choice of words) — the same case as the world, traffic and books lines. ⚠️ Do NOT put the hour, the time or the words "one hour" in the opener: the reading hour rides on the card automatically as its dateline, and an opener repeating it spends the line saying nothing. Do NOT write "right now" either: that hour can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
 - "level" lines appear ONLY when the Han is running high, and they are one gauge (잠수교) set against its own published flood-warning tiers: the level right now, then the 관심/주의/경계/심각 levels. Build them into their own post, never mixed with any other category, and include the current level plus at least two tiers — the arrangement IS the story, which is how far the river is from each tier. The opener must name the river and the gauge, e.g. "The Han at Jamsu Bridge". ⚠️ NEVER write or imply that the bridge is closed, submerged, flooded or about to be: these are flood-WARNING tiers set by 한강홍수통제소, not the level at which the walkway goes under, and the two are different things. Do not add alarm, urgency or commentary of any kind — state the levels and stop. Never call the situation dangerous.
 - "price" lines are ONE everyday item priced at shops across Seoul on one day. Each label is a bare shop KIND and DISTRICT ("A traditional market in Dongjak-gu", "A supermarket in Nowon-gu"), so the opener MUST name the item and that these are its prices — e.g. "What a watermelon costs in Seoul" — the same case as the world, traffic and books lines. Build them into their own post, never mixed with any other category, and ALWAYS keep the cheapest and dearest lines: the card IS the spread. Never point out that markets are dearer than supermarkets or the reverse — it changes from item to item, and noticing it is the reader's job. Never call a price high, low, cheap or a bargain.
 - "water" lines are the raw water drawn at each of Seoul's purification centres on one day. Labels are BARE PLACE NAMES (Amsa, Ttukdo), and the card's dateline says they are purification centres, so the opener MUST name the METRIC and nothing more ("Water drawn for Seoul"). ⚠️ Do NOT put the day, the date or the words "one day" in the opener: the date rides on the card automatically and an opener that repeats it spends the line saying nothing. Own post, never mixed. Every line is an intake figure at the same measure — never say one centre is bigger or busier than another.
@@ -3939,6 +3947,20 @@ def compose(sel, pool):
             opener_emoji = '🚌'
         else:
             opener_emoji = '🚗'
+
+    # The river card names its two subjects in the order the card shows them.
+    # These lines are sorted hottest-first (see the same-unit sort above), so on
+    # a hot day the air leads and an opener reading "Water and air" contradicts
+    # the arrangement printed directly beneath it. Which of the five readings is
+    # warmest is a fact about the data, not a writing choice, so it is settled
+    # here rather than left to the selector — whose river opener is discarded.
+    # Requested 23 August 2026, after the noon card led with the air at 31.3°C.
+    if first_fact['cat'] == 'river':
+        air_first = first_fact['id'] == 'river_air'
+        opener_en = ('Air and water in Seoul' if air_first
+                     else 'Water and air in Seoul')
+        opener_ko = ('서울의 공기와 물' if air_first
+                     else '서울의 물과 공기')
 
     # Say the shared part once: the selector is asked for bare labels, but it
     # often copies a pool label verbatim onto every line, so trim deterministically
