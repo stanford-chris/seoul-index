@@ -2971,8 +2971,12 @@ def boxoffice_facts(kobis_key):
                   f'{BOXOFFICE_N})')
         return []
 
-    BOXOFFICE_D['en'] = f'{day.day} {MONTHS_EN[day.month - 1]} {day.year}'
-    BOXOFFICE_D['ko'] = f'{day.year}년 {day.month}월 {day.day}일'
+    # No year: the card is always yesterday, and the post's own timestamp
+    # answers "when" the way it does for the books vein's window. The only
+    # ambiguous case is a card posted on 1 January carrying 31 December, where
+    # the timestamp still settles it, one day out.
+    BOXOFFICE_D['en'] = f'{day.day} {MONTHS_EN[day.month - 1]}'
+    BOXOFFICE_D['ko'] = f'{day.month}월 {day.day}일'
 
     facts = []
     for cd, ko_name, en_name, audi in films:
