@@ -114,6 +114,16 @@ Each index is rendered to a PNG by `seoul_index_card.py`: the card is laid out i
 
 **Labels lead with what the number means.** A place name is never the whole label: "Most paid for an apartment (Yongsan-gu)", "Dearest, a traditional market (Gangdong-gu)", "Fullest by night (Songpa-gu)". The English card is published first, and the reader it reaches is the one least able to place Dongjak-gu from its name — so the line has to be legible without the geography, and the district stays as texture for readers who have it.
 
+**A Korean proper noun on the English card carries its category, once.** Four veins are a deliberate exception to the rule above (river, traffic, water and world), because their openers own the metric and their labels are bare names, which is what keeps five parallel lines scannable. But a bare name is exactly the thing the rule above exists to protect against: "Amsa" and "The Anyangcheon" are unparseable to the reader least able to place them, and that reader gets the English card first. So each of those cards names the KIND of thing somewhere on its face, once, and never on every line: a category word repeated down three of five rows is the sort of thing `dedupe_labels` exists to strip.
+
+- **water**: on the dateline, "Purification centres, 3 August". Without it, Amsa and Ttukdo read as districts, or as rivers.
+- **river**: in the footnote, "The Anyangcheon, Tancheon and Jungnangcheon are tributaries of the Han". The dateline is not available here, because the reading hour is already flying there. Two rules attach to it. It is built from the lines actually on the card, so a station under maintenance is never named in a footnote above a card it has dropped out of. And it says **tributaries**, not streams or rivers: Seoul's own English calls them Streams while Wikipedia has the Anyangcheon as a river, so "tributary" is at once the safe word and the useful one, since what makes the card worth reading is that these feed the Han.
+- **traffic**: carried by the metric, and nothing is added. km/h under an opener the prompt already requires to say "how fast Seoul is driving" leaves nothing to explain, and appending "road" to Gangbyeonbuk-ro would only say -ro twice.
+- **world**, **nation**, **books**: nothing needed. City names, country names and Dewey classes, already English.
+- **crowd**, **spotlight**, **price**, **transport**: the category rides the label, which the main rule already requires. "Estimated crowd in Hongdae", "A traditional market in Dongjak-gu", "Busiest station, Gangnam".
+
+⚠️ When a new bare-name vein is added, settle which slot carries the category BEFORE it posts: the dateline if it is free, the footnote if the dateline is spoken for. The river vein went out on 23 August 2026 reading "The Anyangcheon: 28.5°C" with nothing anywhere on the card to say what an Anyangcheon is.
+
 **Temperatures and speeds carry an imperial conversion on the English card only** — "26.5°C (80°F)", "26 km/h (16 mph)" — since Korea is metric and the Korean card would only be cluttered by it.
 
 Every post hyperlinks its source.

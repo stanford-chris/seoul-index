@@ -4085,6 +4085,39 @@ def compose(sel, pool):
             scope_en.append(('Official Seoul station (108)', None))
             scope_ko.append(('서울 대표 관측소(108) 기준', None))
         if 'river' in cats:
+            # What kind of thing an Anyangcheon IS. The labels are bare names by
+            # design (the opener owns the metric), which leaves an English
+            # reader five temperatures and no idea that three of them are
+            # waterways feeding the river they have heard of — the same gap the
+            # water card closes by naming 정수센터 on its dateline, and the same
+            # reasoning as the README's "labels lead with what the number
+            # means". The river card cannot use its dateline for this: the
+            # reading hour is already there.
+            #
+            # "Tributaries", not "streams" or "rivers": it is accurate for all
+            # three (Seoul's own English calls them Streams, but Wikipedia has
+            # the Anyangcheon as a river), and it is the more useful word, since
+            # what makes the card worth reading is that these feed the Han.
+            #
+            # Built from the lines actually on THIS card, never from the station
+            # table: a station under maintenance drops out of the card, and a
+            # footnote naming a river the reader cannot see is worse than none.
+            # Placed above the air caveat because the footnote joins in append
+            # order and this one explains three lines rather than one.
+            tribs = [by_id[p['id']] for p in picks
+                     if by_id[p['id']]['id'].startswith('river_watt_')
+                     and by_id[p['id']]['id'] != f'river_watt_{HAN_STATION}']
+            if tribs:
+                names = [f['label_en'].removeprefix('The ') for f in tribs]
+                lead = (' and '.join([', '.join(names[:-1]), names[-1]])
+                        if len(names) > 1 else names[0])
+                verb = 'are tributaries' if len(names) > 1 else 'is a tributary'
+                scope_en.append((f'The {lead} {verb} of the Han', None))
+                # Every 천 ends in a consonant, so the topic particle is 은
+                # whether the list is one name or three.
+                scope_ko.append(
+                    ('·'.join(f['label_ko'] for f in tribs) + '은 한강 지류',
+                     None))
             scope_en.append(('Air: Seoul forecast-zone reading', None))
             scope_ko.append(('기온: 서울 예보구역 관측값', None))
     if 'level' in cats:

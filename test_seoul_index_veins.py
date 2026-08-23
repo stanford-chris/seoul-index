@@ -449,6 +449,35 @@ class RiverOpenerAndDateline(unittest.TestCase):
         self.assertEqual(c['dateline_en'], '3 p.m., 21 August')
         self.assertEqual(c['dateline_ko'], '오후 3시, 8월 21일')
 
+    def test_the_footnote_says_what_a_cheon_is(self):
+        # Bare names leave an English reader five temperatures and no idea that
+        # three of them are waterways feeding the river they have heard of.
+        # The card cannot say it on the dateline the way the water card does —
+        # the reading hour is already there — so it goes in the footnote.
+        c = self.card(self.HOT, 31.3, '12:00')
+        self.assertIn(
+            'The Anyangcheon, Tancheon and Jungnangcheon are tributaries of the Han',
+            c['note_en'])
+        self.assertIn('안양천·탄천·중랑천은 한강 지류', c['note_ko'])
+        # The air caveat still follows it, in that order.
+        self.assertLess(c['note_en'].index('tributaries'),
+                        c['note_en'].index('forecast-zone'))
+
+    def test_the_footnote_never_names_a_river_the_card_does_not_show(self):
+        # 안양천 under maintenance: it drops off the card, so it must drop out of
+        # the footnote too. Naming a river the reader cannot see is worse than
+        # saying nothing.
+        c = self.card([('선유', 20.4), ('탄천', 20.1), ('중랑천', 19.6)], 14.8, '12:00')
+        self.assertIn('The Tancheon and Jungnangcheon are tributaries of the Han',
+                      c['note_en'])
+        self.assertNotIn('Anyangcheon', c['note_en'])
+        self.assertNotIn('안양천', c['note_ko'])
+
+    def test_the_han_is_not_called_its_own_tributary(self):
+        c = self.card(self.HOT, 31.3, '12:00')
+        self.assertNotIn('Seonyu', c['note_en'])
+        self.assertEqual(c['note_en'].count('Han'), 1)   # once, as the parent
+
 
 class ImperialConversions(unittest.TestCase):
     """Conversions ride the ENGLISH card only, and a difference is not a
