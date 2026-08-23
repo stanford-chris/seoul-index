@@ -82,12 +82,12 @@ HERE = Path(__file__).parent
 # stale the next time a vein lands.
 EN_INTRO = ('This account provides a portrait of Seoul, based mainly on the city’s own '
             'open data (data.seoul.go.kr), with other publishers’ figures alongside it: '
-            'weather, '
-            'rivers, property, health, tourism, and Seoul set against other cities and '
-            'countries. Counts appear exactly as published: subway taps, libraries, '
-            'quarterly sales, apartment filings, what the central library lends. An '
-            'A.I. chooses which to set side by side and largely writes the posts. '
-            'Every publisher is credited at the end of this thread.')
+            'weather, rivers, property, health, tourism, and Seoul set against other '
+            'cities and countries. Counts appear exactly as published: subway taps, '
+            'libraries and their loans, quarterly sales, apartment filings. An A.I. '
+            'chooses which '
+            'to set side by side and largely writes the posts. Every publisher is '
+            'credited at the end of this thread.')
 EN_CAVEAT = ('Crowd figures are different: How many people are in a place, and '
              'their age, gender and visitor split, are not head counts. KT models '
              'them from mobile-signal data and scales to the whole city, so read '
