@@ -932,6 +932,34 @@ class ScreensFrameComparesLikeWithLike(unittest.TestCase):
         self.assertEqual(S.SCREENS_YEARS, (5, 10))
         self.assertLessEqual(max(S.SCREENS_YEARS), 17)
 
+class OpenersAreNotCutMidPhrase(unittest.TestCase):
+    """A hard slice at the cap shipped "…film, the same :" to a live render.
+
+    This is not a box office bug: every vein's opener went through it, and a
+    truncated opener reads as a broken bot rather than as a terse one.
+    """
+
+    def test_a_long_opener_keeps_whole_words(self):
+        long = 'Screens for Seoul’s most-watched film, the same date every year'
+        out = S.clean_opener(long, 'fallback')
+        self.assertLessEqual(len(out), S.OPENER_MAX)
+        self.assertTrue(long.startswith(out), 'the trim must be a prefix')
+        self.assertFalse(out.endswith(' '))
+        self.assertTrue(out.split()[-1] in long.split(),
+                        f'{out!r} ends mid-word')
+
+    def test_no_dangling_punctuation(self):
+        out = S.clean_opener('Screens for Seoul’s most-watched film, the same date', 'x')
+        self.assertFalse(out.rstrip().endswith((',', ':', ';', '·', '-')))
+
+    def test_a_short_opener_is_untouched(self):
+        for s in ('Cinema admissions in Seoul', 'Seoul by the numbers'):
+            self.assertEqual(S.clean_opener(s, 'x'), s)
+
+    def test_an_empty_opener_falls_back(self):
+        self.assertEqual(S.clean_opener('   ', 'Seoul by the numbers'),
+                         'Seoul by the numbers')
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=1)
