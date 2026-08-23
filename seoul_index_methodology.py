@@ -81,7 +81,8 @@ HERE = Path(__file__).parent
 # points at the credits rather than repeating a publisher name that would go
 # stale the next time a vein lands.
 EN_INTRO = ('This account provides a portrait of Seoul, based mainly on the city’s own '
-            'open data (data.seoul.go.kr), with other publishers alongside it: weather, '
+            'open data (data.seoul.go.kr), with other publishers’ figures alongside it: '
+            'weather, '
             'rivers, property, health, tourism, and Seoul set against other cities and '
             'countries. Counts appear exactly as published: subway taps, libraries, '
             'quarterly sales, apartment filings, what the central library lends. An '
