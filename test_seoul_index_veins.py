@@ -737,6 +737,43 @@ class BoxOfficeIsSeoulOnly(unittest.TestCase):
         with Stub({'searchDailyBoxOfficeList': _bo_rows(FIVE[:2]), **TITLES}):
             self.assertEqual(S.boxoffice_facts('KEY'), [])
 
+class BoxOfficeEmojiAreAllOrNone(unittest.TestCase):
+    """Every film carries an emoji or none does.
+
+    The selector is told to tag a line only where an obvious emoji exists,
+    which is right on a mixed card and wrong on a card of four films: the
+    second live preview came back 🕷 Spider-Man, 👻 Insidious, 🕵️ Conan and a
+    bare The Odyssey. Consistency across lines is a rule, not a judgement, so
+    it is enforced here rather than asked for in the prompt.
+    """
+
+    def _lines(self, emoji, cat='boxoffice'):
+        return [{'emoji': e, 'cat': cat} for e in emoji]
+
+    def test_a_partial_set_is_cleared(self):
+        lines = self._lines(['', '🕷', '👻', '🕵️'])
+        S.even_out_emoji(lines, {'boxoffice'})
+        self.assertEqual([l['emoji'] for l in lines], ['', '', '', ''])
+
+    def test_a_complete_set_is_kept(self):
+        lines = self._lines(['🎬', '🕷', '👻', '🕵️'])
+        S.even_out_emoji(lines, {'boxoffice'})
+        self.assertEqual([l['emoji'] for l in lines], ['🎬', '🕷', '👻', '🕵️'])
+
+    def test_other_veins_keep_their_mixed_emoji(self):
+        """A spending card carrying ☕ beside an abstract share is correct."""
+        lines = self._lines(['☕', '', '📚'], cat='spending')
+        S.even_out_emoji(lines, {'spending'})
+        self.assertEqual([l['emoji'] for l in lines], ['☕', '', '📚'])
+
+    def test_a_cross_pair_card_only_evens_out_its_films(self):
+        """A boxoffice line can share a card with another vein on a cross pair,
+        and the other vein's emoji are none of this rule's business."""
+        lines = [{'emoji': '', 'cat': 'boxoffice'}, {'emoji': '🎬', 'cat': 'boxoffice'},
+                 {'emoji': '👥', 'cat': 'crowd'}]
+        S.even_out_emoji(lines, {'boxoffice', 'crowd'})
+        self.assertEqual([l['emoji'] for l in lines], ['', '', '👥'])
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=1)

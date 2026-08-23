@@ -191,6 +191,10 @@ STARVE_MIN_FACTS = 3
 # monotonic — luck, not design, and it scrambles the moment a band ticks up.
 ORDERED_CATS = {'level', 'complaint', 'infant'}
 
+# Veins whose lines are all the same KIND of thing, where a partial set of line
+# emoji reads as an oversight rather than a judgement. See even_out_emoji.
+EMOJI_ALL_OR_NONE = {'boxoffice'}
+
 # Curated live-crowd locations (citydata_ppltn AREA_NM, all verified to resolve).
 # A mix of packed / quiet / touristy / young so contrasts are available.
 # 'area' is the API's own AREA_NM, which often carries an administrative suffix
@@ -3728,6 +3732,30 @@ def _valid_emoji(s):
     return s
 
 
+def even_out_emoji(lines, cats):
+    """All the films carry an emoji, or none of them do.
+
+    The prompt tells the selector to tag a line ONLY where an obvious emoji
+    exists, which is right for a mixed card: a spending card can carry ☕ beside
+    an abstract share with nothing. A box office card is not mixed. Every line
+    is the same KIND of thing, a film, so an emoji on three of four reads as an
+    oversight rather than a judgement, and that is exactly what the second live
+    preview looked like: 🕷 Spider-Man, 👻 Insidious, 🕵️ Conan, and The Odyssey
+    bare at the top.
+
+    Deterministic rather than another sentence in the prompt: the selector is
+    being asked for a judgement per line, and consistency across lines is not a
+    judgement, it is a rule. Applied per category so a genuine mixed card is
+    left alone.
+    """
+    for cat in EMOJI_ALL_OR_NONE & cats:
+        ours = [l for l in lines if l.get('cat') == cat]
+        if ours and not all(l['emoji'] for l in ours):
+            for l in ours:
+                l['emoji'] = ''
+    return lines
+
+
 def strip_emoji(text):
     """`text` with emoji removed, for use as image ALT text.
 
@@ -4045,12 +4073,14 @@ def compose(sel, pool):
         lines.append({'emoji': _valid_emoji(p.get('emoji')),
                       'label_en': label_en, 'label_ko': label_ko,
                       'value_en': f['value_en'], 'value_ko': f['value_ko'],
-                      'live': f['cat'] in LIVE_CATS,
+                      'live': f['cat'] in LIVE_CATS, 'cat': f['cat'],
                       'pin': bool(f.get('pin') or f.get('label_ko'))})
         used.append(f['id'])
         cats.add(f['cat'])
         estimated = estimated or f['estimated']
         forecast = forecast or f.get('forecast')
+
+    even_out_emoji(lines, cats)
 
     opener_en = clean_opener(sel.get('opener_en'), 'Seoul by the numbers')
     opener_ko = clean_opener(sel.get('opener_ko'), '숫자로 보는 서울')
