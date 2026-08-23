@@ -85,12 +85,24 @@ def _esc(s):
     return html.escape(curly(s), quote=True)
 
 
+# A label that opens with a year and a colon gets the year bolded: "2026: The
+# Odyssey". The year is what the reader is scanning down a then-and-now card,
+# and it is the one part of such a label that is not a name. Done here rather
+# than in the label itself because labels are escaped, so markup cannot travel
+# in them, and doing it in the renderer keeps the alt text plain.
+_YEAR_LEAD = re.compile(r'^((?:19|20)\d\d):')
+
+
 def _row_html(line):
     emoji = line.get('emoji') or ''
     lead = f'{_esc(emoji)} ' if emoji else ''
+    lab = _esc(line['label'])
+    m = _YEAR_LEAD.match(lab)
+    if m:
+        lab = f'<b>{m.group(1)}:</b>{lab[m.end():]}'
     return (
         '<div class="r">'
-        f'<span class="lab">{lead}{_esc(line["label"])}</span>'
+        f'<span class="lab">{lead}{lab}</span>'
         '<span class="led"></span>'
         f'<span class="val">{_esc(line["value"])}</span>'
         '</div>'

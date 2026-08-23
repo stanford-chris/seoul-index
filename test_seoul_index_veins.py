@@ -881,9 +881,18 @@ class ScreensFrameComparesLikeWithLike(unittest.TestCase):
         facts, _ = self._run()
         hist = [f for f in facts if f['cat'] == 'boxhist']
         for f in hist:
-            self.assertRegex(f['label_en'], r', (19|20)\d\d$')
-            self.assertRegex(f['label_ko'], r', (19|20)\d\d$')
+            # Year first, colon, then the title: the renderer bolds a leading
+            # "YYYY:" and that only fires if the label is built this way.
+            self.assertRegex(f['label_en'], r'^(19|20)\d\d: .')
+            self.assertRegex(f['label_ko'], r'^(19|20)\d\d: .')
             self.assertTrue(f['pin'])
+
+    def test_the_renderer_bolds_a_leading_year(self):
+        import seoul_index_card as C
+        row = C._row_html({'emoji': '', 'label': '2026: The Odyssey', 'value': '382'})
+        self.assertIn('<b>2026:</b>', row)
+        plain = C._row_html({'emoji': '', 'label': 'The Odyssey', 'value': '382'})
+        self.assertNotIn('<b>', plain)
 
     def test_two_years_is_not_a_card(self):
         """A year that returns nothing drops out, and two lines is a
