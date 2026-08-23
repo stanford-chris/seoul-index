@@ -80,19 +80,21 @@ HERE = Path(__file__).parent
 # example list is now drawn from across the veins, and the closing sentence
 # points at the credits rather than repeating a publisher name that would go
 # stale the next time a vein lands.
-# Two paragraphs since 23 Aug 2026: the card had grown to nine unbroken lines,
-# which is a wall rather than a card. The break falls where the subject changes,
-# from where the figures come from to how they are handled. render_prose_card
-# takes a list, so a paragraph is added by adding an element, and _alt() joins
-# them with a blank line so the alt text breaks where the card does.
+# Split into two CARDS on 23 Aug 2026, having first been split into two
+# paragraphs the same evening: at nine unbroken lines the intro was a wall, and
+# once broken it was plainly two subjects rather than one. Card one is what the
+# account is and where the figures come from; card two is how they are handled.
+# The credits sentence stays on card one, where "this thread" is introduced.
 EN_INTRO = ('This account provides a portrait of Seoul, based mainly on the city’s own '
             'open data (data.seoul.go.kr), with other publishers’ figures alongside it: '
             'weather, rivers, property, health, tourism, and Seoul set against other '
-            'cities and countries.')
-EN_INTRO_2 = ('Counts appear exactly as published: subway taps, libraries and their '
-              'loans, quarterly sales, apartment filings. An A.I. chooses which to set '
-              'side by side and largely writes the posts. Every publisher is credited '
-              'at the end of this thread.')
+            'cities and countries. Every publisher is credited at the end of this '
+            'thread.')
+# The two sentences belong together: what the account does not touch, and what
+# it does. The figures are the publishers', the arrangement is the A.I.'s.
+EN_COUNTS = ('Counts appear exactly as published: subway taps, libraries and their '
+             'loans, quarterly sales, apartment filings. An A.I. chooses which to set '
+             'side by side and largely writes the posts.')
 EN_CAVEAT = ('Crowd figures are different: How many people are in a place, and '
              'their age, gender and visitor split, are not head counts. KT models '
              'them from mobile-signal data and scales to the whole city, so read '
@@ -101,13 +103,14 @@ KO_INTRO = ('‘숫자로 보는 서울’은 주로 서울시 '
             '공공데이터(data.seoul.go.kr)에 기상·하천·부동산·보건·관광 '
             '등 다른 기관의 자료를 더해 그리는 서울의 '
             '초상입니다. 다른 도시·국가와 비교한 수치도 '
+            '있습니다. 모든 출처는 이 스레드 마지막에 '
             '있습니다.')
-# Broken at the same turn as the English: 지하철 승하차… is the sentence that
-# answers "Counts appear exactly as published".
-KO_INTRO_2 = ('지하철 승하차, 도서관 수와 대출, 분기별 매출, '
-              '아파트 실거래 등 고정 수치는 공개된 값 '
-              '그대로입니다. 조합과 글쓰기는 대부분 A.I.가 하며, '
-              '모든 출처는 이 스레드 마지막에 있습니다.')
+# Split at the same sentence as the English. 하며 chained into the credits
+# clause that has moved to card one, so it becomes a full stop here.
+KO_COUNTS = ('지하철 승하차, 도서관 수와 대출, 분기별 매출, '
+             '아파트 실거래 등 고정 수치는 공개된 값 '
+             '그대로입니다. 조합과 글쓰기는 대부분 '
+             'A.I.가 합니다.')
 # The original plaintext thread signed off "🤖 자동 계정"; the card era
 # dropped the emoji but stranded "자동 계정" as a cut-off-looking fragment.
 # Dropped entirely (23 Jul 2026): the EN card has no equivalent line and
@@ -148,11 +151,15 @@ KO_CITIES = ('일부 게시물은 서울을 다른 '
 
 CARDS = [
     {'lang': 'en', 'heading': 'About this account', 'emoji': '\U0001f3d9️',
-     'body': [EN_INTRO, EN_INTRO_2]},
+     'body': [EN_INTRO]},
+    {'lang': 'en', 'heading': 'About the counts', 'emoji': '\U0001f9ee',
+     'body': [EN_COUNTS]},
     {'lang': 'en', 'heading': 'About the crowd figures', 'emoji': '\U0001f465', 'body': [EN_CAVEAT]},
     {'lang': 'en', 'heading': 'About the comparisons', 'emoji': '\U0001f30f', 'body': [EN_CITIES]},
     {'lang': 'ko', 'heading': '이 계정에 대하여', 'emoji': '\U0001f3d9️',
-     'body': [KO_INTRO, KO_INTRO_2]},
+     'body': [KO_INTRO]},
+    {'lang': 'ko', 'heading': '고정 수치에 대하여', 'emoji': '\U0001f9ee',
+     'body': [KO_COUNTS]},
     {'lang': 'ko', 'heading': '인구 수치에 대하여', 'emoji': '\U0001f465', 'body': [KO_CAVEAT]},
     {'lang': 'ko', 'heading': '비교 수치에 대하여', 'emoji': '\U0001f30f', 'body': [KO_CITIES]},
 ]
@@ -306,18 +313,31 @@ def old_thread_records(did, root_uri):
     return sorted(mine, key=lambda r: r['value']['createdAt'])
 
 
+# A thread longer than this is not one of ours whatever it looks like, and the
+# bound is what stops a runaway match deleting an account's worth of records.
+MAX_THREAD_RECORDS = 25
+
+
 def is_methodology_thread(recs):
     """Does this look like a thread THIS script posted?
 
     --replace deletes whatever was pinned, and what is pinned is not guaranteed
     to be a methodology thread: pin a daily card by hand, forget, and a later
     --replace would take that card and every reply under it. So the shape is
-    checked first, and it is a shape no daily post has: exactly len(CARDS)
-    captioned-nothing image posts, then one text reply opening with the credits.
-    A card post carries empty text by construction (Bluesky renders text above
-    the image, so a caption cannot sit under the card).
+    checked first, and it is a shape no daily post has: captionless image posts,
+    then one text reply opening with the credits. A card post carries empty text
+    by construction (Bluesky renders text above the image, so a caption cannot
+    sit under the card), while a daily card is an image WITH a hashtag caption.
+
+    ⚠️ The count is deliberately NOT compared with len(CARDS). It was, until
+    23 Aug 2026, and the first time the thread grew — six cards to eight, when
+    the counts paragraph became its own card — the run posted the new thread,
+    pinned it, then refused to delete the old one, because a seven-record
+    thread no longer matched a nine-card script. The thread being replaced is
+    by definition the PREVIOUS shape, so measuring it against the current one
+    is the one comparison guaranteed to fail exactly when it is needed.
     """
-    if len(recs) != len(CARDS) + 1:
+    if not 3 <= len(recs) <= MAX_THREAD_RECORDS:
         return False
     *cards, last = recs
     if any((r['value'].get('text') or '') for r in cards):

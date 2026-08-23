@@ -132,8 +132,23 @@ class ReplaceRecognisesItsOwnThread(unittest.TestCase):
     def test_a_real_thread_is_recognised(self):
         self.assertTrue(M.is_methodology_thread(_thread()))
 
-    def test_the_wrong_number_of_records_is_refused(self):
-        for n in (0, len(M.CARDS) - 1, len(M.CARDS) + 1):
+    def test_a_thread_of_a_DIFFERENT_length_is_still_recognised(self):
+        """The thread being replaced is by definition the PREVIOUS shape.
+
+        This test exists because the check used to compare the old thread with
+        len(CARDS), so the first time the thread grew (six cards to eight, when
+        the counts paragraph became its own card) --replace posted and pinned
+        the new thread and then refused to delete the old one: the comparison
+        failed exactly when it was needed. Both a shorter and a longer thread
+        must be recognised.
+        """
+        for n in (len(M.CARDS) - 2, len(M.CARDS) - 1, len(M.CARDS) + 1):
+            self.assertTrue(M.is_methodology_thread(_thread(cards=n)),
+                            f'{n} cards + credits should still be recognised')
+
+    def test_a_thread_too_short_or_too_long_is_refused(self):
+        """A bound is still wanted: nothing of ours is two records or thirty."""
+        for n in (0, 1, M.MAX_THREAD_RECORDS):
             self.assertFalse(M.is_methodology_thread(_thread(cards=n)),
                              f'{n} cards + credits should not be recognised')
 
