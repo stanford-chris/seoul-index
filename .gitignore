@@ -39,3 +39,6 @@ card_history.jsonl
 # Timestamped backups written by the deploy script before it edits files
 *.predeploy.bak
 .gitignore.predeploy.bak
+
+# Label-check verdicts, the rejected ones included (local log)
+label_checks.jsonl

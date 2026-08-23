@@ -68,6 +68,13 @@ NAMES_EN = HERE / 'seoul_index_names_en.json'
 # post is already out by the time it is written, so a logging hiccup must not
 # surface as a failure. See log_card().
 CARD_LOG = HERE / 'card_history.jsonl'
+# One JSONL line per label checked, the rejected ones included. Those are the
+# records worth keeping: a rejected label never reaches a card, so this file is
+# the only place a false alarm is ever visible. See check_labels.
+LABEL_LOG = HERE / 'label_checks.jsonl'
+# The estate's shared notebook, read by a weekly review. Optional: this
+# repository is public and the bot runs without it.
+OBSERVE = Path.home() / 'Scripts' / 'observe.py'
 KEYCHAIN_SERVICE = 'seoulindex-bluesky'
 CLAUDE_TOKEN_ACCOUNT = 'seoulbot'
 CLAUDE_TOKEN_SERVICE = 'claude-oauth-token'
@@ -4237,6 +4244,180 @@ def unsaid_metrics(opener, metrics):
     return [m for m in metrics if norm(m) and norm(m) not in op]
 
 
+# The same model that writes the labels, asked a different question. A separate
+# focused call is the point rather than a stronger model: the selector is
+# optimising for wit and arrangement across a whole card, and a reader asked
+# only "does this label still say what the figure is" catches what that one
+# does not stop to look at.
+CHECK_MODEL = CLAUDE_MODEL
+
+
+def _ask_json(prompt, model=CLAUDE_MODEL):
+    """One `claude -p` call returning a JSON object. Raises on any failure.
+
+    Deliberately thinner than the selector\'s own call, which retries four
+    times, waits out a spent quota and exits 0 rather than lose the post. This
+    one is for the CHECK, where every failure means the same thing: the card
+    goes out unchecked, as every card did before the check existed. Waiting
+    hours for a quota to clear so a second opinion can be had would turn a
+    best-effort check into the thing that delayed the post.
+    """
+    r = subprocess.run(['claude', '-p', '--model', model, prompt],
+                       capture_output=True, text=True, env=claude_env(),
+                       timeout=CLAUDE_TIMEOUT)
+    if r.returncode != 0:
+        raise RuntimeError(((r.stderr or r.stdout or '').strip() or
+                            '(no output)')[:200])
+    text = re.sub(r'^```[a-z]*\n?|\n?```$', '', r.stdout.strip()).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        m = re.search(r'\{.*\}', text, re.S)
+        if m:
+            return json.loads(m.group(0))
+        raise RuntimeError(f'invalid JSON: {text[:150]}')
+
+
+def _label_check_prompt(rows, opener_en, opener_ko):
+    body = '\n'.join(
+        f'{i}. category={r["cat"]}\n'
+        f'   source label: {r["pool_en"]}\n'
+        f'   published EN: {r["label_en"]}\n'
+        f'   published KO: {r["label_ko"]}\n'
+        f'   value: {r["value_en"]}'
+        for i, r in enumerate(rows))
+    return (
+        f'You are checking the labels on one card of "Seoul by the numbers", a '
+        f'Bluesky account in the style of Harper\'s Index, BEFORE it is '
+        f'published. Each line is a bare "Label: value".\n\n'
+        f'Python owns every number, so the values are correct by construction '
+        f'and are NOT what you are checking. A model wrote the published '
+        f'labels, by rewording the source label for wit and translating it into '
+        f'Korean. Nothing else checks that work.\n\n'
+        f'English opener: {opener_en}\n'
+        f'Korean opener: {opener_ko}\n\n'
+        f'LINES:\n{body}\n\n'
+        f'Report a problem ONLY in these three cases:\n'
+        f'- the published English no longer says what the SOURCE label says: a '
+        f'qualifier dropped or changed, or what is counted quietly widened or '
+        f'narrowed. One library reported as the city\'s libraries, people '
+        f'present in a district reported as its residents, Seoul\'s figures '
+        f'reported as the country\'s\n'
+        f'- the Korean says something different from the published English\n'
+        f'- read WITH THE OPENER, the label leaves its number meaning nothing '
+        f'or meaning something else. The opener is supposed to carry the '
+        f'metric, so "Teens: 10,921" is right under "Members of Seoul Library" '
+        f'and empty under "Seoul by the numbers". ⚠️ Judge each line on its '
+        f'own: a card may name the metric on one line and leave the rest bare, '
+        f'and the lines are re-sorted by value afterwards, so a reader can '
+        f'meet a bare one first and must not be left guessing\n\n'
+        f'NEVER report:\n'
+        f'- a Korean label that drops a unit conversion: the English carries °F '
+        f'and $, the Korean does not, by design\n'
+        f'- style, tone, wit, word choice, or a translation you would have '
+        f'phrased differently. A label reworded for wit is the house style and '
+        f'is only a problem if the wit changed the meaning\n'
+        f'- the arrangement, which lines were chosen, or anything about the '
+        f'numbers\n'
+        f'- a label shorter than its source label. Brevity is the format\n\n'
+        f'If you are unsure, PASS it. A false alarm costs the card its wit and '
+        f'a card goes out three times a day.\n\n'
+        f'Return JSON only, listing ONLY the lines with a problem:\n'
+        f'{{"problems": [{{"i": <line number>, "lang": "en"|"ko", '
+        f'"problem": "<one short sentence>"}}]}}')
+
+
+def check_labels(lines, rows, opener_en, opener_ko, log=print):
+    """Check the written labels against the pool\'s own before the card is drawn.
+
+    Repairs in place: a flagged label falls back to the source label the fact
+    was built with, which is the one thing on the card guaranteed to say what
+    its number is. That fallback already existed for a label that injected a
+    digit (see clean_label); this widens what can send a label back to it.
+
+    ⚠️ A Korean flag falls back to the ENGLISH source label, which is what the
+    card already does when the selector returns no Korean at all. A line of
+    English on a Korean card reads oddly; a Korean line saying the figures were
+    concluded when the source says they were filed is wrong, and wrong is worse.
+
+    ⚠️ A check that cannot run is NOT a failure. The card goes out unchecked,
+    exactly as every card did before this existed, and the fallback is recorded
+    so a checker broken for a week is visible in the log rather than silently
+    absent.
+    """
+    if not rows:
+        return
+    try:
+        out = _ask_json(_label_check_prompt(rows, opener_en, opener_ko),
+                        model=CHECK_MODEL)
+    except Exception as exc:                # noqa: BLE001
+        log(f'  (label check did not run: {exc})')
+        _log_labels(rows, opener_en, [], error=str(exc))
+        return
+    problems = [q for q in (out.get('problems') or [])
+                if isinstance(q, dict) and isinstance(q.get('i'), int)
+                and 0 <= q['i'] < len(rows)]
+    for q in problems:
+        i, lang = q['i'], ('ko' if q.get('lang') == 'ko' else 'en')
+        row, line = rows[i], lines[i]
+        log(f'  !! label {i} ({lang}) failed the check: {q.get("problem")}')
+        if row['pin']:
+            # A pinned label was never the model\'s to reword, so a flag on one
+            # is the checker misreading the card, not a label to repair.
+            log('     (pinned label — left alone)')
+            continue
+        line[f'label_{lang}'] = row['pool_en']
+        log(f'     -> falling back to: {row["pool_en"]}')
+    _log_labels(rows, opener_en, problems)
+
+
+def _log_labels(rows, opener, problems, error=''):
+    """One line per card checked, carrying every label and every verdict."""
+    rec = {
+        'at': datetime.now(timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M:%S'),
+        'opener': opener,
+        'labels': [{'cat': r['cat'], 'pool': r['pool_en'], 'en': r['label_en'],
+                    'ko': r['label_ko']} for r in rows],
+        'problems': problems,
+        'error': error,
+        'dry': DRY_RUN,
+    }
+    try:
+        with LABEL_LOG.open('a', encoding='utf-8') as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + '\n')
+    except OSError as exc:
+        print(f'(label log failed: {exc})')
+    _observe_labels(problems, error)
+
+
+def _observe_labels(problems, error):
+    """Tell the estate\'s shared log, so a check firing three weeks running
+    reads as one recurring condition rather than three unrelated events.
+
+    ⚠️ Dry runs report nothing: a test filing itself with the weekly review as
+    a rejected label is a fault invented by the reporting of it.
+    """
+    if DRY_RUN or not OBSERVE.exists():
+        return
+    if error:
+        kind, key = 'finding', 'seoul-index-label-check-unavailable'
+        text = f'label check did not run: {error[:120]}'
+    elif problems:
+        kind, key = 'finding', 'seoul-index-label-rejected'
+        text = (f'{len(problems)} label(s) fell back to the source wording: '
+                f'{problems[0].get("problem", "")[:100]}')
+    else:
+        kind, key = 'ok', 'seoul-index-label-ok'
+        text = 'card labels checked, none rejected'
+    try:
+        subprocess.run(
+            ['python3', str(OBSERVE), 'add', '--source', 'seoul-index-labels',
+             '--kind', kind, '--key', key, '--quiet', text],
+            capture_output=True, timeout=20)
+    except Exception:                       # noqa: BLE001
+        pass
+
+
 def compose(sel, pool):
     by_id = {f['id']: f for f in pool}
     picks = [p for p in sel.get('picks', []) if p.get('id') in by_id]
@@ -4354,6 +4535,18 @@ def compose(sel, pool):
             for l, t in zip(lines, trimmed):
                 if not l['pin']:
                     l[f'label_{lang}'] = t
+
+    # Check the written labels against the pool's own, LAST: after the trim,
+    # after _strip_live_frame and after the river and transport openers are
+    # rewritten, so what is checked is the wording the card will actually draw
+    # rather than a draft of it. See check_labels.
+    check_labels(
+        lines,
+        [{'cat': by_id[q['id']]['cat'], 'pool_en': by_id[q['id']]['label_en'],
+          'label_en': l['label_en'], 'label_ko': l['label_ko'],
+          'value_en': l['value_en'], 'pin': l['pin']}
+         for q, l in zip(picks, lines)],
+        opener_en, opener_ko)
 
     # Source line credits every distinct source used. Seoul Open Data covers
     # everything except the KOSIS 'national' figures, which get their own credit.
