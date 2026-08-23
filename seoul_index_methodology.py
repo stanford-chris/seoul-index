@@ -156,7 +156,7 @@ SOURCE_PREFIX = 'Sources · 출처: '
 SOURCE_LINE = (SOURCE_PREFIX + 'data.seoul.go.kr, kosis.kr, data-explorer.oecd.org, '
                'rt.molit.go.kr, data.kma.go.kr, airport.co.kr, '
                'opendata.hira.or.kr, mcst.go.kr, know.tour.go.kr, '
-               'hrfco.go.kr, data.worldbank.org')
+               'hrfco.go.kr, kobis.or.kr, data.worldbank.org')
 SOURCE_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                   ('kosis.kr', 'https://kosis.kr'),
                   ('data-explorer.oecd.org', 'https://data-explorer.oecd.org'),
@@ -167,6 +167,7 @@ SOURCE_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                   ('mcst.go.kr', 'https://www.mcst.go.kr'),
                   ('know.tour.go.kr', 'https://know.tour.go.kr'),
                   ('hrfco.go.kr', 'https://www.hrfco.go.kr'),
+                  ('kobis.or.kr', 'https://www.kobis.or.kr'),
                   ('data.worldbank.org', 'https://data.worldbank.org')]
 
 

@@ -641,6 +641,102 @@ class SequenceVeinsKeepTheirOrder(unittest.TestCase):
         # These are genuinely rankings and must keep the value sort.
         self.assertFalse({'price', 'water', 'daynight', 'library'} & S.ORDERED_CATS)
 
+# ---------------------------------------------------------------------------
+# boxoffice: the Seoul cut is the whole vein, and nothing announces its absence
+# ---------------------------------------------------------------------------
+# Drop wideAreaCd and KOBIS answers with national rows in the identical shape:
+# same fields, same ranks, plausible numbers, no error. A card built on those
+# would say Seoul and print the country, and every check short of comparing the
+# two calls would pass. Hence a test that reads the URL rather than the output.
+def _bo_rows(rows):
+    return {'boxOfficeResult': {'boxofficeType': '일별 박스오피스',
+                                'showRange': '20260822~20260822',
+                                'dailyBoxOfficeList': rows}}
+
+
+def _bo_row(cd, ko, audi, rank):
+    return {'rank': str(rank), 'movieCd': cd, 'movieNm': ko,
+            'audiCnt': str(audi), 'audiAcc': str(audi * 9),
+            'salesAmt': str(audi * 11000), 'scrnCnt': '100', 'showCnt': '300'}
+
+
+def _bo_info(en):
+    return {'movieInfoResult': {'movieInfo': {'movieNmEn': en}}}
+
+
+FIVE = [_bo_row('1', '오디세이', 132555, 1), _bo_row('2', '스파이더맨', 40901, 2),
+        _bo_row('3', '인시디어스', 6438, 3), _bo_row('4', '코난', 6391, 4),
+        _bo_row('5', '하츄핑', 4796, 5)]
+TITLES = {'movieCd=1': _bo_info('The Odyssey'), 'movieCd=2': _bo_info('Spider-Man'),
+          'movieCd=3': _bo_info('Insidious'), 'movieCd=4': _bo_info('Conan'),
+          'movieCd=5': _bo_info('Hachupin')}
+
+
+class BoxOfficeIsSeoulOnly(unittest.TestCase):
+
+    def test_the_seoul_region_is_actually_requested(self):
+        """Without this the vein silently posts national figures as Seoul's."""
+        with Stub({'searchDailyBoxOfficeList': _bo_rows(FIVE), **TITLES}) as stub:
+            S.boxoffice_facts('KEY')
+        box = [u for u in stub.calls if 'searchDailyBoxOfficeList' in u]
+        self.assertTrue(box, 'the box office was never called')
+        for url in box:
+            self.assertIn(f'wideAreaCd={S.KOBIS_SEOUL}', url)
+
+    def test_it_walks_back_to_the_newest_day_with_rows(self):
+        """A run before KOFIC posts must not date a card on an empty day."""
+        state = {'n': 0}
+
+        def rows(url):
+            if 'searchMovieInfo' in url:
+                return TITLES[[k for k in TITLES if k in url][0]]
+            state['n'] += 1
+            return _bo_rows([] if state['n'] == 1 else FIVE)
+
+        real = S.http_get_json
+        S.http_get_json = rows
+        try:
+            facts = S.boxoffice_facts('KEY')
+        finally:
+            S.http_get_json = real
+        self.assertTrue(facts)
+        self.assertGreaterEqual(state['n'], 2, 'it gave up on the first empty day')
+
+    def test_a_film_without_an_english_title_is_dropped(self):
+        """The English card carries no Hangul, and a romanisation is a guess."""
+        titles = dict(TITLES, **{'movieCd=2': _bo_info('')})
+        with Stub({'searchDailyBoxOfficeList': _bo_rows(FIVE), **titles}):
+            facts = S.boxoffice_facts('KEY')
+        labels = [f['label_en'] for f in facts]
+        self.assertNotIn('스파이더맨', labels)
+        self.assertNotIn('', labels)
+        self.assertIn('The Odyssey', labels)
+
+    def test_both_titles_are_pinned_as_published(self):
+        """A film's Korean title is not a translation of its English one, so
+        the selector must never be handed the job of producing it."""
+        with Stub({'searchDailyBoxOfficeList': _bo_rows(FIVE), **TITLES}):
+            facts = S.boxoffice_facts('KEY')
+        f = next(f for f in facts if f['label_en'] == 'The Odyssey')
+        self.assertEqual(f['label_ko'], '오디세이')
+        self.assertTrue(f['pin'])
+
+    def test_the_card_can_be_dated(self):
+        """boxoffice is in DATED_PERIOD_CATS, so compose() expects a period."""
+        S.BOXOFFICE_D['en'] = S.BOXOFFICE_D['ko'] = None
+        with Stub({'searchDailyBoxOfficeList': _bo_rows(FIVE), **TITLES}):
+            S.boxoffice_facts('KEY')
+        self.assertTrue(S.BOXOFFICE_D['en'] and S.BOXOFFICE_D['ko'])
+        self.assertIn('boxoffice', S.DATED_PERIOD_CATS)
+
+    def test_no_key_means_silence_not_an_error(self):
+        self.assertEqual(S.boxoffice_facts(None), [])
+
+    def test_a_thin_day_produces_no_card(self):
+        """Two films is not a card, and a two-line card is worse than none."""
+        with Stub({'searchDailyBoxOfficeList': _bo_rows(FIVE[:2]), **TITLES}):
+            self.assertEqual(S.boxoffice_facts('KEY'), [])
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=1)

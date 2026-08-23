@@ -2874,6 +2874,114 @@ def tour_facts(key):
     return facts
 
 
+# --- box office (KOBIS / 영화진흥위원회) -------------------------------------
+# SEOUL'S admissions, not the country's. wideAreaCd=0105001 is 서울시 in KOBIS's
+# own region table (searchCodeList, comCode=0105000000), and the cut is a real
+# one rather than a relabelled national figure: on 22 Aug 2026 오디세이 took
+# 132,555 admissions in Seoul against 557,345 nationwide, and the orders differ
+# too, 인시디어스 ranking 3rd in Seoul and 4th nationally.
+#
+# ⚠️ Drop the wideAreaCd and the call still succeeds, returning national rows in
+# the identical shape. Nothing errors, nothing looks wrong, and the card would
+# claim Seoul while printing the country. That is what the vein test guards.
+#
+# Every posted figure is a published row (관객수), never a share or an average.
+KOBIS_BASE = 'https://www.kobis.or.kr/kobisopenapi/webservice/rest'
+KOBIS_SEOUL = '0105001'
+BOXOFFICE_N = 5        # films a card draws from, and English-title calls per run
+BOXOFFICE_LOOKBACK = 3   # days to walk back before giving up on a day's rows
+# Set by boxoffice_facts() so compose() can date the card.
+BOXOFFICE_D = {'en': None, 'ko': None}
+
+
+def _kobis_title_en(key, movie_cd):
+    """The English title KOFIC itself publishes for a film, or ''.
+
+    The box office rows carry Korean titles only, and the English card carries
+    no Hangul. Romanising mechanically is the exact mistake
+    seoul_index_names_en.json exists to prevent: 오디세이 is "The Odyssey", not
+    "Odisei". One extra call per film named; a film with no English title on
+    file is dropped rather than guessed at.
+    """
+    try:
+        d = http_get_json(f'{KOBIS_BASE}/movie/searchMovieInfo.json'
+                          f'?key={key}&movieCd={movie_cd}')
+        return (d['movieInfoResult']['movieInfo'].get('movieNmEn') or '').strip()
+    except (RuntimeError, KeyError, TypeError):
+        return ''
+
+
+def boxoffice_facts(kobis_key):
+    """What Seoul watched yesterday: admissions per film, on Seoul screens."""
+    if not kobis_key:
+        return []
+    day = datetime.now(SEOUL_TZ).date()
+    rows = []
+    # A day publishes the following morning, so the newest day with rows is
+    # normally yesterday. Walk back rather than assume it: a run at 08:30 can
+    # land before KOFIC has posted, and a silent vein beats a wrong date.
+    for _ in range(BOXOFFICE_LOOKBACK):
+        day -= timedelta(days=1)
+        try:
+            d = http_get_json(f'{KOBIS_BASE}/boxoffice/searchDailyBoxOfficeList.json'
+                              f'?key={kobis_key}&targetDt={day:%Y%m%d}'
+                              f'&wideAreaCd={KOBIS_SEOUL}')
+            rows = d['boxOfficeResult']['dailyBoxOfficeList']
+        except (RuntimeError, KeyError, TypeError):
+            return []
+        if rows:
+            break
+    if not rows:
+        return []
+
+    films = []
+    for r in rows[:BOXOFFICE_N]:
+        try:
+            audi = int(r['audiCnt'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        ko_name = (r.get('movieNm') or '').strip()
+        en_name = _kobis_title_en(kobis_key, r.get('movieCd', ''))
+        if not (audi and ko_name and en_name):
+            continue
+        films.append((r.get('movieCd'), ko_name, en_name, audi))
+    if len(films) < 3:
+        return []
+
+    BOXOFFICE_D['en'] = f'{day.day} {MONTHS_EN[day.month - 1]} {day.year}'
+    BOXOFFICE_D['ko'] = f'{day.year}년 {day.month}월 {day.day}일'
+
+    facts = []
+    for cd, ko_name, en_name, audi in films:
+        # label_ko is set rather than left for the selector: a film's Korean
+        # title is not a translation of its English one, it is the other title
+        # the distributor registered. pin keeps both ends as published.
+        facts.append(fact(f'bo_{cd}', 'boxoffice', en_name,
+                          grouped(audi), grouped(audi), label_ko=ko_name,
+                          pin=True, num=audi, unit='people'))
+    # The sales detectors once more: two films that came out level, and the
+    # spread across the five.
+    best = None
+    for i in range(len(films)):
+        for j in range(i + 1, len(films)):
+            a, b = films[i][3], films[j][3]
+            gap = abs(a - b) / max(a, b)
+            if gap <= 0.02 and (best is None or gap < best[0]):
+                best = (gap, films[i], films[j])
+    if best:
+        for cd, ko_name, en_name, audi in (best[1], best[2]):
+            facts.append(fact(f'boheat_{cd}', 'boxoffice', en_name,
+                              grouped(audi), grouped(audi), label_ko=ko_name,
+                              pin=True, pair='bo_heat'))
+    hi, lo = films[0], min(films, key=lambda f: f[3])
+    if hi[3] / max(lo[3], 1) >= 3:
+        for cd, ko_name, en_name, audi in (hi, lo):
+            facts.append(fact(f'bogap_{cd}', 'boxoffice', en_name,
+                              grouped(audi), grouped(audi), label_ko=ko_name,
+                              pin=True, pair='bo_gap'))
+    return facts
+
+
 def _url(s):
     from urllib.parse import quote
     return quote(s)
@@ -3234,7 +3342,8 @@ def worldbank_facts(state, kosis_key):
 
 # --- selection + composition ----------------------------------------------
 
-def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None):
+def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
+               kobis_key=None):
     # gov_key is the shared data.go.kr key: one key, per-API 활용신청, so the
     # property, weather, airport, health and culture veins all ride on it.
     pool = []
@@ -3270,6 +3379,8 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None):
     pool += hira_facts(gov_key)
     pool += culture_facts(gov_key)
     pool += tour_facts(gov_key)
+    # KOFIC issues its own key, like HRFCO: not a data.go.kr one.
+    pool += boxoffice_facts(kobis_key)
     return pool
 
 
@@ -3311,6 +3422,7 @@ Rules:
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
 - "books" lines are checkouts at SEOUL LIBRARY over the last 60 days, counted by SUBJECT: literature, philosophy, 어학 and the rest, in the library's own classification. Labels are BARE SUBJECT NAMES, so the opener MUST name the library and say these are loans, exactly as the "library" membership lines do — and MUST NOT settle on one wording: "What Seoul Library lent, by subject", "Seoul Library's loans, by subject", "Borrowing at Seoul Library, by subject" and "What went out of Seoul Library" are four of many, so write a fresh one rather than reusing the last. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries — never imply otherwise. ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post, never mixed with any other category. ⚠️ TEN subjects are offered and a card takes four, so there is no one right card and THE EXTREMES ARE NOT COMPULSORY. Do not reach for the biggest subject at the top and the smallest at the bottom every time: four subjects from the middle of the list is a card, the four smallest is a card, and a set leaving out the largest number altogether is a card. The two pairs are two arrangements among many rather than the default — a "book_heat" pair is two subjects that came out level, a "book_gap" pair is the least- and most-borrowed of the ten; use at most ONE of them on a card, and prefer neither if the plain four you have chosen already say something. Deliberately vary which subjects appear from post to post and lean hard on AVOID_IDS here: with only ten subjects this vein repeats itself faster than any other. Never say which way the gap runs, never call a subject popular or neglected, and never draw a conclusion about what Seoul reads — set the numbers down and let the reader do it.
+- "boxoffice" lines are cinema ADMISSIONS on SEOUL screens for ONE day, film by film, from the Korean Film Council's ticketing network. Labels are BARE FILM TITLES, so the opener MUST say these are cinema admissions in Seoul (e.g. "What Seoul watched", "Seoul at the cinema", "Tickets torn in Seoul"), the same case as the world, traffic, price and books lines — and MUST NOT settle on one wording, so write a fresh one rather than reusing the last. ⚠️ These are SEOUL's admissions, NOT the country's: never write "nationwide", "across Korea" or any national framing, and never imply the figures are a film's total. ⚠️ Do NOT put the date in the opener: the day rides on the card automatically as its dateline. ⚠️ Titles are printed exactly as they come, in each language: never translate, shorten or reword a film title. Own post, never mixed with any other category. Never call a film a hit, a flop or a winner, never say which is beating which, and never remark on the gap between them.
 - Keep the opener neutral (a time or place framing), EXCEPT on a world post, where it must name the metric as described above. Pick one from OPENERS, or write a short neutral one (max ~5 words) — it must NOT give away or hint at the pairing. Provide it in English and Korean.
 - You may lightly reword an English label for wit, but keep its meaning and DO NOT put any digit in a label.
 - Translate every chosen label to natural Korean (labels only — never restate the number in the label).
@@ -3806,7 +3918,7 @@ LIVE_CATS = {'crowd', 'air', 'bike', 'traffic'}
 # Veins that carry a liftable month/quarter period (they set a dateline). Same
 # four the dateline logic promotes; used early, before scope is built, to spot a
 # groupable live+dated cross pair while ordering the lines.
-DATED_PERIOD_CATS = {'tourism', 'property', 'spending', 'avgbill'}
+DATED_PERIOD_CATS = {'tourism', 'property', 'spending', 'avgbill', 'boxoffice'}
 # Veins whose lines are BARE LABELS ("60s", "2019") explained by a DESCRIPTOR
 # rather than by a date. On an own post the opener carries that meaning, so this
 # is only a reminder in the footnote — but a cross pair OVERRIDES "own post,
@@ -4002,7 +4114,7 @@ def compose(sel, pool):
     # 'books' is deliberately NOT here: since 22 August 2026 the loan counts come
     # from Seoul's own portal (SeoulLibraryBookRentNumInfo), not data4library.
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
-                 'health', 'culture', 'tourism', 'level'}
+                 'health', 'culture', 'tourism', 'level', 'boxoffice'}
     uses_seoul = any(c not in non_seoul for c in cats)
     uses_kosis = 'national' in cats
     uses_oecd = 'world' in cats
@@ -4016,6 +4128,7 @@ def compose(sel, pool):
     uses_mcst = 'culture' in cats
     uses_tour = 'tourism' in cats
     uses_books = 'books' in cats
+    uses_kobis = 'boxoffice' in cats
     srcs = (['data.seoul.go.kr'] if uses_seoul else []) + \
            (['kosis.kr'] if uses_kosis else []) + \
            ([OECD_DOMAIN] if uses_oecd else []) + \
@@ -4026,6 +4139,7 @@ def compose(sel, pool):
            (['mcst.go.kr'] if uses_mcst else []) + \
            (['know.tour.go.kr'] if uses_tour else []) + \
            (['hrfco.go.kr'] if 'level' in cats else []) + \
+           (['kobis.or.kr'] if uses_kobis else []) + \
            ([WB_DOMAIN] if uses_wb else [])
     if not srcs:
         srcs = ['data.seoul.go.kr']
@@ -4155,6 +4269,16 @@ def compose(sel, pool):
         if TOUR_M['en']:
             scope_en.append(('Paid-admission sites', TOUR_M['en']))
             scope_ko.append(('유료 관광지 입장객', TOUR_M['ko']))
+    if uses_kobis:
+        # The scope is doing real work here, not decoration: admissions on
+        # SEOUL screens are a different number from the national ones every
+        # outlet reports, and a card of bare film titles gives a reader no way
+        # to know which they are looking at. The day rides as the dateline.
+        src_en += ' · KOFIC'
+        src_ko += ' · 영화진흥위원회'
+        if BOXOFFICE_D['en']:
+            scope_en.append(('Seoul screens', BOXOFFICE_D['en']))
+            scope_ko.append(('서울 지역 상영', BOXOFFICE_D['ko']))
     if uses_books and BOOKS_WINDOW['days']:
         # ⚠️ The window is the whole reason this vein is publishable and it is
         # not in the API: 서울도서관 states it on its own page and the harvester
@@ -4433,6 +4557,7 @@ LINK_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                 ('mcst.go.kr', 'https://www.mcst.go.kr'),
                 ('know.tour.go.kr', 'https://know.tour.go.kr'),
                 ('hrfco.go.kr', 'https://www.hrfco.go.kr'),
+                ('kobis.or.kr', 'https://www.kobis.or.kr'),
                 (WB_DOMAIN, f'https://{WB_DOMAIN}')]
 
 
@@ -4594,13 +4719,17 @@ def main():
     # HRFCO issues its own key (not a data.go.kr one): it is the level
     # vein's only source, and that vein is silent without it.
     hrfco_key = config.get('hrfco_api_key')
+    # KOFIC issues its own key too (kobis.or.kr, not data.go.kr); the box
+    # office vein is silent without it.
+    kobis_key = config.get('kobis_key')
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
 
     # Inspect the cross-vein collisions the detector finds for the live pool,
     # then exit — no selector call, no post. A deterministic look at what the
     # selector will be offered (unlike a --dry-run, whose picks the model makes).
     if SHOW_CROSS:
-        pool = build_pool(api_key, state, kosis_key, gov_key, hrfco_key)
+        pool = build_pool(api_key, state, kosis_key, gov_key, hrfco_key,
+                          kobis_key)
         elig = [f for f in pool if f.get('unit')]
         print(f'{len(pool)} facts, {len(elig)} collidable:')
         for f in sorted(elig, key=lambda f: (f['unit'], -f['num'])):
@@ -4628,8 +4757,14 @@ def main():
     # actually WAS — not a separate boolean: a duplicate flag can fall out
     # of step with the record it shadows, and on 22 Jul 2026 it did, putting
     # two spotlights back to back.
+    # ONLY_CAT suppresses the spotlight draw. --only exists to show ONE vein on
+    # demand, and without this a coin flip could answer a request to see the box
+    # office with a spotlight card instead: the flag looked broken rather than
+    # overruled, which is how it read the first time a new vein was previewed.
+    # An explicit --spotlight still wins, being the more specific instruction.
     want_spotlight = FORCE_SPOTLIGHT or (
-        state.get('last_cat') != 'spotlight'
+        ONLY_CAT is None
+        and state.get('last_cat') != 'spotlight'
         and random.random() < 1 / (SPOTLIGHT_EVERY - 1))
     if want_spotlight:
         i = int(state.get('spotlight_i', 0))
@@ -4651,7 +4786,8 @@ def main():
     promoted = None                        # set by the vein floor, below
 
     if not want_spotlight:
-        pool = build_pool(api_key, state, kosis_key, gov_key, hrfco_key)
+        pool = build_pool(api_key, state, kosis_key, gov_key, hrfco_key,
+                          kobis_key)
         if len(pool) < 5:
             sys.exit(f'Pool too small ({len(pool)} facts) — data sources may be down.')
 
