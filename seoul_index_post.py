@@ -72,6 +72,12 @@ CARD_LOG = HERE / 'card_history.jsonl'
 # records worth keeping: a rejected label never reaches a card, so this file is
 # the only place a false alarm is ever visible. See check_labels.
 LABEL_LOG = HERE / 'label_checks.jsonl'
+# Whether compose() ends by checking its labels. Only ever False in tests: the
+# composition suites promise no network and no model call, and they disable the
+# CALL rather than replacing check_labels itself, which would also silence the
+# checker's own tests — unittest discover imports every test module into one
+# process, so a stubbed function stays stubbed for the whole run.
+CHECK_LABELS = True
 # The estate's shared notebook, read by a weekly review. Optional: this
 # repository is public and the bot runs without it.
 OBSERVE = Path.home() / 'Scripts' / 'observe.py'
@@ -4540,13 +4546,15 @@ def compose(sel, pool):
     # after _strip_live_frame and after the river and transport openers are
     # rewritten, so what is checked is the wording the card will actually draw
     # rather than a draft of it. See check_labels.
-    check_labels(
-        lines,
-        [{'cat': by_id[q['id']]['cat'], 'pool_en': by_id[q['id']]['label_en'],
-          'label_en': l['label_en'], 'label_ko': l['label_ko'],
-          'value_en': l['value_en'], 'pin': l['pin']}
-         for q, l in zip(picks, lines)],
-        opener_en, opener_ko)
+    if CHECK_LABELS:
+        check_labels(
+            lines,
+            [{'cat': by_id[q['id']]['cat'],
+              'pool_en': by_id[q['id']]['label_en'],
+              'label_en': l['label_en'], 'label_ko': l['label_ko'],
+              'value_en': l['value_en'], 'pin': l['pin']}
+             for q, l in zip(picks, lines)],
+            opener_en, opener_ko)
 
     # Source line credits every distinct source used. Seoul Open Data covers
     # everything except the KOSIS 'national' figures, which get their own credit.
