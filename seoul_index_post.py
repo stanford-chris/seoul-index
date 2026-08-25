@@ -182,9 +182,10 @@ SELECT_RETRIES = 3
 #
 # So the same remedy as the cooldowns, pointed the other way: when a vein has
 # not been the primary category for this many days, the pool is narrowed TO that
-# vein for one card and the selector has nothing else to choose. Promotions never
-# land back to back, so a burst of starved veins airs over alternating posts
-# rather than putting the feed on rails for two days.
+# vein for one card and the selector has nothing else to choose. Promotions do
+# not land back to back, so a burst of starved veins airs over alternating posts
+# rather than putting the feed on rails for two days: the one exception is a vein
+# that has never led a card at all, which may run on. See promote_starved.
 STARVE_DAYS = 5
 # A promoted vein must be able to fill a card on its own. 'air' has only 2 facts
 # and so can never be promoted — it can only ever ride along on someone else's
@@ -3936,17 +3937,12 @@ def promote_starved(pool, state):
     narrowed to that vein alone, so the selector's preference for a juicy
     cross-vein pair cannot outvote it.
 
-    Never-posted veins go first, then the longest-neglected. Returns
-    (pool, promoted_cat), with promoted_cat None when nothing is promoted and
-    the pool handed back untouched.
+    Never-posted veins go first, then the longest-neglected. Promotions do not
+    normally land back to back; a vein that has never led a card at all is the
+    exception, so a debut queue drains at one a post instead of one every two.
+    Returns (pool, promoted_cat), with promoted_cat None when nothing is
+    promoted and the pool handed back untouched.
     """
-    # Two promotions running would put the feed on rails. last_cat is the record
-    # of what the previous card WAS, so comparing it with the cat we promoted
-    # last time needs no second flag to fall out of step with it (a duplicate
-    # flag is exactly what put two spotlights back to back on 22 Jul 2026).
-    if state.get('last_cat') and state.get('last_cat') == state.get('last_promoted_cat'):
-        return pool, None
-
     counts = collections.Counter(f['cat'] for f in pool)
     seen = state.get('cat_last_at') or {}
     now = datetime.now(timezone.utc)
@@ -3966,14 +3962,41 @@ def promote_starved(pool, state):
     if not starved:
         return pool, None
 
+    # Two promotions running would put the feed on rails. last_cat is the record
+    # of what the previous card WAS, so comparing it with the cat we promoted
+    # last time needs no second flag to fall out of step with it (a duplicate
+    # flag is exactly what put two spotlights back to back on 22 Jul 2026).
+    #
+    # ⚠️ A vein that has NEVER led a card overrides that, and the reason is a
+    # measurement rather than a preference. On 25 Aug 2026 the queue was 12 to 15
+    # veins deep and draining at one promotion per two posts, so five veins live
+    # since 22 July (weather 18 facts, health 12, property 8, airport 5, culture
+    # 4: 47 of 258, 18% of the pool) had still never once led a card, and sat at
+    # the head of every run's 'Also starved' line waiting their turn. The
+    # alternation rule was holding back the debut it exists to deliver.
+    #
+    # It is safe to relax HERE and nowhere else because the never-posted set only
+    # ever shrinks: each debut removes one, and when it empties the rule turns
+    # itself off with no flag to reset. A vein shipped later re-arms it, which is
+    # exactly when a debut is wanted again. Do not widen this to 'the queue is
+    # deep': with 26 veins, STARVE_DAYS = 5 and four posts a day, an even
+    # rotation leaves most veins nominally starved most of the time, so a
+    # depth test would be permanently true and the guard would be dead code.
+    back_to_back = (state.get('last_cat')
+                    and state.get('last_cat') == state.get('last_promoted_cat'))
+    debut_waiting = any(age is None for age, _, _ in starved)
+    if back_to_back and not debut_waiting:
+        return pool, None
+
     # Never-posted first; then oldest-seen first.
     starved.sort(key=lambda t: (t[0] is not None,
                                 -(t[0].total_seconds() if t[0] else 0)))
     age, cat, n = starved[0]
     waited = 'never posted' if age is None else f'{age.days}d since last card'
     others = ', '.join(c for _, c, _ in starved[1:]) or 'none'
-    print(f'Vein floor: promoting {cat} ({waited}); this card is built from its '
-          f'{n} facts alone. Also starved: {others}.')
+    run_on = ' (back to back: a vein still waiting to debut)' if back_to_back else ''
+    print(f'Vein floor: promoting {cat} ({waited}){run_on}; this card is built '
+          f'from its {n} facts alone. Also starved: {others}.')
     return [f for f in pool if f['cat'] == cat], cat
 
 

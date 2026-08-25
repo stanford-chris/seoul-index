@@ -63,9 +63,32 @@ class VeinFloor(unittest.TestCase):
         self.assertIs(pool, POOL)
 
     def test_no_two_promotions_running(self):
-        state = {'cat_last_at': {'crowd': ago(1)},
+        # Every promotable vein has led before, so nothing is waiting to debut
+        # and the alternation rule holds. ⚠️ Leave a never-posted vein in this
+        # fixture and the test passes for the wrong reason: the debut override
+        # below would fire and the guard would never be exercised at all.
+        state = {'cat_last_at': {'crowd': ago(1), 'world': ago(20),
+                                 'culture': ago(9)},
                  'last_cat': 'world', 'last_promoted_cat': 'world'}
         _, cat = S.promote_starved(POOL, state)
+        self.assertIsNone(cat)
+
+    def test_never_posted_vein_overrides_the_alternation_rule(self):
+        # 'culture' has never led a card, so a promotion may follow a promotion.
+        state = {'cat_last_at': {'crowd': ago(1), 'world': ago(20)},
+                 'last_cat': 'world', 'last_promoted_cat': 'world'}
+        _, cat = S.promote_starved(POOL, state)
+        self.assertEqual(cat, 'culture')
+
+    def test_debut_override_does_not_reach_a_vein_too_small_to_promote(self):
+        # The only never-posted vein here is 'air', and 2 facts cannot fill a
+        # card. It must not count as a debut waiting: if it did, 'world' would
+        # be promoted back to back on a queue that can never actually drain.
+        small = ([f(f'world{i}', 'world') for i in range(6)]
+                 + [f(f'air{i}', 'air') for i in range(2)])
+        state = {'cat_last_at': {'world': ago(20)},
+                 'last_cat': 'world', 'last_promoted_cat': 'world'}
+        _, cat = S.promote_starved(small, state)
         self.assertIsNone(cat)
 
     def test_promotion_resumes_after_an_ordinary_post(self):
