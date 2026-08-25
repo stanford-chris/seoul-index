@@ -329,13 +329,6 @@ class EveryRecordMustLandInASubject(unittest.TestCase):
             H.tally(sum((self.rows(5, c) for c in '83'), []))
 
 
-# ⚠️ Keep this at the END of the file: above the last class it runs before those
-# tests are defined and reports a confident, short "OK" (see ~/Scripts/CLAUDE.md,
-# where exactly that hid 8 tests in test_update_projects_note.py).
-if __name__ == '__main__':
-    unittest.main()
-
-
 # ---------------------------------------------------------------------------
 # The share of the checkouts counted: "Literature: 3,700 (1 in 3)"
 # ---------------------------------------------------------------------------
@@ -436,3 +429,13 @@ class TheShareOfTheCheckouts(unittest.TestCase):
             S.BOOKS_WINDOW['loans'] = '999,999'
             S.books_facts()
         self.assertEqual(S.BOOKS_WINDOW['loans'], '11,400')
+
+
+# ⚠️ Keep this at the END of the file: above the last class it runs before those
+# tests are defined and reports a confident, short "OK" (see ~/Scripts/CLAUDE.md,
+# where exactly that hid 8 tests in test_update_projects_note.py). It had drifted
+# back above the last class by 25 August 2026, hiding 9 tests from a direct run
+# while discovery still saw all 39 — the two disagreed and the direct run was the
+# one that lied.
+if __name__ == '__main__':
+    unittest.main()

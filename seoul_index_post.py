@@ -529,6 +529,24 @@ def spell_out(name):
     return full if len(full) <= MAX_EXPANDED else name
 
 
+def en_lookup(korean, kind):
+    """The mapped English name, or None. Never warns, never invents.
+
+    ⚠️ The boardings feeds append a landmark in brackets that the name table does
+    not carry: 신정(은행정), 광화문(세종문화회관), 삼성(무역센터), 동대문역사문화공원(DDP).
+    58 of the 72 station names CardSubwayTime returned unmapped in July 2026
+    resolve on the bare name. Trying it can only turn a miss into a hit, since an
+    exact key is looked up first and wins.
+    ⚠️ The 14 it does not fix are almost all outside Seoul (천안, 연천, 직산), plus
+    서울역, which the table holds as 서울: a real gap, and the reason callers that
+    need a guaranteed English name must check rather than assume."""
+    table = _names_en().get(kind, {})
+    got = table.get(korean)
+    if not got:
+        got = table.get(re.sub(r'\s*\(.*?\)\s*$', '', korean or '').strip())
+    return spell_out(got) if got else None
+
+
 def en_name(korean, kind):
     """English name for a station/district, or the Korean original if unmapped.
     Official names are not romanisations (홍대입구 is 'Hongik Univ.', 시청 is
@@ -536,12 +554,12 @@ def en_name(korean, kind):
     say so rather than invent one."""
     if not korean:
         return korean
-    got = _names_en().get(kind, {}).get(korean)
+    got = en_lookup(korean, kind)
     if not got:
         print(f'Warning: no English name for {kind[:-1]} {korean!r} — '
               f'using Korean on the English card.')
         return korean
-    return spell_out(got)
+    return got
 
 
 def fact(fid, cat, label_en, value_en, value_ko, estimated=False, pair=None,
@@ -924,6 +942,143 @@ def transport_facts(api_key, state):
              label_ko=f'가장 한산한 지하철역, {c["quietest_st"]}',
              num=c['quietest_v'], unit='people'),
     ]
+    return facts
+
+
+# --- rush hour -------------------------------------------------------------
+# Added 25 August 2026. transport_facts() above counts a whole DAY through the
+# turnstiles; this reads the same turnstiles along a CLOCK, from CardSubwayTime:
+# monthly, per line x station, 24 hourly boarding columns, published back to
+# January 2015 and never used here until now.
+#
+# The card it exists to make is ONE STATION AT TWO HOURS. 종각 took 10,872
+# boardings at 8 in the morning in July 2026 and 227,972 at 6 in the evening,
+# twenty-one times as many: nobody boards at 종각 in the morning because nobody
+# sleeps there. Set against a station of the opposite kind (신정, 77,726 against
+# 15,585, the other way about) the four figures say where Seoul sleeps and where
+# it works with no comment attached, which is the house style exactly.
+#
+# ⚠️ CARDSUBWAYTIME SERVES EVERY ROW TWICE, BYTE-IDENTICAL. July 2026 returns
+# 1,242 rows that are 621 real ones: same line, same station, same 48 figures,
+# not one field differing. Summed naively every figure here is exactly double,
+# and nothing looks wrong — the ratios hold, the ranking holds, the card reads
+# perfectly, and only the numbers lie. It was caught by checking a month against
+# the DAILY feed transport_facts() already reads: de-duplicated, subway and bus
+# both come to 0.87 of a single weekday, which is what a month including
+# weekends should be; doubled, the subway alone came to 1.74x a weekday while
+# the bus stayed right, so the two feeds disagreed. ⚠️ CardBusTimeNew does NOT
+# do this (5,000 rows, 5,000 distinct), so it cannot be fixed once for both.
+#
+# ⚠️ Whole-row identity is the de-duplication test on purpose: keying on
+# (line, station) would silently drop a genuinely different second row, and that
+# would be real data thrown away.
+#
+# ⚠️ EVERY FIGURE IS A WHOLE MONTH OF THAT HOUR, NEVER ONE DAY'S. A bare
+# "종각, 6 p.m.: 227,972" under a month dateline reads as one evening, which is
+# wrong by a factor of about thirty. compose() puts that in the card footnote
+# and SELECT_PROMPT forbids the selector implying otherwise.
+RUSH_M = {'en': None, 'ko': None}
+RUSH_AM, RUSH_PM = 8, 18    # the two peaks of the citywide profile, every month
+RUSH_FLOOR = 300_000        # monthly boardings a station must clear to be
+                            # offered. Without it the extremes of the ratio are
+                            # tiny stations where a few dozen people decide the
+                            # whole finding.
+RUSH_STATIONS = 2           # one of each kind, each offered as its two hours
+
+
+def _rush_month(api_key, month):
+    """{station: [24 hourly boardings]} for one month, or {} if not published."""
+    base = f'http://openapi.seoul.go.kr:8088/{api_key}/json/CardSubwayTime'
+    try:
+        head = http_get_json(f'{base}/1/1/{month}')
+    except RuntimeError:
+        return {}
+    body = head.get('CardSubwayTime') or {}
+    total = int(body.get('list_total_count') or 0)
+    if not total:
+        return {}
+    rows = []
+    for start in range(1, total + 1, 1000):
+        try:
+            d = http_get_json(f'{base}/{start}/{min(start + 999, total)}/{month}')
+        except RuntimeError:
+            return {}
+        rows += d.get('CardSubwayTime', {}).get('row', [])
+    if len(rows) != total:
+        return {}      # a short read must not become a quieter city
+    seen, agg = set(), {}
+    for r in rows:
+        sig = tuple(sorted((k, str(v)) for k, v in r.items()))
+        if sig in seen:
+            continue   # the exact-duplicate row; see the warning above
+        seen.add(sig)
+        hours = agg.setdefault(r.get('STTN', ''), [0] * 24)
+        for h in range(24):
+            try:
+                hours[h] += int(float(r.get(f'HR_{h}_GET_ON_NOPE') or 0))
+            except (TypeError, ValueError):
+                return {}
+    agg.pop('', None)
+    return agg
+
+
+def rush_facts(api_key, state):
+    """One station at its morning hour and its evening hour, both ends of the
+    city. Cached per month in state: the source publishes monthly, so a second
+    post the same day must not re-fetch it."""
+    now = datetime.now(SEOUL_TZ).date().replace(day=1)
+    cache = state.get('rush_cache') or {}
+    month, picks = cache.get('month'), cache.get('picks')
+    if not picks:
+        agg = {}
+        for _ in range(6):
+            month = f'{now:%Y%m}'
+            agg = _rush_month(api_key, month)
+            if agg:
+                break
+            now = (now - timedelta(days=1)).replace(day=1)
+        if not agg:
+            return []
+        scored, unnamed = [], []
+        for st, h in agg.items():
+            am, pm = h[RUSH_AM], h[RUSH_PM]
+            if sum(h) < RUSH_FLOOR or not am or not pm:
+                continue
+            # ⚠️ A station with no English name is SKIPPED, not romanised and not
+            # printed in Korean on the English card — the same rule the box
+            # office vein applies to a film KOFIC has no English title for. The
+            # skip is logged rather than silent, or a name-table gap looks like a
+            # vein nobody picks.
+            if not en_lookup(st, 'stations'):
+                unnamed.append(st)
+                continue
+            scored.append(((am - pm) / (am + pm), st, am, pm))
+        if unnamed:
+            print(f'rush: {len(unnamed)} station(s) skipped for want of an '
+                  f'English name: {", ".join(sorted(unnamed)[:6])}')
+        if len(scored) < RUSH_STATIONS * 2:
+            return []
+        scored.sort()
+        # The two ends of the same axis: the most evening-boarded station and
+        # the most morning-boarded one. Measured every month, never hardcoded —
+        # a named station would rot the first time the city changed shape.
+        picks = [list(scored[0][1:]), list(scored[-1][1:])]
+        state['rush_cache'] = {'month': month, 'picks': picks}
+    dt = datetime.strptime(month, '%Y%m')
+    RUSH_M['en'] = f'{MONTHS_EN[dt.month - 1]} {dt.year}'
+    RUSH_M['ko'] = f'{dt.year}년 {dt.month}월'
+    facts = []
+    for i, (st, am, pm) in enumerate(picks):
+        en = en_name(st, 'stations')
+        for h, v in ((RUSH_AM, am), (RUSH_PM, pm)):
+            # Pinned in both languages: the label is a station and a clock time,
+            # and a translated time is a number Python no longer owns. Same rule
+            # as spotlight_facts.
+            facts.append(fact(f'rush_{i}_{h}', 'rush',
+                              f'{en}, {_ampm_en(h)}',
+                              grouped(v), grouped(v), pair=f'rush_{i}',
+                              pin=True, label_ko=f'{st}, {_ampm_ko(h)}',
+                              num=v, unit='people'))
     return facts
 
 
@@ -3585,6 +3740,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += crowd_facts(api_key, crowd_window(state))
     pool += air_facts(api_key)
     pool += transport_facts(api_key, state)
+    pool += rush_facts(api_key, state)
     pool += count_facts(api_key)
     pool += bike_facts(api_key)
     pool += traffic_facts(api_key)
@@ -3659,6 +3815,7 @@ Rules:
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
 - "books" lines are checkouts at SEOUL LIBRARY over the last 60 days, counted by SUBJECT: literature, philosophy, 어학 and the rest, in the library's own classification. Labels are BARE SUBJECT NAMES, so the opener MUST name the library and say these are loans, exactly as the "library" membership lines do — and MUST NOT settle on one wording: "What Seoul Library lent, by subject", "Seoul Library's loans, by subject", "Borrowing at Seoul Library, by subject" and "What went out of Seoul Library" are four of many, so write a fresh one rather than reusing the last. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries — never imply otherwise. ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post, never mixed with any other category. ⚠️ The value may carry a trailing "(1 in N)" — that is Python's, and it is the subject's share of every checkout counted, which is why four lines can still say what the other six weigh. Leave it exactly where it is and NEVER restate it, convert it to a percentage, explain it, or build the opener or a label on it; the card footnote gives the total it divides by. ⚠️ TEN subjects are offered and a card takes four, so there is no one right card and THE EXTREMES ARE NOT COMPULSORY. Do not reach for the biggest subject at the top and the smallest at the bottom every time: four subjects from the middle of the list is a card, the four smallest is a card, and a set leaving out the largest number altogether is a card. The two pairs are two arrangements among many rather than the default — a "book_heat" pair is two subjects that came out level, a "book_gap" pair is the least- and most-borrowed of the ten; use at most ONE of them on a card, and prefer neither if the plain four you have chosen already say something. Deliberately vary which subjects appear from post to post and lean hard on AVOID_IDS here: with only ten subjects this vein repeats itself faster than any other. Never say which way the gap runs, never call a subject popular or neglected, and never draw a conclusion about what Seoul reads — set the numbers down and let the reader do it.
+- "rush" lines are SUBWAY BOARDINGS at one named station in ONE HOUR of the day. Labels are a station and a clock time ("City Hall, 6 p.m."), so the opener MUST say IN WORDS that these are subway boardings, e.g. "Boarding the Seoul subway", "Through the turnstiles, by the hour" — the same case as the world, traffic, price and books lines — and MUST NOT settle on one wording, so write a fresh one rather than reusing the last. ⚠️ EVERY figure is a WHOLE MONTH of that hour: never write or imply that one is a single day's, a single evening's, an average, or "in an hour". ⚠️ Do NOT put the month in the opener: it rides on the card as its dateline. The PAIR offered is the SAME station at its morning hour and its evening hour, and that contrast IS the joke: use both halves and let it sit there unremarked. Never point out that one is larger, never call a station busy, quiet, dead or booming, and never label a place residential, commercial, a business district or a dormitory suburb: the four numbers say all of it, and saying it as well is the one thing this account never does. Own post, never mixed with any other category.
 - "boxoffice" lines are cinema ADMISSIONS on SEOUL screens for ONE day, film by film, from the Korean Film Council's ticketing network. Labels are BARE FILM TITLES, so the opener MUST say IN WORDS that the figures are admissions or tickets, and that they are Seoul's: a title and a bare number leave the reader to guess whether it is people, screens or won. "Seoul at the cinema" is NOT enough on its own and neither is "What Seoul watched" — write e.g. "Cinema admissions in Seoul", "Tickets sold in Seoul's cinemas", "Seats filled in Seoul's cinemas" (관객수 / 티켓 in the Korean), the same case as the world, traffic, price and books lines — and MUST NOT settle on one wording, so write a fresh one rather than reusing the last. ⚠️ These are SEOUL's admissions, NOT the country's: never write "nationwide", "across Korea" or any national framing, and never imply the figures are a film's total. ⚠️ Do NOT put the date in the opener: the day rides on the card automatically as its dateline. ⚠️ Titles are printed exactly as they come, in each language: never translate, shorten or reword a film title. ⚠️ EVERY film on this card gets an "emoji", with no exceptions: the general rule above lets you leave one blank where nothing obvious fits, and that is right for an abstract line but wrong here, since a film is always ABOUT something. Take it from the subject, the genre or the title itself: 🕷 for a Spider-Man film, 👻 for a horror, 🕵 for a detective story, 🐋 for a whale, 🏛 or ⛵ for an ancient epic, 🎞 or 🍿 as a last resort. If a card would go out with one film tagged and another bare, every emoji on it is stripped instead, so a lazy blank costs the whole card its emoji rather than just that line. Own post, never mixed with any other category. ⚠️ The four films offered are the day's FOUR most-watched in Seoul, and you must use ALL FOUR, every time: this card is the complete top four in order, not a selection from a longer list, and dropping one leaves a hole in a ranking that a reader will take for the ranking. Do not number the lines (they are already sorted by value) and do not write an opener that ranks them ("the day's winners", "Seoul's biggest"): the footnote says what the set is, and the arrangement does the rest. Never call a film a hit, a flop or a winner, never say which is beating which, and never remark on the gap between them.
 - "boxhist" lines are a DIFFERENT card from the box office one and never share a post with it: how many SEOUL SCREENS the day's number-one film was on, this date, against the same date five and ten years ago. Each label is a YEAR, then a colon, then the film title (the renderer bolds the year), and each value is a screen count, so the opener MUST say the figures are screens in Seoul and that the years are the same date (e.g. "Screens for Seoul's most-watched film, the same date", "What the most-watched film was playing on"). ⚠️ Say MOST-WATCHED, never "top" or "number one" on their own: the value on this card is a count of SCREENS, so an unqualified "top film" reads as top BY screens and makes the card circular. The ranking is by admissions, and MUST NOT settle on one wording. ⚠️ The lines are a SEQUENCE, newest first, and are never reordered: they are years, not a ranking. ⚠️ Titles and years are printed exactly as given: never translate a title, never drop a year. Every line gets an emoji or the card loses them all, as with the other film card. Never say cinemas grew, shrank, recovered or collapsed, never mention the pandemic, and never explain the change: three numbers and their years are the whole card, and the reader is better at drawing the conclusion than you are.
 - Keep the opener neutral (a time or place framing), EXCEPT on a world post, where it must name the metric as described above. Pick one from OPENERS, or write a short neutral one (max ~5 words) — it must NOT give away or hint at the pairing. Provide it in English and Korean.
@@ -4223,7 +4380,8 @@ LIVE_CATS = {'crowd', 'air', 'bike', 'traffic'}
 # Veins that carry a liftable month/quarter period (they set a dateline). Same
 # four the dateline logic promotes; used early, before scope is built, to spot a
 # groupable live+dated cross pair while ordering the lines.
-DATED_PERIOD_CATS = {'tourism', 'property', 'spending', 'avgbill', 'boxoffice'}
+DATED_PERIOD_CATS = {'tourism', 'property', 'spending', 'avgbill', 'boxoffice',
+                     'rush'}
 # Veins whose lines are BARE LABELS ("60s", "2019") explained by a DESCRIPTOR
 # rather than by a date. On an own post the opener carries that meaning, so this
 # is only a reminder in the footnote — but a cross pair OVERRIDES "own post,
@@ -4745,6 +4903,14 @@ def compose(sel, pool):
         src_ko += ' · 한강홍수통제소'
         scope_en.append(('Flood-warning tiers at this gauge', LEVEL_PERIOD['en']))
         scope_ko.append(('이 지점의 홍수특보 기준수위', LEVEL_PERIOD['ko']))
+    if 'rush' in cats and RUSH_M['en']:
+        # ⚠️ Without this the card says "City Hall, 6 p.m.: 347,582" under a
+        # month dateline, which reads as one evening and is out by about
+        # thirtyfold. The dateline says WHICH month; only this says that each
+        # figure is the whole of it.
+        scope_en.append(('Boardings in that hour, summed over the month',
+                         RUSH_M['en']))
+        scope_ko.append(('해당 시간대 승차 인원, 한 달 합계', RUSH_M['ko']))
     if uses_kac:
         src_en += ' · Korea Airports Corporation'
         src_ko += ' · 한국공항공사'
