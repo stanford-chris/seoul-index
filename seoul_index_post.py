@@ -984,6 +984,12 @@ RUSH_FLOOR = 300_000        # monthly boardings a station must clear to be
                             # tiny stations where a few dozen people decide the
                             # whole finding.
 RUSH_STATIONS = 2           # one of each kind, each offered as its two hours
+# ⚠️ HELD OUT OF THE POOL 25 August 2026, at the user's word, the evening it was
+# built. The vein is finished: harvested, tested (test_seoul_index_rush.py, 19
+# tests verified by mutation) and confirmed by a dry run that rendered both
+# cards. It simply has not been cleared to post. Arming it is this one word, and
+# nothing else — see build_pool, which is the only place it is gated.
+RUSH_LIVE = False
 
 
 def _rush_month(api_key, month):
@@ -3740,7 +3746,10 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += crowd_facts(api_key, crowd_window(state))
     pool += air_facts(api_key)
     pool += transport_facts(api_key, state)
-    pool += rush_facts(api_key, state)
+    # Held: see RUSH_LIVE. Gated here rather than by deleting the call, so the
+    # vein cannot rot unnoticed while it waits and the switch is one word.
+    if RUSH_LIVE:
+        pool += rush_facts(api_key, state)
     pool += count_facts(api_key)
     pool += bike_facts(api_key)
     pool += traffic_facts(api_key)
