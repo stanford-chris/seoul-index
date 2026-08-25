@@ -958,9 +958,11 @@ def transport_facts(api_key, state):
 # 15,585, the other way about) the four figures say where Seoul sleeps and where
 # it works with no comment attached, which is the house style exactly.
 #
-# ⚠️ CARDSUBWAYTIME SERVES EVERY ROW TWICE, BYTE-IDENTICAL. July 2026 returns
-# 1,242 rows that are 621 real ones: same line, same station, same 48 figures,
-# not one field differing. Summed naively every figure here is exactly double,
+# ⚠️ CARDSUBWAYTIME SOMETIMES SERVES EVERY ROW TWICE, BYTE-IDENTICAL. July 2026
+# returns 1,242 rows that are 621 real ones: same line, same station, same 48
+# figures, not one field differing. ⚠️ It is NOT every month, which is why this
+# is a de-duplication and must never be turned into a divide-by-two: measured
+# 25 August 2026, May returns 620 rows, June 621, July 1,242. Summed naively every figure here is exactly double,
 # and nothing looks wrong — the ratios hold, the ranking holds, the card reads
 # perfectly, and only the numbers lie. It was caught by checking a month against
 # the DAILY feed transport_facts() already reads: de-duplicated, subway and bus
