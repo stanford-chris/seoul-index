@@ -26,7 +26,9 @@ Public API:
                   A line may instead be a group subhead — {"subhead": "Right now"}
                   — rendered red over the rows that follow it. A grouped cross-pair
                   card uses two (a date over the monthly group, "Right now" over
-                  the live one); plain cards pass none.
+                  the live one); a then-and-now card uses one per METRIC, with
+                  {"bold": True} on the period rows beneath it; plain cards pass
+                  none.
         footnote: "Crowds are KT-estimated" or "" for none
         dateline: masthead period under the title ("December 2025") on a single-
                   frame dated card; "" when grouped (the date rides a subhead)
@@ -100,6 +102,13 @@ def _row_html(line):
     m = _YEAR_LEAD.match(lab)
     if m:
         lab = f'<b>{m.group(1)}:</b>{lab[m.end():]}'
+    elif line.get('bold'):
+        # A row under a metric subhead: the whole label IS the discriminator
+        # ("Summer 2026" against "Summer 1976"), so all of it bolds, not just a
+        # leading year. Flagged per line rather than inferred from the subhead,
+        # because a live+dated cross pair also uses subheads and its labels are
+        # ordinary metric labels that must stay regular weight.
+        lab = f'<b>{lab}</b>'
     return (
         '<div class="r">'
         f'<span class="lab">{lead}{lab}</span>'
@@ -112,8 +121,10 @@ def _row_html(line):
 def _item_html(item):
     """One card element. An item carrying a 'subhead' key renders as a red group
     subhead — the same red as the masthead dateline, but sitting mid-card over
-    the rows that follow it (a cross-pair card uses a date over its monthly group
-    and "Right now" over its live group). Anything else is a normal row."""
+    the rows that follow it. A cross-pair card uses a date over its monthly group
+    and "Right now" over its live group; a then-and-now card uses the METRIC
+    ("Nights never below 25°C (77°F)") over its two period rows. Anything else is
+    a normal row."""
     if 'subhead' in item:
         return f'<div class="sub">{_esc(item["subhead"])}</div>'
     return _row_html(item)

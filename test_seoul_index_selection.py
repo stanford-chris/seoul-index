@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 sys.argv = ['test']
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import seoul_index_post as S
+import seoul_index_card as C
 
 # ⚠️ compose() ends by checking its labels against the pool's own with a model
 # call (see check_labels). These tests promise no network and no model call, so
@@ -469,6 +470,213 @@ class LibraryRatioOnTheCard(unittest.TestCase):
         self.assertNotIn('registered population', c['note_en'])
         self.assertNotIn('Members need not live in Seoul', c['note_en'])
         self.assertIn('Members of Seoul Library', c['note_en'])   # unchanged
+
+
+class ThenAndNowGroupsByMetric(unittest.TestCase):
+    """The fifty-year weather pairs draw the metric once as a group subhead with
+    the periods bolded beneath it (26 August 2026).
+
+    ⚠️ THE REFUSAL TESTS ARE THE POINT, not the one that groups. A subhead over a
+    single row is a heading over nothing, and one un-split row sitting beside
+    grouped ones reads as an orphan — both are silently ugly rather than loudly
+    broken, so nothing would report them. The flat layout is always correct, just
+    longer, which is why it is what the card falls back to.
+
+    No network and no model call: the facts are built by hand in the shape
+    kma_facts() emits, so this pins the CONTRACT between the harvester and
+    compose() rather than a live sky.
+    """
+
+    @staticmethod
+    def _wx(fid, head, period, value, head_ko=None, period_ko=None):
+        return S.fact(fid, 'weather', f'{head}, {period}', value, value,
+                      pin=True, label_ko=f'{head_ko or head}, {period_ko or period}',
+                      head_en=head, head_ko=head_ko or head,
+                      period_en=period, period_ko=period_ko or period)
+
+    TROPICAL = 'Nights never below 25°C (77°F)'
+    SWELTER = 'Days of 33°C (91°F) or more'
+
+    def _compose(self, pool):
+        sel = {'opener_en': '50 years apart', 'opener_ko': '50년의 차이',
+               'opener_emoji': '',
+               'picks': [{'id': f['id'], 'label_en': '', 'label_ko': '',
+                          'emoji': ''} for f in pool]}
+        return S.compose(sel, pool)
+
+    def _pairs(self):
+        # Deliberately in an order the VALUE sort would scramble: 23, 15, 2, 0
+        # interleaves the two pairs, which is what shipped on 26 August 2026.
+        return [self._wx('wx_s_tropical_now', self.TROPICAL, 'Summer 2026', '23'),
+                self._wx('wx_s_swelter_now', self.SWELTER, 'Summer 2026', '15'),
+                self._wx('wx_s_swelter_then', self.SWELTER, 'Summer 1976', '2'),
+                self._wx('wx_s_tropical_then', self.TROPICAL, 'Summer 1976', '0')]
+
+    def test_metric_heads_its_group_and_periods_bold_beneath_it(self):
+        items = self._compose(self._pairs())['items_en']
+        self.assertEqual(
+            [it.get('subhead') or it['label'] for it in items],
+            [self.TROPICAL, 'Summer 2026', 'Summer 1976',
+             self.SWELTER, 'Summer 2026', 'Summer 1976'])
+        rows = [it for it in items if 'subhead' not in it]
+        self.assertTrue(all(r['bold'] for r in rows))
+        self.assertEqual([r['value'] for r in rows], ['23', '0', '15', '2'])
+
+    def test_pairs_are_adjacent_and_ordered_newest_first_not_by_value(self):
+        """⚠️ The regression this exists for. Value-sorted, the card read
+        23, 15, 2, 0 — neither pair beside itself. And the order must NOT come
+        from the values even now: which of 1976 and 2026 is larger is the thing
+        the card is asking, so letting it choose the order answers the question
+        in the layout before the reader has read a number."""
+        pool = self._pairs()
+        # 1976 hotter than 2026 on the swelter pair: a value sort would put the
+        # older year first in that group alone, and the two groups would then
+        # disagree about which way time runs down the card.
+        pool[1]['value_en'] = pool[1]['value_ko'] = '2'
+        pool[2]['value_en'] = pool[2]['value_ko'] = '15'
+        rows = [it for it in self._compose(pool)['items_en']
+                if 'subhead' not in it]
+        self.assertEqual([r['label'] for r in rows],
+                         ['Summer 2026', 'Summer 1976',
+                          'Summer 2026', 'Summer 1976'])
+
+    def test_korean_card_groups_on_its_own_words(self):
+        ko_trop, ko_swel = '최저기온 25°C 이상인 날', '최고기온 33°C 이상인 날'
+        pool = [self._wx('a_now', self.TROPICAL, 'Summer 2026', '23',
+                         head_ko=ko_trop, period_ko='2026년 여름'),
+                self._wx('a_then', self.TROPICAL, 'Summer 1976', '0',
+                         head_ko=ko_trop, period_ko='1976년 여름'),
+                self._wx('b_now', self.SWELTER, 'Summer 2026', '15',
+                         head_ko=ko_swel, period_ko='2026년 여름'),
+                self._wx('b_then', self.SWELTER, 'Summer 1976', '2',
+                         head_ko=ko_swel, period_ko='1976년 여름')]
+        items = self._compose(pool)['items_ko']
+        self.assertEqual([it.get('subhead') or it['label'] for it in items],
+                         [ko_trop, '2026년 여름', '1976년 여름',
+                          ko_swel, '2026년 여름', '1976년 여름'])
+
+    def test_a_metric_with_one_line_refuses_to_group(self):
+        """A subhead over a single row is a heading over nothing."""
+        # tropical now, swelter now, hot now, wet now: four metrics, one line
+        # each, so every subhead would head a single row.
+        pool = self._pairs()[:2] + [
+            self._wx('wx_s_hot_now', 'Hottest day', 'Summer 2026', '38.0°C'),
+            self._wx('wx_s_wet_now', 'Wettest day', 'Summer 2026', '119.7mm')]
+        items = self._compose(pool)['items_en']
+        self.assertFalse(any('subhead' in it for it in items))
+        self.assertIn('Summer 2026', items[0]['label'])   # full label, unsplit
+
+    def test_one_unsplit_line_stops_the_whole_card_grouping(self):
+        """wx_yday_* carry no metric/period split — there is no sibling year to
+        set them against. One of them on the card and the layout goes flat, so a
+        bare row never sits orphaned beside two grouped ones."""
+        pool = self._pairs() + [S.fact('wx_yday_hi', 'weather',
+                                       "Seoul's high yesterday", '32.7°C',
+                                       '32.7°C', pin=True)]
+        items = self._compose(pool)['items_en']
+        self.assertFalse(any('subhead' in it for it in items))
+
+    def test_two_unsplit_lines_still_stop_the_grouping(self):
+        """⚠️ The case the every-metric-has-two-rows guard CANNOT see. Two
+        yesterday lines share the same absent head, so they count as a group of
+        two and sail past that guard — and the card then draws a subhead with no
+        text in it, over rows whose label is None. Nothing else would report
+        that, because an empty subhead renders as an empty line."""
+        pool = self._pairs()[:2] + [
+            S.fact('wx_yday_hi', 'weather', "Seoul's high yesterday",
+                   '32.7°C', '32.7°C', pin=True),
+            S.fact('wx_yday_lo', 'weather', "Seoul's low yesterday",
+                   '25.2°C', '25.2°C', pin=True)]
+        items = self._compose(pool)['items_en']
+        self.assertFalse(any('subhead' in it for it in items))
+        self.assertTrue(all(it.get('label') for it in items))
+
+    def test_the_whole_label_survives_for_the_checker_and_the_fallback(self):
+        """The card draws the split; `lines` keeps the self-describing string.
+        It is what check_labels judges and what a failed render posts as text,
+        and a bare "Summer 1976: 0" in either place measures nothing."""
+        c = self._compose(self._pairs())
+        self.assertIn(f'{self.TROPICAL}, Summer 1976',
+                      [l['label_en'] for l in c['lines']])
+
+
+class BoldPeriodRow(unittest.TestCase):
+    """The renderer half of the metric grouping. Pure string work — no Chrome,
+    no screenshot — so the one line that turns compose()'s `bold` flag into
+    markup is covered rather than trusted."""
+
+    def test_a_flagged_row_bolds_its_whole_label(self):
+        html = C._row_html({'emoji': '', 'label': 'Summer 1976', 'value': '0',
+                            'bold': True})
+        self.assertIn('<b>Summer 1976</b>', html)
+
+    def test_an_unflagged_row_is_not_bolded(self):
+        html = C._row_html({'emoji': '', 'label': 'Summer 1976', 'value': '0'})
+        self.assertNotIn('<b>', html)
+
+    def test_a_leading_year_still_bolds_just_the_year(self):
+        """The older _YEAR_LEAD rule owns "2026: The Odyssey" and must keep it:
+        there the year is the scannable part and the title is not."""
+        html = C._row_html({'emoji': '', 'label': '2026: The Odyssey',
+                            'value': '1', 'bold': True})
+        self.assertIn('<b>2026:</b>', html)
+        self.assertNotIn('<b>2026: The Odyssey</b>', html)
+
+
+class WeatherCreditNamesTheStation(unittest.TestCase):
+    """The station moved off the card footnote onto the source reply, and
+    "(108)" became words (26 August 2026)."""
+
+    def _compose(self, pool):
+        sel = {'opener_en': 'Yesterday', 'opener_ko': '어제', 'opener_emoji': '',
+               'picks': [{'id': f['id'], 'label_en': '', 'label_ko': '',
+                          'emoji': ''} for f in pool]}
+        return S.compose(sel, pool)
+
+    # Three, because compose() refuses a card of fewer.
+    YDAY = [('wx_yday_hi', "Seoul's high yesterday", '32.7°C'),
+            ('wx_yday_lo', "Seoul's low yesterday", '25.2°C'),
+            ('wx_yday_rain', 'Rain on Seoul yesterday', '20.1mm')]
+
+    def _yday_pool(self):
+        return [S.fact(i, 'weather', en, v, v, pin=True) for i, en, v in self.YDAY]
+
+    def test_station_is_a_credit_not_a_card_footnote(self):
+        c = self._compose(self._yday_pool())
+        self.assertIn('reference station', c['src_en'])
+        self.assertNotIn('reference station', c['note_en'])
+        self.assertNotIn('108', c['note_en'])
+        self.assertNotIn('108', c['src_en'])
+
+    def test_the_observing_year_is_1907_and_reaches_the_reader(self):
+        """⚠️ Not 1904 — that is when Korea's network began, not this station.
+        Verified against the bot's own source: station 108's first daily row in
+        the ASOS API is 1907-10-01 and every span before it returns NO_DATA. It
+        is published prose now, so a wrong year is a wrong claim in the feed."""
+        self.assertEqual(S.WX_OBSERVING_SINCE, 1907)
+        c = self._compose(self._yday_pool())
+        self.assertIn('observing since 1907', c['src_en'])
+        self.assertIn('1907년 관측 개시', c['src_ko'])
+
+    def test_the_summer_span_rides_only_when_a_summer_line_does(self):
+        """A row saying "Summer 2026" needs the window spelled out somewhere,
+        and the window is still growing. But a card of last month's readings
+        carries no summer row, and a span covering none of its figures would be
+        worse than no span at all."""
+        S.WX_SEASON['en'], S.WX_SEASON['ko'] = '1 June–25 August', '6월 1일–8월 25일'
+        self.assertNotIn('Summer figures run',
+                         self._compose(self._yday_pool())['src_en'])
+        summer = [S.fact('wx_s_swelter_now', 'weather',
+                         'Days of 33°C (91°F) or more, 1 June–25 August 2026',
+                         '15', '15', pin=True,
+                         label_ko='최고기온 33°C 이상인 날, 2026년 6월 1일–8월 25일',
+                         head_en='Days of 33°C (91°F) or more',
+                         head_ko='최고기온 33°C 이상인 날',
+                         period_en='Summer 2026', period_ko='2026년 여름')]
+        c = self._compose(self._yday_pool() + summer)
+        self.assertIn('Summer figures run 1 June–25 August', c['src_en'])
+        self.assertIn('여름 수치는 6월 1일–8월 25일 기준', c['src_ko'])
+
 
 
 if __name__ == '__main__':

@@ -565,7 +565,8 @@ def en_name(korean, kind):
 
 def fact(fid, cat, label_en, value_en, value_ko, estimated=False, pair=None,
          year=None, forecast=False, label_ko=None, pin=False,
-         num=None, unit=None):
+         num=None, unit=None, head_en=None, head_ko=None,
+         period_en=None, period_ko=None):
     """One candidate line. `label_ko` is normally left None so the selector
     translates the label; spotlight lines set it because their labels carry
     clock times, and a translated time is a number Python no longer owns.
@@ -582,11 +583,23 @@ def fact(fid, cat, label_en, value_en, value_ko, estimated=False, pair=None,
     Only the DETECTOR reads `num`; the posted value is still value_en, so
     Python owns every number as before. Collide like with like only — a ₩
     figure never against a head-count, people never against a count of things
-    (flights, filings, museums stay un-collidable, i.e. unit left None)."""
+    (flights, filings, museums stay un-collidable, i.e. unit left None).
+
+    `head_*` + `period_*` split a then-and-now label into the metric and the
+    period it covers ("Days of 33°C (91°F) or more" / "Summer 1976"). BOTH
+    halves stay inside `label_en`, which remains the whole self-describing
+    string: it is what the selector is shown, what check_labels judges and what
+    a card falls back to. The split is an ADDITION the card may use to draw the
+    metric once as a group subhead with the periods bolded beneath it — see
+    _metric_groups() in compose(). Set them only on a fact that genuinely has a
+    sibling differing in nothing but the period, or the subhead is a heading
+    over one row."""
     return {'id': fid, 'cat': cat, 'label_en': label_en, 'value_en': value_en,
             'value_ko': value_ko, 'estimated': estimated, 'pair': pair,
             'year': year, 'forecast': forecast, 'label_ko': label_ko,
-            'pin': pin, 'num': num, 'unit': unit}
+            'pin': pin, 'num': num, 'unit': unit,
+            'head_en': head_en, 'head_ko': head_ko,
+            'period_en': period_en, 'period_ko': period_ko}
 
 
 # --- harvesters ------------------------------------------------------------
@@ -2609,7 +2622,7 @@ def molit_facts(molit_key):
 
 # --- weather (KMA ASOS, the official Seoul station) ------------------------
 # 기상청's daily surface observations for station 108 — the Seoul reference
-# station, observing since 1904 — via data.go.kr (자동승인, approved 22 Jul
+# station, observing since 1907 — via data.go.kr (자동승인, approved 22 Jul
 # 2026). The service publishes through YESTERDAY only (D-1), so the freshest
 # line is yesterday's, and the monthly lines use the last full month.
 #
@@ -2621,6 +2634,21 @@ def molit_facts(molit_key):
 # month, WX_YEARS_BACK years apart, each side a published reading from the
 # same station. The archive answered June 1976 in full when probed; a month
 # with no rows (there are wartime gaps) simply drops its side of the pair.
+
+# ⚠️ 1907, not 1904. This read "since 1904" until 26 August 2026, which is the
+# year Korea's modern observation network began (the 임시관측소 at 인천, 부산,
+# 목포), NOT the year Seoul's station started. 경성측후소 opened in 낙원동 in 1907
+# and moved to the present site in 1933. Settled against the bot's OWN source
+# rather than a history page: station 108's first daily row in this API is
+# 1907-10-01, and every span before it returns NO_DATA. The figure is now
+# printed on the source reply, so getting it wrong would publish it.
+WX_OBSERVING_SINCE = 1907
+
+# The season-to-date span, filled in by kma_facts when it offers that frame.
+# The rows say "Summer 2026" and "Summer 1976"; only this says which days that
+# actually counts, and the window is still growing, so it is not decoration.
+# Empty when no season frame is on the card. Same shape as MOLIT_M / SALES_Q.
+WX_SEASON = {'en': None, 'ko': None}
 
 WX_BASE = ('http://apis.data.go.kr/1360000/AsosDalyInfoService/getWthrDataList'
            '?serviceKey={key}&dataType=JSON&dataCd=ASOS&dateCd=DAY&stnIds=108'
@@ -2707,19 +2735,25 @@ def kma_facts(key):
                                  f'{then_end:%Y%m%d}'))
 
     for side, ex, y in (('now', now, m_start.year), ('then', then, then_y)):
+        per_en, per_ko = f'{mon_en} {y}', f'{y}년 {mon}월'
         if ex['hot']:
             v = _wx_num(ex['hot'], 'maxTa')
             facts.append(fact(f'wx_hot_{side}', 'weather',
                               f'Hottest day, {mon_en} {y}',
                               to_f(v), f'{v:.1f}°C', pair='wx_heat_then',
-                              pin=True, label_ko=f'가장 더웠던 날, {y}년 {mon}월'))
+                              pin=True, label_ko=f'가장 더웠던 날, {y}년 {mon}월',
+                              head_en='Hottest day', head_ko='가장 더웠던 날',
+                              period_en=per_en, period_ko=per_ko))
         if ex['wet']:
             v = _wx_num(ex['wet'], 'sumRn')
             facts.append(fact(f'wx_wet_{side}', 'weather',
                               f'Wettest day, {mon_en} {y}',
                               f'{v:.1f}mm', f'{v:.1f}mm', pair='wx_rain_then',
                               pin=True,
-                              label_ko=f'비가 가장 많이 온 날, {y}년 {mon}월'))
+                              label_ko=f'비가 가장 많이 온 날, {y}년 {mon}월',
+                              head_en='Wettest day',
+                              head_ko='비가 가장 많이 온 날',
+                              period_en=per_en, period_ko=per_ko))
     # Criterion counts, offered only in the season where they bite: a pair
     # of zeros is not a fact.
     for fid, kind, en_label, ko_label in (
@@ -2736,7 +2770,10 @@ def kma_facts(key):
                                   f'{en_label}, {mon_en} {y}',
                                   grouped(ex[kind]), grouped(ex[kind]),
                                   pair=f'{fid}_then', pin=True,
-                                  label_ko=f'{ko_label}, {y}년 {mon}월'))
+                                  label_ko=f'{ko_label}, {y}년 {mon}월',
+                                  head_en=en_label, head_ko=ko_label,
+                                  period_en=f'{mon_en} {y}',
+                                  period_ko=f'{y}년 {mon}월'))
 
     # Season-to-date: the vein's one present-tense frame. Everything above is
     # settled (yesterday, or a closed month); this counts from 1 June through
@@ -2759,23 +2796,34 @@ def kma_facts(key):
         if s_now['swelter'] or s_then['swelter']:
             span_en = f'1 June–{yday.day} {MONTHS_EN[yday.month - 1]}'
             span_ko = f'6월 1일–{yday.month}월 {yday.day}일'
+            # Published for the source reply. The rows carry "Summer 2026", a
+            # word the exact window has to stand behind — and the window is
+            # still growing, so it cannot be left to the reader to assume.
+            WX_SEASON['en'], WX_SEASON['ko'] = span_en, span_ko
             sides = (('now', s_now, yday.year),
                      ('then', s_then, yday.year - WX_YEARS_BACK))
             for side, ex, y in sides:
+                per_en, per_ko = f'Summer {y}', f'{y}년 여름'
                 if ex['hot']:
                     v = _wx_num(ex['hot'], 'maxTa')
                     facts.append(fact(f'wx_s_hot_{side}', 'weather',
                                       f'Hottest day, {span_en} {y}',
                                       to_f(v), f'{v:.1f}°C', pair='wx_s_hot',
                                       pin=True,
-                                      label_ko=f'가장 더웠던 날, {y}년 {span_ko}'))
+                                      label_ko=f'가장 더웠던 날, {y}년 {span_ko}',
+                                      head_en='Hottest day',
+                                      head_ko='가장 더웠던 날',
+                                      period_en=per_en, period_ko=per_ko))
                 if ex['wet']:
                     v = _wx_num(ex['wet'], 'sumRn')
                     facts.append(fact(f'wx_s_wet_{side}', 'weather',
                                       f'Wettest day, {span_en} {y}',
                                       f'{v:.1f}mm', f'{v:.1f}mm', pair='wx_s_wet',
                                       pin=True,
-                                      label_ko=f'비가 가장 많이 온 날, {y}년 {span_ko}'))
+                                      label_ko=f'비가 가장 많이 온 날, {y}년 {span_ko}',
+                                      head_en='Wettest day',
+                                      head_ko='비가 가장 많이 온 날',
+                                      period_en=per_en, period_ko=per_ko))
             for fid, kind, en_label, ko_label in (
                     ('wx_s_swelter', 'swelter', 'Days of 33°C (91°F) or more',
                      '최고기온 33°C 이상인 날'),
@@ -2787,7 +2835,10 @@ def kma_facts(key):
                                           f'{en_label}, {span_en} {y}',
                                           grouped(ex[kind]), grouped(ex[kind]),
                                           pair=fid, pin=True,
-                                          label_ko=f'{ko_label}, {y}년 {span_ko}'))
+                                          label_ko=f'{ko_label}, {y}년 {span_ko}',
+                                          head_en=en_label, head_ko=ko_label,
+                                          period_en=f'Summer {y}',
+                                          period_ko=f'{y}년 여름'))
     return facts
 
 
@@ -3813,7 +3864,7 @@ Rules:
 - "world" lines set Seoul's metro area against other cities' metro areas, from the OECD. Their labels are BARE CITY NAMES, so the opener MUST say what is being measured (e.g. "Green space per person", "Within a five-minute walk of transit") — this is the one case where the opener names the metric. Build them into their own post: every world line in a post must come from the SAME pair (all city_green, or all city_transit, never a mix), and a world line NEVER appears alongside a Seoul-only line of any other category. Always include the Seoul line.
 - "nation" lines set SEOUL against whole countries, on one metric, from the World Bank (countries) and KOSIS (Seoul). Seoul leads the card; the peers are whole nations (Korea, Japan, the US…), which is the point — e.g. Seoul is denser than entire countries. Labels are BARE PLACE NAMES (Seoul, then countries), so the opener MUST name the metric (e.g. "People per square kilometre", "Births per woman") — the same rule as the world lines. Do NOT reach for the generic "Seoul and the nation" / "서울과 전국" opener here: that framing belongs to the Seoul-vs-Korea "national" lines, and on a nation card it names no metric, leaving the countries measuring nothing — make the metric itself the opener. Build them into their own post: every nation line must come from the SAME pair (all nation_density, or all nation_fertility, never a mix), ALWAYS include the Seoul line, and a nation line NEVER appears alongside a Seoul-only line of any other category or a world (city) line. The pair is the point: Seoul against the country that most sharpens it (the widest gap, or a near dead heat).
 - "property" lines are one month's apartment-market filings from the national land ministry: actual sale prices (the dearest and cheapest single sales), a record jeonse deposit, and counts of filings. Build them into their own post — never alongside a live "right now" line, a spending line, a national line or a world line. The pairs are the point: the price gap (dearest vs cheapest sale) or the jeonse/monthly-rent split. Never put a month or date in a property label — the filing month rides on the card automatically.
-- "weather" lines are published readings from Seoul's official weather station: yesterday's high/low/rain, the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the yesterday set, the then-and-now monthly set, OR the season-to-date set (never blend the three). A season-to-date post is built around the swelter tally ("Days of 33°C or more, 1 Jun–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, every pair must put its two years in the SAME order, and the arrangement carries the half-century — never point it out. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
+- "weather" lines are published readings from Seoul's official weather station: yesterday's high/low/rain, the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the yesterday set, the then-and-now monthly set, OR the season-to-date set (never blend the three). A season-to-date post is built around the swelter tally ("Days of 33°C or more, 1 Jun–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, and the arrangement carries the half-century — never point it out. ℹ️ Python owns the LAYOUT of these cards: it groups the lines by metric, draws each metric once as a subhead, and puts the newer year first in every group, so you do not have to order them and cannot get the two pairs out of step. Choose a coherent set of complete pairs and leave the rest alone. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
 - "tourism" lines are one month's visitor counts at named paid-admission Seoul attractions (the palaces, Lotte World, Seoul Sky…). Own post; ONE frame per post — total visitors OR foreign visitors, never both; the month rides on the card automatically. The pairs are the point: a dead heat or the widest gap between two named attractions.
 - "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and nothing more, e.g. "Water and air in Seoul" (ℹ️ whatever you write here is REPLACED in compose(): the opener names air or water first to match whichever the sort puts on the top line, which is a fact about the readings rather than a choice of words) — the same case as the world, traffic and books lines. ⚠️ Do NOT put the hour, the time or the words "one hour" in the opener: the reading hour rides on the card automatically as its dateline, and an opener repeating it spends the line saying nothing. Do NOT write "right now" either: that hour can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
 - "level" lines appear ONLY when the Han is running high, and they are one gauge (잠수교) set against its own published flood-warning tiers: the level right now, then the 관심/주의/경계/심각 levels. Build them into their own post, never mixed with any other category, and include the current level plus at least two tiers — the arrangement IS the story, which is how far the river is from each tier. The opener must name the river and the gauge, e.g. "The Han at Jamsu Bridge". ⚠️ NEVER write or imply that the bridge is closed, submerged, flooded or about to be: these are flood-WARNING tiers set by 한강홍수통제소, not the level at which the walkway goes under, and the two are different things. Do not add alarm, urgency or commentary of any kind — state the levels and stop. Never call the situation dangerous.
@@ -4684,12 +4735,50 @@ def compose(sel, pool):
         k = _sortkey(by_id[p['id']]['value_en'])
         return k[1] if k else 0.0
 
+    # A then-and-now card (weather's fifty-year pairs) repeats a long criterion
+    # on every row and distinguishes the rows by a period buried at the end of
+    # it — "Nights never below 25°C (77°F), 1 June–25 August 1976". At card width
+    # every such label wraps, and the year, the ONE token the reader is scanning
+    # for, lands alone on the second line. Worse, the value sort then interleaves
+    # the pairs (23, 15, 2, 0), so neither pair is adjacent to itself.
+    #
+    # So the metric is drawn ONCE as a group subhead and the periods bold beneath
+    # it. Requirements are deliberately strict: every line must carry the split,
+    # and EVERY metric must have at least two lines. A subhead over a single row
+    # is a heading over nothing, and one bare row beside grouped ones reads as an
+    # orphan — in either case the card falls through to the flat layout, which is
+    # still correct, just longer.
+    def _head(p):
+        return by_id[p['id']].get('head_en')
+
+    def _period_year(p):
+        m = re.search(r'(?:19|20)\d\d', by_id[p['id']].get('period_en') or '')
+        return int(m.group()) if m else 0
+
+    heads = [_head(p) for p in picks]
+    tally = {h: heads.count(h) for h in heads}
+    metric_grouped = (
+        not spotlight and not maybe_grouped and len(picks) > 1
+        and all(heads) and all(by_id[p['id']].get('period_en') for p in picks)
+        and all(n >= 2 for n in tally.values()))
+
     # A spotlight card is one place read along a clock — now, then the usual for
     # this hour, then the hours ahead. Sorting that by size would scramble the
     # sequence into nonsense, so it keeps the harvester's order instead.
     if spotlight or precats & ORDERED_CATS:
         order = {f['id']: i for i, f in enumerate(pool)}
         picks = sorted(picks, key=lambda p: order.get(p['id'], 0))
+    elif metric_grouped:
+        # Metrics in the selector's own order — it chose the arrangement — and
+        # newest period first inside each, so every group reads now-then-then.
+        # NOT by value: which of 1976 and 2026 is larger is the thing the card
+        # is asking about, and letting it decide the order answers the question
+        # in the layout before the reader has read the numbers.
+        head_order = {}
+        for p in picks:
+            head_order.setdefault(_head(p), len(head_order))
+        picks = sorted(picks,
+                       key=lambda p: (head_order[_head(p)], -_period_year(p)))
     elif maybe_grouped:
         # Dated group first, live group second; each largest-first, so the two
         # near-equal values that make the cross pair land either side of the
@@ -4717,7 +4806,10 @@ def compose(sel, pool):
                       'label_en': label_en, 'label_ko': label_ko,
                       'value_en': f['value_en'], 'value_ko': f['value_ko'],
                       'live': f['cat'] in LIVE_CATS, 'cat': f['cat'],
-                      'pin': bool(f.get('pin') or f.get('label_ko'))})
+                      'pin': bool(f.get('pin') or f.get('label_ko')),
+                      'head_en': f.get('head_en'), 'head_ko': f.get('head_ko'),
+                      'period_en': f.get('period_en'),
+                      'period_ko': f.get('period_ko')})
         used.append(f['id'])
         cats.add(f['cat'])
         estimated = estimated or f['estimated']
@@ -4892,8 +4984,30 @@ def compose(sel, pool):
         # first version of this vein did, on 21 Aug 2026, until the card was
         # actually read.
         if 'weather' in cats:
-            scope_en.append(('Official Seoul station (108)', None))
-            scope_ko.append(('서울 대표 관측소(108) 기준', None))
+            # ⚠️ This rode on the CARD as a footnote — "Official Seoul station
+            # (108)" — until 26 August 2026. Two things were wrong with it and
+            # both are the same mistake: it was written for someone who already
+            # knew the answer. "(108)" is a station index number, which names the
+            # station only to a meteorologist; and a card that has just drawn a
+            # fifty-year gap wants its footprint spent on the numbers, not on a
+            # key to them. It is a CREDIT — whose instrument, how long it has
+            # been running — so it belongs with the credit, and the source reply
+            # sits directly beneath the image. Spelled out, and off the card.
+            # ⚠️ It is now PUBLISHED PROSE rather than a parenthetical, so the
+            # year has to be right: see WX_OBSERVING_SINCE for why it is 1907.
+            src_en += (f' · Seoul’s reference station, '
+                       f'observing since {WX_OBSERVING_SINCE}')
+            src_ko += f' · 서울 대표 관측소, {WX_OBSERVING_SINCE}년 관측 개시'
+            # A season row says "Summer 2026". Only this says which days that
+            # counts, and the window is still growing, so the span is load-
+            # bearing rather than a nicety. Added only when a season line is
+            # actually on the card: a card of last month's readings would
+            # otherwise carry a span covering none of them.
+            if WX_SEASON['en'] and any(
+                    (l.get('period_en') or '').startswith('Summer')
+                    for l in lines):
+                src_en += f' · Summer figures run {WX_SEASON["en"]}'
+                src_ko += f' · 여름 수치는 {WX_SEASON["ko"]} 기준'
         if 'river' in cats:
             # What kind of thing an Anyangcheon IS. The labels are bare names by
             # design (the opener owns the metric), which leaves an English
@@ -5269,6 +5383,19 @@ def compose(sel, pool):
     def _items(lang):
         rows = [{'emoji': l['emoji'], 'label': l[f'label_{lang}'],
                  'value': l[f'value_{lang}']} for l in lines]
+        if metric_grouped:
+            # Metric as the subhead, period as the row, bolded because under the
+            # subhead the period IS the whole distinction. The rows are already
+            # ordered metric-by-metric (see the sort above), so a change of head
+            # is where a new group starts.
+            out, last = [], None
+            for r, l in zip(rows, lines):
+                head = l[f'head_{lang}']
+                if head != last:
+                    out.append({'subhead': head})
+                    last = head
+                out.append({**r, 'label': l[f'period_{lang}'], 'bold': True})
+            return out
         if not grouped:
             return rows
         scoped_head = group_en if lang == 'en' else group_ko
