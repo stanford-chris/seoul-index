@@ -624,8 +624,8 @@ class BoldPeriodRow(unittest.TestCase):
 
 
 class WeatherCreditNamesTheStation(unittest.TestCase):
-    """The station moved off the card footnote onto the source reply, and
-    "(108)" became words (26 August 2026)."""
+    """"(108)" became words, and the span joined it, on the card footnote
+    (26 August 2026)."""
 
     def _compose(self, pool):
         sel = {'opener_en': 'Yesterday', 'opener_ko': '어제', 'opener_emoji': '',
@@ -641,22 +641,54 @@ class WeatherCreditNamesTheStation(unittest.TestCase):
     def _yday_pool(self):
         return [S.fact(i, 'weather', en, v, v, pin=True) for i, en, v in self.YDAY]
 
-    def test_station_is_a_credit_not_a_card_footnote(self):
+    def test_the_station_is_named_in_words_on_the_card(self):
         c = self._compose(self._yday_pool())
-        self.assertIn('reference station', c['src_en'])
-        self.assertNotIn('reference station', c['note_en'])
-        self.assertNotIn('108', c['note_en'])
-        self.assertNotIn('108', c['src_en'])
+        self.assertIn('reference station', c['note_en'])
+        self.assertIn('대표 관측소', c['note_ko'])
+        self.assertNotIn('108', c['note_en'])   # a station index number names
+        self.assertNotIn('108', c['note_ko'])   # it only to someone who knew
+
+    def test_it_is_not_repeated_on_the_source_reply(self):
+        """The reply sits one post under the image. ⚠️ This is the repo’s
+        standing rule, the same one that keeps the KT-estimate caveat off the
+        reply: whatever the card footnote says, the reply must not say again."""
+        c = self._compose(self._yday_pool())
+        self.assertNotIn('reference station', c['src_en'])
+        self.assertNotIn('관측소', c['src_ko'])
+        self.assertEqual(c['src_en'], 'Source: data.kma.go.kr · KMA')
+
+    def test_the_span_never_becomes_the_red_masthead_line(self):
+        """⚠️ The trap this vein sits one character away from. A scope entry
+        carrying a PERIOD is promoted to the dateline, which draws it in red
+        under the title in the same weight as the metric subheads: three reds
+        competing, with a date range leading the card. Judged by eye and
+        rejected on 26 August 2026. The period slot must stay None, and nothing
+        about that is visible at the call site."""
+        S.WX_SEASON['en'], S.WX_SEASON['ko'] = '1 June–25 August', '6월 1일–8월 25일'
+        c = self._compose(self._yday_pool() + self._summer())
+        self.assertEqual(c['dateline_en'], '')
+        self.assertEqual(c['dateline_ko'], '')
+        self.assertIn('1 June–25 August', c['note_en'])
 
     def test_the_observing_year_is_1907_and_reaches_the_reader(self):
         """⚠️ Not 1904 — that is when Korea's network began, not this station.
-        Verified against the bot's own source: station 108's first daily row in
+        Settled against the bot's own source: station 108's first daily row in
         the ASOS API is 1907-10-01 and every span before it returns NO_DATA. It
         is published prose now, so a wrong year is a wrong claim in the feed."""
         self.assertEqual(S.WX_OBSERVING_SINCE, 1907)
         c = self._compose(self._yday_pool())
-        self.assertIn('observing since 1907', c['src_en'])
-        self.assertIn('1907년 관측 개시', c['src_ko'])
+        self.assertIn('observing since 1907', c['note_en'])
+        self.assertIn('1907년 관측 개시', c['note_ko'])
+
+    @staticmethod
+    def _summer():
+        return [S.fact('wx_s_swelter_now', 'weather',
+                       'Days of 33°C (91°F) or more, 1 June–25 August 2026',
+                       '15', '15', pin=True,
+                       label_ko='최고기온 33°C 이상인 날, 2026년 6월 1일–8월 25일',
+                       head_en='Days of 33°C (91°F) or more',
+                       head_ko='최고기온 33°C 이상인 날',
+                       period_en='Summer 2026', period_ko='2026년 여름')]
 
     def test_the_summer_span_rides_only_when_a_summer_line_does(self):
         """A row saying "Summer 2026" needs the window spelled out somewhere,
@@ -664,18 +696,19 @@ class WeatherCreditNamesTheStation(unittest.TestCase):
         carries no summer row, and a span covering none of its figures would be
         worse than no span at all."""
         S.WX_SEASON['en'], S.WX_SEASON['ko'] = '1 June–25 August', '6월 1일–8월 25일'
-        self.assertNotIn('Summer figures run',
-                         self._compose(self._yday_pool())['src_en'])
-        summer = [S.fact('wx_s_swelter_now', 'weather',
-                         'Days of 33°C (91°F) or more, 1 June–25 August 2026',
-                         '15', '15', pin=True,
-                         label_ko='최고기온 33°C 이상인 날, 2026년 6월 1일–8월 25일',
-                         head_en='Days of 33°C (91°F) or more',
-                         head_ko='최고기온 33°C 이상인 날',
-                         period_en='Summer 2026', period_ko='2026년 여름')]
-        c = self._compose(self._yday_pool() + summer)
-        self.assertIn('Summer figures run 1 June–25 August', c['src_en'])
-        self.assertIn('여름 수치는 6월 1일–8월 25일 기준', c['src_ko'])
+        self.assertNotIn('1 June–25 August',
+                         self._compose(self._yday_pool())['note_en'])
+        c = self._compose(self._yday_pool() + self._summer())
+        self.assertIn('1 June–25 August', c['note_en'])
+        self.assertIn('6월 1일–8월 25일', c['note_ko'])
+
+    def test_the_span_leads_the_footnote_and_the_station_follows(self):
+        """Reading order on the card: which days, then whose instrument."""
+        S.WX_SEASON['en'], S.WX_SEASON['ko'] = '1 June–25 August', '6월 1일–8월 25일'
+        c = self._compose(self._yday_pool() + self._summer())
+        self.assertEqual(
+            c['note_en'],
+            '1 June–25 August · Seoul’s reference station, observing since 1907')
 
 
 

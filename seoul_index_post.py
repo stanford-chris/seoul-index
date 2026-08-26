@@ -4984,30 +4984,41 @@ def compose(sel, pool):
         # first version of this vein did, on 21 Aug 2026, until the card was
         # actually read.
         if 'weather' in cats:
-            # ⚠️ This rode on the CARD as a footnote — "Official Seoul station
-            # (108)" — until 26 August 2026. Two things were wrong with it and
-            # both are the same mistake: it was written for someone who already
-            # knew the answer. "(108)" is a station index number, which names the
-            # station only to a meteorologist; and a card that has just drawn a
-            # fifty-year gap wants its footprint spent on the numbers, not on a
-            # key to them. It is a CREDIT — whose instrument, how long it has
-            # been running — so it belongs with the credit, and the source reply
-            # sits directly beneath the image. Spelled out, and off the card.
-            # ⚠️ It is now PUBLISHED PROSE rather than a parenthetical, so the
-            # year has to be right: see WX_OBSERVING_SINCE for why it is 1907.
-            src_en += (f' · Seoul’s reference station, '
-                       f'observing since {WX_OBSERVING_SINCE}')
-            src_ko += f' · 서울 대표 관측소, {WX_OBSERVING_SINCE}년 관측 개시'
-            # A season row says "Summer 2026". Only this says which days that
-            # counts, and the window is still growing, so the span is load-
-            # bearing rather than a nicety. Added only when a season line is
-            # actually on the card: a card of last month's readings would
-            # otherwise carry a span covering none of them.
+            # ⚠️ THE PERIOD SLOT IS DELIBERATELY None ON BOTH OF THESE, and that
+            # is the load-bearing part. A period here is PROMOTED to the masthead
+            # dateline (see the per_pairs logic below), which would fly the span
+            # as a red line under the title in the same weight as the metric
+            # subheads — three competing reds, with a date range the first thing
+            # the eye lands on. Judged by eye against the alternative on
+            # 26 August 2026 and rejected. This is a key to the figures, so it
+            # stays in the muted footnote under them.
+            #
+            # ⚠️ It reads "Seoul's reference station, observing since 1907"
+            # rather than the "Official Seoul station (108)" it was until that
+            # date. "(108)" is a station index number: it names the station only
+            # to someone who already knew which one it was. It is also PUBLISHED
+            # PROSE now rather than a parenthetical, so the year has to be right
+            # — see WX_OBSERVING_SINCE for why it is 1907 and not 1904.
+            #
+            # A season row says "Summer 2026" and nothing else says which days
+            # that counts, so the span leads. It is added ONLY when a season line
+            # is actually on the card: a card of last month's readings would
+            # otherwise carry a window covering none of its figures, which is
+            # worse than carrying no window at all.
             if WX_SEASON['en'] and any(
                     (l.get('period_en') or '').startswith('Summer')
                     for l in lines):
-                src_en += f' · Summer figures run {WX_SEASON["en"]}'
-                src_ko += f' · 여름 수치는 {WX_SEASON["ko"]} 기준'
+                scope_en.append((WX_SEASON['en'], None))
+                scope_ko.append((WX_SEASON['ko'], None))
+            scope_en.append((f'Seoul’s reference station, '
+                             f'observing since {WX_OBSERVING_SINCE}', None))
+            scope_ko.append((f'서울 대표 관측소, '
+                             f'{WX_OBSERVING_SINCE}년 관측 개시', None))
+            # ⚠️ And it is NOT also appended to src_en. See the NOTE further
+            # down: anything on the card footnote is left off the source reply,
+            # because the reply sits one post below the image and would repeat
+            # what a reader had just read. That rule is why the KT-estimate
+            # caveat is not on the reply either.
         if 'river' in cats:
             # What kind of thing an Anyangcheon IS. The labels are bare names by
             # design (the opener owns the metric), which leaves an English
