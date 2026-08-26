@@ -712,5 +712,170 @@ class WeatherCreditNamesTheStation(unittest.TestCase):
 
 
 
+class BoldTheVariablePlace(unittest.TestCase):
+    """A card whose rows are one metric read at four places bolds the PLACE and
+    leaves the shared wording alone (26 August 2026). Same rule as the
+    then-and-now subheads: bold what changes.
+
+    ⚠️ THE REFUSALS ARE THE POINT. Bold means "this is what differs", so a card
+    where it lands on every row, or on rows that differ in more than the place,
+    is worse than a card with no bold at all — and both render perfectly, so
+    nothing would report them.
+    """
+
+    @staticmethod
+    def _p(fid, cat, label, value, en, ko, label_ko=None):
+        return S.fact(fid, cat, label, value, value, pin=True,
+                      label_ko=label_ko or label, place_en=en, place_ko=ko)
+
+    def _compose(self, pool, opener='Seoul, right now'):
+        sel = {'opener_en': opener, 'opener_ko': '지금 서울은', 'opener_emoji': '',
+               'picks': [{'id': f['id'], 'label_en': '', 'label_ko': '',
+                          'emoji': ''} for f in pool]}
+        return S.compose(sel, pool)
+
+    CROWD = [('Gangnam Station', '강남역', '81,000'),
+             ('Seoul Station', '서울역', '23,000'),
+             ('Gyeongbokgung', '경복궁', '1,750')]
+
+    def _crowd(self):
+        return [self._p(f'crowd_{en}', 'crowd', f'Estimated crowd, {en}', v,
+                        en, ko, label_ko=f'{ko} 추정 인파')
+                for en, ko, v in self.CROWD]
+
+    def test_the_place_bolds_and_the_shared_wording_does_not(self):
+        items = self._compose(self._crowd())['items_en']
+        self.assertEqual([it['emph'] for it in items],
+                         ['Gangnam Station', 'Seoul Station', 'Gyeongbokgung'])
+
+    def test_bare_name_rows_are_never_bolded(self):
+        """⚠️ The guard that makes bold mean anything. River and water label
+        their rows with BARE NAMES, so cutting the place out leaves nothing and
+        every remainder is trivially equal: the test passes and the card comes
+        out entirely in bold, which is the same as no bold, only heavier."""
+        pool = [self._p('river_air', 'river', 'The air', '31.3°C',
+                        'The air', '기온'),
+                self._p('river_a', 'river', 'The Anyangcheon', '28.5°C',
+                        'The Anyangcheon', '안양천'),
+                self._p('river_h', 'river', 'The Han at Seonyu', '27.2°C',
+                        'The Han at Seonyu', '선유 한강')]
+        items = self._compose(pool, 'Water and air in Seoul')['items_en']
+        self.assertFalse(any('emph' in it for it in items))
+
+    def test_rows_differing_in_more_than_the_place_are_not_bolded(self):
+        """Same vein, different card. Four "Visitors to X" qualify; the moment a
+        row measures something else the place is no longer the variable, and
+        bolding it would point at the wrong difference."""
+        pool = [self._p('tour_a', 'tourism', 'Visitors to Gyeongbokgung',
+                        '87,648', 'Gyeongbokgung', '경복궁'),
+                self._p('tour_b', 'tourism', 'Visitors to Seoul Sky',
+                        '86,492', 'Seoul Sky', '서울스카이'),
+                self._p('tour_c', 'tourism', 'Foreign visitors to Bukchon',
+                        '12,004', 'Bukchon', '북촌')]
+        self.assertFalse(any('emph' in it for it in
+                             self._compose(pool)['items_en']))
+
+    def test_a_line_with_no_place_at_all_takes_the_card_back_to_plain(self):
+        """⚠️ Cards mix veins. A crowd line can sit beside a citywide total that
+        is about no place whatever, and there the place is not the variable —
+        one row would have nothing to bold while three did. Without the
+        all-places precondition this does not merely bold wrongly, it reaches a
+        None substring test and raises, which on a scheduled run is a card that
+        never posts."""
+        pool = self._crowd() + [
+            S.fact('prop_filed', 'property', 'Apartment sales filed citywide',
+                   '4,001', '4,001', pin=True)]
+        items = self._compose(pool)['items_en']
+        self.assertFalse(any('emph' in it for it in items))
+
+    def test_all_rows_or_none(self):
+        """A label that does not contain its own place (the selector reworded
+        it) takes the whole card back to plain. Three bolded rows and one not
+        reads as a claim about the fourth."""
+        pool = self._crowd()
+        pool[1]['label_en'] = 'Estimated crowd at the main railway terminus'
+        self.assertFalse(any('emph' in it for it in
+                             self._compose(pool)['items_en']))
+
+    def test_each_language_is_judged_on_its_own_labels(self):
+        """⚠️ The Korean labels are the selector's, so they can disagree with
+        the English. A card bolded in one language and not the other is fine;
+        a card half-bolded in one is not."""
+        pool = self._crowd()
+        pool[2]['label_ko'] = '고궁 인파'          # place absent from the label
+        c = self._compose(pool)
+        self.assertTrue(all('emph' in it for it in c['items_en']))
+        self.assertFalse(any('emph' in it for it in c['items_ko']))
+
+    def test_korean_can_fail_the_test_while_holding_every_place(self):
+        """⚠️ The sharper half of the same rule, and the one the check above
+        cannot see: every Korean label CONTAINS its place, so the all-rows check
+        passes, and only comparing the Korean remainders to each other catches
+        that they are not the same sentence. Judge Korean off the English labels
+        and this card bolds on a difference the reader is not looking at."""
+        pool = self._crowd()
+        pool[1]['label_ko'] = '서울역 인파'        # others read "…역 추정 인파"
+        c = self._compose(pool)
+        self.assertTrue(all('emph' in it for it in c['items_en']))
+        self.assertFalse(any('emph' in it for it in c['items_ko']))
+
+
+class CrowdLabelIsOneShape(unittest.TestCase):
+    """⚠️ The rewording this replaced is in the feed: the 24 August card read
+    "Estimated crowd, Gangnam Station", "Estimated crowd in Seoul Station right
+    now" and "Estimated crowd at Nodeul Island the same minute" — three
+    sentences for one metric, the last of them wrapping. The place has to sit in
+    the same position on every row or it cannot be bolded, and the selector
+    cannot be asked for that."""
+
+    def test_the_pool_label_puts_the_place_last_and_pins_it(self):
+        got = [{'en': 'Gangnam Station', 'ko': '강남역', 'mid': 81000,
+                'visitor': '31.1', 'female': '48.0', 'twenties': '22.3'}]
+        facts = []
+        for g in got:                       # mirrors crowd_facts' own loop
+            facts.append(S.fact(f'crowd_{g["en"]}', 'crowd',
+                                f'Estimated crowd, {g["en"]}', '1', '1',
+                                pin=True, place_en=g['en'], place_ko=g['ko']))
+        self.assertEqual(facts[0]['label_en'], 'Estimated crowd, Gangnam Station')
+        self.assertTrue(facts[0]['pin'])
+
+    def test_the_live_harvester_agrees_with_that_shape(self):
+        """Read off the module rather than restated here, so the two cannot
+        drift: a reworded pool label must break this test, not the card."""
+        import inspect
+        src = inspect.getsource(S.crowd_facts)
+        head = src.split('facts.append')[1]      # the main crowd fact alone
+        self.assertIn("f'Estimated crowd, {g[\"en\"]}'", head)
+        self.assertIn('place_en=g[\'en\']', head)
+        # ⚠️ Unpinned, the selector rewords this line per row and the four
+        # places stop lining up — which is the state the 24 August card shipped
+        # in, and the reason the place cannot be bolded without it.
+        self.assertIn('pin=True', head)
+        # ⚠️ And `pin` covers ENGLISH ONLY. With label_ko left None the selector
+        # translates each row on its own, so the Korean card keeps the four
+        # shapes and never bolds: the EN twin fixed and the KO twin not.
+        self.assertIn('label_ko=f\'{g["ko"]} 추정 인파\'', head)
+
+
+class EmphRendersAsOneBoldRun(unittest.TestCase):
+    def test_the_run_bolds_and_the_rest_does_not(self):
+        html = C._row_html({'emoji': '', 'label': 'Estimated crowd, Seoul Station',
+                            'value': '23,000', 'emph': 'Seoul Station'})
+        self.assertIn('Estimated crowd, <b>Seoul Station</b>', html)
+
+    def test_a_run_that_is_not_in_the_label_changes_nothing(self):
+        """compose() takes the run from the harvester and the label can be the
+        selector's rewrite, so a miss must be silent rather than an error."""
+        html = C._row_html({'emoji': '', 'label': 'Estimated crowd downtown',
+                            'value': '1', 'emph': 'Seoul Station'})
+        self.assertNotIn('<b>', html)
+
+    def test_a_place_that_also_appears_in_the_shared_wording_bolds_once(self):
+        html = C._row_html({'emoji': '', 'label': 'Seoul Station, Seoul Station',
+                            'value': '1', 'emph': 'Seoul Station'})
+        self.assertEqual(html.count('<b>'), 1)
+
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -29,6 +29,9 @@ Public API:
                   the live one); a then-and-now card uses one per METRIC, with
                   {"bold": True} on the period rows beneath it; plain cards pass
                   none.
+                  {"emph": "Gangnam Station"} bolds that run inside the label,
+                  for a card whose rows share their wording and differ in one
+                  span of it.
         footnote: "Crowds are KT-estimated" or "" for none
         dateline: masthead period under the title ("December 2025") on a single-
                   frame dated card; "" when grouped (the date rides a subhead)
@@ -109,6 +112,25 @@ def _row_html(line):
         # because a live+dated cross pair also uses subheads and its labels are
         # ordinary metric labels that must stay regular weight.
         lab = f'<b>{lab}</b>'
+    elif line.get('emph'):
+        # The same idea one level down: the rows share a metric and differ in a
+        # RUN INSIDE the label rather than in the whole of it, so that run bolds
+        # and the shared wording stays regular. On a crowd card that run is the
+        # place; the rest ("Estimated crowd,") is identical down every row and
+        # is what the eye should be able to skip.
+        #
+        # ⚠️ Matched as a plain substring on the ESCAPED label, and a miss is
+        # silently fine: compose() takes the run from the harvester's own data
+        # while the label can be the selector's rewrite, so the two need not
+        # agree. Nothing bolds in that case and the card is as it was.
+        # replace(count=1) so a place that also appears in the shared wording
+        # bolds where it varies rather than everywhere it occurs.
+        # No "is it present" guard: str.replace on a run that is not there is
+        # already a no-op, and a condition with no behaviour behind it is a
+        # branch no mutation can catch and no test can pin.
+        run = _esc(line['emph'])
+        if run:
+            lab = lab.replace(run, f'<b>{run}</b>', 1)
     return (
         '<div class="r">'
         f'<span class="lab">{lead}{lab}</span>'

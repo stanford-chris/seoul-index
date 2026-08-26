@@ -119,6 +119,33 @@ Each index is rendered to a PNG by `seoul_index_card.py`: the card is laid out i
 
 - **[World Bank](https://data.worldbank.org)** (no key), with Seoul's own figure from KOSIS: Seoul set against whole **countries** on one measure at a time, which is the point of it: the city is about thirty times denser than the country it sits in, and its birth rate is lower. Seoul always leads the card and the other lines are bare country names, so the opener carries the measure; the year and the "Seoul against whole countries" scope ride the card footnote, since they qualify the figures rather than credit them. This is a different thing from the OECD lines above, which compare Seoul's metro area with other **cities**. An earlier attempt at a country-only vein (Korea against peer nations, no Seoul figure at all) was built and then cut: a card with no Seoul on it is not this account.
 - **[MOLIT 실거래가](https://rt.molit.go.kr)** (via [data.go.kr](https://www.data.go.kr)): one month's apartment-market filings: the dearest and cheapest single sales, a record jeonse deposit, and counts of filings citywide, by district, and jeonse against monthly rent. Every line is a filed transaction or a count of them, never a median or an average, and cancelled filings are excluded. Filings are due within 30 days of a contract, so the bot uses the newest month that can no longer grow (two months back) and caches the harvest for the whole month.
+
+### Bolding the variable
+A card whose rows are **one metric read at several places** bolds the place and leaves the
+shared wording plain: *Estimated crowd,* **Gangnam Station**. Same rule as the then-and-now
+subheads a section up — bold what CHANGES between the rows — and it is decided from the
+labels rather than from a list of veins: cut each line's place out of its label, and bold
+only if every remainder is identical. That is literally the test “is the place the one thing
+that differs”, and it is right per CARD rather than per vein, so four *Visitors to X* qualify
+while the same vein mixing in *Busiest subway station, Gangnam* does not.
+
+⚠️ **The remainder must be non-empty**, and that guard is what keeps bold meaningful. River
+and water label their rows with bare names, so cutting the place leaves nothing, every
+remainder is trivially equal, and the card would come out entirely in bold: the same as no
+bold at all, only heavier.
+
+⚠️ **All rows or none, judged per language.** A label that does not contain its own place —
+the selector reworded it — takes the whole card back to plain, because three bolded rows and
+one not reads as a claim about the fourth. English and Korean are judged on their own labels.
+
+⚠️ **The crowd label is pinned in BOTH languages, and that is what makes the rest possible.**
+The selector used to reword it per row: the 24 August 2026 card carried *Estimated crowd,
+Gangnam Station*, *Estimated crowd in Seoul Station right now* and *Estimated crowd at Nodeul
+Island the same minute* — three sentences for one metric, the last of them wrapping onto a
+second line. A place cannot be bolded while the wording around it moves. Note `pin` covers
+English only, so `label_ko` is set as well; without it the Korean twin keeps both faults while
+the English card is fixed.
+
 - **[KMA](https://data.kma.go.kr)** (기상청, via data.go.kr): daily readings from station 108, Seoul’s reference station, observing since **1907** — 경성측후소 opened in 낙원동 that October and moved to the present site in 1933. (This README said 1904 until 26 August 2026, which is when Korea’s modern observation network began, not this station. Settled against the bot’s own source: station 108’s first daily row in the ASOS API is 1907-10-01, and every span before it returns `NO_DATA`. It now appears in the posted credit line, so the year is published rather than merely commented.) (The live air temperature on the river cards below comes from a different KMA service and a different instrument, so the two are credited separately.) Yesterday's high, low and rain; the last full month set against the same month fifty years earlier: hottest day, wettest day, and counts of days meeting a stated criterion (33°C or more, nights never below 25°C, days never above freezing); and, in summer, a season-to-date running tally of swelter days (33°C or more) from 1 June through yesterday, against the same span fifty years back. Extremes are published rows and the rest is counting: no monthly means or totals, which would be computations rather than published figures.
 
   A then-and-now card **groups by metric**: the criterion is drawn once as a red subhead and the two periods sit bolded beneath it (*Nights never below 25°C (77°F)* → *Summer 2026* 23, *Summer 1976* 0). Before 26 August 2026 every row carried the whole criterion **and** its span, which wrapped at card width and stranded the year — the one token a reader scans for — alone on the second line, while the value sort interleaved the two pairs so neither sat beside itself. Grouping is refused unless every line carries the split and every metric has at least two rows: a subhead over one row is a heading over nothing, and the flat layout is still correct, only longer. The season window and the station sit in the muted **footnote** under the rows: *1 June–25 August · Seoul’s reference station, observing since 1907*. ⚠️ Both are passed with an empty period slot, and that is load-bearing rather than incidental — a scope entry carrying a period is promoted to the masthead, which would draw the span in red under the title in the same weight as the metric subheads. They are also **not** repeated on the source reply, following the rule that already keeps the KT-estimate caveat off it: the reply sits one post below the image and must not say what a reader has just read.

@@ -566,7 +566,7 @@ def en_name(korean, kind):
 def fact(fid, cat, label_en, value_en, value_ko, estimated=False, pair=None,
          year=None, forecast=False, label_ko=None, pin=False,
          num=None, unit=None, head_en=None, head_ko=None,
-         period_en=None, period_ko=None):
+         period_en=None, period_ko=None, place_en=None, place_ko=None):
     """One candidate line. `label_ko` is normally left None so the selector
     translates the label; spotlight lines set it because their labels carry
     clock times, and a translated time is a number Python no longer owns.
@@ -599,7 +599,8 @@ def fact(fid, cat, label_en, value_en, value_ko, estimated=False, pair=None,
             'year': year, 'forecast': forecast, 'label_ko': label_ko,
             'pin': pin, 'num': num, 'unit': unit,
             'head_en': head_en, 'head_ko': head_ko,
-            'period_en': period_en, 'period_ko': period_ko}
+            'period_en': period_en, 'period_ko': period_ko,
+            'place_en': place_en, 'place_ko': place_ko}
 
 
 # --- harvesters ------------------------------------------------------------
@@ -637,7 +638,7 @@ def crowd_facts(api_key, spots=None):
             d = http_get_json(f'{base}/1/1/{_url(area)}')
             r = d['SeoulRtd.citydata_ppltn'][0]
             mid = (int(r['AREA_PPLTN_MIN']) + int(r['AREA_PPLTN_MAX'])) // 2
-            got.append({'en': en, 'mid': mid,
+            got.append({'en': en, 'ko': spot.get('ko') or area, 'mid': mid,
                         'visitor': r['NON_RESNT_PPLTN_RATE'],
                         'female': r['FEMALE_PPLTN_RATE'],
                         'twenties': r['PPLTN_RATE_20']})
@@ -645,19 +646,46 @@ def crowd_facts(api_key, spots=None):
             continue
     facts = []
     for g in got:
+        # ⚠️ PINNED, and that is the change of 26 August 2026. The selector used
+        # to reword this line per row, and on a four-place card that produced
+        # three different sentences saying one thing: "Estimated crowd, Gangnam
+        # Station", "Estimated crowd in Seoul Station right now", "Estimated
+        # crowd at Nodeul Island the same minute". Variety is usually an
+        # improvement and here it is pure noise: every row is the same metric,
+        # the only real difference is the place, and the rewording buried it in
+        # the middle of a sentence of a different length each time — the last
+        # row wrapped because of it. One shape down the card also lets the place
+        # bold (see place_en), which cannot work while the surrounding wording
+        # moves. The place goes LAST so the four names line up.
+        # ⚠️ The KOREAN label is pinned too, and it has to be. `pin` covers
+        # English alone; with label_ko left None the selector translates each
+        # row on its own and the Korean card gets the four different shapes
+        # this change exists to remove — so the KO twin would keep both faults,
+        # the wrap and the unfindable place, while the EN card was fixed. The
+        # wording is the model's own, lifted from the 24 August card
+        # (강남역 추정 인파); Korean is head-final, so the place leads.
         facts.append(fact(f'crowd_{g["en"]}', 'crowd',
-                          f'Estimated crowd in {g["en"]} right now',
+                          f'Estimated crowd, {g["en"]}',
                           grouped(g['mid']), grouped(g['mid']), estimated=True,
-                          num=g['mid'], unit='people'))
+                          num=g['mid'], unit='people', pin=True,
+                          label_ko=f'{g["ko"]} 추정 인파',
+                          place_en=g['en'], place_ko=g['ko']))
         facts.append(fact(f'visitor_{g["en"]}', 'crowd',
                           f'Estimated share in {g["en"]} who don’t live there',
-                          f'{g["visitor"]}%', f'{g["visitor"]}%', estimated=True))
+                          f'{g["visitor"]}%', f'{g["visitor"]}%', estimated=True,
+                          place_en=g['en'], place_ko=g['ko']))
+        # The place is carried STRIPPED here, exactly as the label renders it:
+        # these two say "the Han riverside crowd", not "the the Han riverside".
         facts.append(fact(f'twenties_{g["en"]}', 'crowd',
                           f'Share of the {g["en"].removeprefix("the ")} crowd in their twenties',
-                          f'{g["twenties"]}%', f'{g["twenties"]}%', estimated=True))
+                          f'{g["twenties"]}%', f'{g["twenties"]}%', estimated=True,
+                          place_en=g['en'].removeprefix('the '),
+                          place_ko=g['ko']))
         facts.append(fact(f'female_{g["en"]}', 'crowd',
                           f'Women’s share of the {g["en"].removeprefix("the ")} crowd',
-                          f'{g["female"]}%', f'{g["female"]}%', estimated=True))
+                          f'{g["female"]}%', f'{g["female"]}%', estimated=True,
+                          place_en=g['en'].removeprefix('the '),
+                          place_ko=g['ko']))
     # Contrast pair: fullest vs quietest sampled spot.
     if len(got) >= 2:
         full = max(got, key=lambda g: g['mid'])
@@ -3217,12 +3245,14 @@ def tour_facts(key):
             facts.append(fact(f'tour_{ko_name}', 'tourism',
                               f'Visitors to {en}',
                               grouped(total), grouped(total),
-                              num=total, unit='people'))
+                              num=total, unit='people',
+                              place_en=en, place_ko=ko_name))
         if forgn:
             facts.append(fact(f'tourfor_{ko_name}', 'tourism',
                               f'Foreign visitors to {en}',
                               grouped(forgn), grouped(forgn),
-                              pair='tour_foreign'))
+                              pair='tour_foreign',
+                              place_en=en, place_ko=ko_name))
     if len(totals) < 3:
         return []
     # The sales detectors again: near-equals are a dead heat, and the widest
@@ -3238,14 +3268,14 @@ def tour_facts(key):
         for ko_name, en, n in (best[1], best[2]):
             facts.append(fact(f'tourheat_{ko_name}', 'tourism',
                               f'Visitors to {en}', grouped(n), grouped(n),
-                              pair='tour_heat'))
+                              pair='tour_heat', place_en=en, place_ko=ko_name))
     hi = max(totals, key=lambda t: t[2])
     lo = min(totals, key=lambda t: t[2])
     if hi[2] and lo[2] and hi[2] / max(lo[2], 1) >= 3:
         for ko_name, en, n in (hi, lo):
             facts.append(fact(f'tourgap_{ko_name}', 'tourism',
                               f'Visitors to {en}', grouped(n), grouped(n),
-                              pair='tour_gap'))
+                              pair='tour_gap', place_en=en, place_ko=ko_name))
     return facts
 
 
@@ -4809,7 +4839,9 @@ def compose(sel, pool):
                       'pin': bool(f.get('pin') or f.get('label_ko')),
                       'head_en': f.get('head_en'), 'head_ko': f.get('head_ko'),
                       'period_en': f.get('period_en'),
-                      'period_ko': f.get('period_ko')})
+                      'period_ko': f.get('period_ko'),
+                      'place_en': f.get('place_en'),
+                      'place_ko': f.get('place_ko')})
         used.append(f['id'])
         cats.add(f['cat'])
         estimated = estimated or f['estimated']
@@ -5386,6 +5418,49 @@ def compose(sel, pool):
     tail_en = ''.join(f'{p}{a}' for p, a, _ in wiki_en)
     tail_ko = ''.join(f'{p}{a}' for p, a, _ in wiki_ko)
 
+    # --- bolding the variable ---------------------------------------------
+    # Same rule as the then-and-now subheads one level up: bold what CHANGES
+    # between the rows, and leave what they share alone. There the metric was
+    # constant and the period varied, so the period bolded; on a card whose rows
+    # are one metric read at four places, the place is the variable and it bolds
+    # while "Estimated crowd," stays regular.
+    #
+    # ⚠️ It is decided FROM THE LABELS, not from a list of veins. Take each
+    # label, cut the place out of it, and bold only if every remainder is
+    # identical: that is literally the test "is the place the one thing that
+    # differs". A vein list would have to be maintained against wordings it
+    # cannot see, and would be wrong per CARD rather than per vein — a tourism
+    # card of four "Visitors to X" qualifies while one mixing in "Busiest subway
+    # station, Gangnam" does not, and both are the same vein.
+    #
+    # ⚠️ THE REMAINDER MUST BE NON-EMPTY, and that guard is the whole reason
+    # bolding means anything. The river and water veins label their rows with
+    # BARE NAMES, so cutting the place leaves nothing and every label is
+    # trivially "identical" — the test passes and the card comes out with every
+    # row in bold, which is the same as no row in bold, only heavier. Those
+    # cards say what varies by having nothing else on the line.
+    #
+    # ⚠️ Judged per language. The English labels can agree while the Korean ones
+    # do not (the selector writes those), and a card half-bolded in one language
+    # is worse than a card bolded in neither.
+    def _emph(lang):
+        places = [l.get(f'place_{lang}') for l in lines]
+        if not all(places):
+            return
+        rest = {l[f'label_{lang}'].replace(pl, '', 1).strip()
+                for l, pl in zip(lines, places)
+                if pl in l[f'label_{lang}']}
+        if len(rest) != 1 or not next(iter(rest)):
+            return
+        if len(places) != len([1 for l, pl in zip(lines, places)
+                               if pl in l[f'label_{lang}']]):
+            return
+        for l, pl in zip(lines, places):
+            l[f'emph_{lang}'] = pl
+
+    _emph('en')
+    _emph('ko')
+
     # The ordered elements the card draws, per language. A grouped cross pair puts
     # a date subhead over the dated lines and a "Right now" subhead over the live
     # ones; otherwise just the rows (an ungrouped dated card flies its month as a
@@ -5393,7 +5468,9 @@ def compose(sel, pool):
     # below, so card and alt text never drift.
     def _items(lang):
         rows = [{'emoji': l['emoji'], 'label': l[f'label_{lang}'],
-                 'value': l[f'value_{lang}']} for l in lines]
+                 'value': l[f'value_{lang}'],
+                 **({'emph': l[f'emph_{lang}']} if l.get(f'emph_{lang}') else {})}
+                for l in lines]
         if metric_grouped:
             # Metric as the subhead, period as the row, bolded because under the
             # subhead the period IS the whole distinction. The rows are already
