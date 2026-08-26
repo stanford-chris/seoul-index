@@ -877,5 +877,87 @@ class EmphRendersAsOneBoldRun(unittest.TestCase):
 
 
 
+class GroupedCardStripsFramingEvenFromAPinnedLabel(unittest.TestCase):
+    """⚠️ A regression introduced on 26 August 2026 by pinning the crowd label,
+    and caught the same day. Pinning made the line exempt from
+    _strip_live_frame, so a live+dated cross pair drew "Estimated crowd,
+    Hongdae" under a "Right now" subhead over a footnote reading "Crowds are
+    KT-estimated": the duplication that function exists to remove. 9 of the 79
+    cards in card_history are crowd crossed with tourism or library, so this was
+    roughly one card in nine."""
+
+    def _pool(self):
+        S.TOUR_M['en'], S.TOUR_M['ko'] = 'July 2026', '2026년 7월'
+        crowd = [S.fact(f'crowd_{en}', 'crowd', f'Estimated crowd, {en}', v, v,
+                        estimated=True, pin=True, label_ko=f'{ko} 추정 인파',
+                        place_en=en, place_ko=ko,
+                        num=int(v.replace(',', '')), unit='people')
+                 for en, ko, v in (('Hongdae', '홍대', '77,000'),
+                                   ('Jamsil', '잠실', '63,000'))]
+        tour = [S.fact(f'tour_{ko}', 'tourism', f'Visitors to {en}', v, v,
+                       num=int(v.replace(',', '')), unit='people',
+                       place_en=en, place_ko=ko)
+                for en, ko, v in (('Gyeongbokgung', '경복궁', '87,648'),
+                                  ('Seoul Sky', '서울스카이', '86,492'))]
+        return crowd + tour
+
+    def _compose(self, pool):
+        sel = {'opener_en': 'Seoul by the numbers', 'opener_ko': '숫자로 보는 서울',
+               'opener_emoji': '',
+               'picks': [{'id': f['id'], 'label_en': '', 'label_ko': '',
+                          'emoji': ''} for f in pool]}
+        return S.compose(sel, pool)
+
+    def test_estimated_is_stripped_in_both_languages(self):
+        c = self._compose(self._pool())
+        self.assertTrue(c['grouped'])
+        labels = [it.get('subhead') or it['label']
+                  for it in c['items_en']] + [it.get('subhead') or it['label']
+                                              for it in c['items_ko']]
+        self.assertIn('Crowd, Hongdae', labels)
+        self.assertIn('홍대 인파', labels)
+        self.assertNotIn('Estimated crowd, Hongdae', labels)
+        self.assertNotIn('홍대 추정 인파', labels)
+
+    def test_the_card_still_says_it_once(self):
+        """⚠️ The claim that makes stripping a PINNED label safe: this removes
+        only framing the card states elsewhere. If the footnote ever stopped
+        carrying the caveat, the strip would be deleting the only copy."""
+        c = self._compose(self._pool())
+        self.assertIn('KT-estimated', c['note_en'])
+        self.assertIn('KT 추정', c['note_ko'])
+        self.assertIn('Right now', [it.get('subhead') for it in c['items_en']])
+
+    def test_a_dated_line_keeps_its_own_framing(self):
+        """⚠️ Why the strip is confined to the LIVE lines. The subhead that
+        makes "right now" redundant sits over the live group only, and the KT
+        caveat belongs to estimated lines only — so on a dated line the same two
+        words are the card's only copy, and stripping them deletes information
+        rather than a duplicate. The selector writes these labels, so a dated
+        line beginning "Estimated" is a wording it can produce at any time."""
+        pool = self._pool()
+        for f in pool:
+            if f['cat'] == 'tourism':
+                f['label_en'] = 'Estimated ' + f['label_en'].lower()
+                f['pin'] = True
+        labels = [it.get('subhead') or it['label']
+                  for it in self._compose(pool)['items_en']]
+        self.assertIn('Estimated visitors to gyeongbokgung', labels)
+
+    def test_an_ungrouped_crowd_card_is_left_alone(self):
+        """The plain four-place card keeps its full label: there is no subhead
+        saying "Right now", so nothing else on it carries the framing."""
+        pool = [f for f in self._pool() if f['cat'] == 'crowd']
+        pool += [S.fact('crowd_Gwanghwamun', 'crowd',
+                        'Estimated crowd, Gwanghwamun', '23,000', '23,000',
+                        estimated=True, pin=True, label_ko='광화문 추정 인파',
+                        place_en='Gwanghwamun', place_ko='광화문')]
+        c = self._compose(pool)
+        self.assertFalse(c['grouped'])
+        self.assertEqual(c['lines'][0]['label_en'], 'Estimated crowd, Hongdae')
+        self.assertTrue(all('emph' in it for it in c['items_en']))
+
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

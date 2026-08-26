@@ -4893,8 +4893,23 @@ def compose(sel, pool):
         # "Right now" over the live lines lets each shed its "right now" (and the
         # "Estimated" the footnote already owns), while the dated lines keep their
         # wording so the two "Visitors to ..." reads stay parallel under the month.
+        # ⚠️ PINNED LABELS ARE NOT EXEMPT HERE, unlike the dedupe_labels trim in
+        # the else branch, and the difference is what each one removes. That trim
+        # strips whatever the labels happen to share, which on a pinned label can
+        # be load-bearing — taking "June" off "Hottest day, June 1976" turns a
+        # month's record into a claim about the whole year. This strips exactly
+        # two things, "Estimated" and a trailing "right now", and a grouped card
+        # states BOTH elsewhere by construction: the live group's subhead reads
+        # "Right now", and an estimated line always puts the KT caveat in the
+        # footnote. So it can only ever remove a second copy.
+        #
+        # Pinning the crowd label on 26 August 2026 made it exempt and put the
+        # duplication back: "Estimated crowd, Hongdae" under a "Right now"
+        # subhead, over a footnote reading "Crowds are KT-estimated". That was
+        # roughly one card in nine — 9 of the 79 in card_history are crowd
+        # crossed with tourism or library.
         for l in lines:
-            if l['live'] and not l['pin']:
+            if l['live']:
                 for lang, ko in (('en', False), ('ko', True)):
                     l[f'label_{lang}'] = _strip_live_frame(l[f'label_{lang}'], ko)
     else:

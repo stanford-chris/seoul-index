@@ -138,6 +138,16 @@ bold at all, only heavier.
 the selector reworded it — takes the whole card back to plain, because three bolded rows and
 one not reads as a claim about the fourth. English and Korean are judged on their own labels.
 
+⚠️ **Pinning a live label does NOT exempt it from `_strip_live_frame`**, unlike the
+`dedupe_labels` trim. That trim removes whatever the labels happen to share, which on a pinned
+label can be load-bearing; this removes exactly *Estimated* and a trailing *right now*, both of
+which a grouped card states elsewhere by construction — the live group's subhead reads *Right
+now*, and an estimated line always puts the KT caveat in the footnote. Pinning the crowd label
+made it exempt for an hour on 26 August 2026 and put the duplication straight back: *Estimated
+crowd, Hongdae* under a *Right now* subhead over *Crowds are KT-estimated*. It is confined to
+the LIVE lines for the mirror-image reason: on a dated line those same words are the card's only
+copy.
+
 ⚠️ **The crowd label is pinned in BOTH languages, and that is what makes the rest possible.**
 The selector used to reword it per row: the 24 August 2026 card carried *Estimated crowd,
 Gangnam Station*, *Estimated crowd in Seoul Station right now* and *Estimated crowd at Nodeul
