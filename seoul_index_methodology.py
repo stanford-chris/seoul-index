@@ -163,9 +163,9 @@ KO_CITIES = ('일부 게시물은 서울을 다른 '
 # bus in them. Left unsaid, the picture overstates what the account knows.
 # The colour and brightness sentence is second because it is the same
 # explanation the page and the card footnote already carry.
-EN_ART = ('Twice a week a post here is a picture rather than a figure: one named '
-          'day in Seoul, an hour a frame, drawn only from the boardings in each '
-          'neighbourhood.')
+EN_ART = ('Twice a week a post here is a picture rather than a figure: one day '
+          'in Seoul, an hour a frame, drawn only from the public transport '
+          'boardings in each neighbourhood.')
 EN_ART2 = ('No map is used. There is no coastline, road or river in the data, so '
            'the Han and the mountains show up only as the places where nobody '
            'boards. Colour is each neighbourhood\u2019s own balance between the '
@@ -173,7 +173,8 @@ EN_ART2 = ('No map is used. There is no coastline, road or river in the data, so
            'shown.')
 KO_ART = ('\uc77c\uc8fc\uc77c\uc5d0 \ub450 \ubc88\uc740 \uc218\uce58\uac00 \uc544\ub2c8\ub77c \uadf8\ub9bc\uc744 \uc62c\ub9bd\ub2c8\ub2e4. '
           '\uc11c\uc6b8\uc758 \ud558\ub8e8\ub97c \ud55c \uc2dc\uac04\uc5d0 \ud55c \uc7a5\uba74\uc529, \uac01 '
-          '\ud589\uc815\ub3d9\uc758 \uc2b9\ucc28 \uc778\uc6d0\ub9cc\uc73c\ub85c \uadf8\ub838\uc2b5\ub2c8\ub2e4.')
+          '\ud589\uc815\ub3d9\uc758 \ub300\uc911\uad50\ud1b5 \uc2b9\ucc28 \uc778\uc6d0\ub9cc\uc73c\ub85c '
+          '\uadf8\ub838\uc2b5\ub2c8\ub2e4.')
 KO_ART2 = ('\uc9c0\ub3c4\ub294 \uc4f0\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4. \uc790\ub8cc\uc5d0\ub294 \ud574\uc548\uc120\ub3c4 '
            '\ub3c4\ub85c\ub3c4 \uac15\ub3c4 \uc5c6\uc73c\ubbc0\ub85c, \ud55c\uac15\uacfc \uc0b0\uc740 \uc2b9\ucc28\uac00 '
            '\uc5c6\ub294 \ube48 \uacf3\uc73c\ub85c\ub9cc \ub098\ud0c0\ub0a9\ub2c8\ub2e4. \uc0c9\uc740 \uac01 '
