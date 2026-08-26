@@ -959,5 +959,110 @@ class GroupedCardStripsFramingEvenFromAPinnedLabel(unittest.TestCase):
 
 
 
+class TheKoreanCardMustBeInKorean(unittest.TestCase):
+    """⚠️ Replays the card that shipped on 24 August 2026: three of four Korean
+    labels still in English, on a live account, unnoticed. check_labels asks a
+    MODEL whether a label still says what its figure is, and an English label
+    does say that — so the fault sailed past the only check that looked."""
+
+    AUG24 = [('강남역 추정 인파', 'Estimated crowd, Gangnam Station'),
+             ('Estimated crowd in Seoul Station right now',
+              'Estimated crowd in Seoul Station right now'),
+             ('Estimated crowd in Gyeongbokgung right now',
+              'Estimated crowd in Gyeongbokgung right now'),
+             ('Estimated crowd at Nodeul Island the same minute',
+              'Estimated crowd at Nodeul Island the same minute')]
+
+    @staticmethod
+    def _lines(pairs):
+        return [{'label_ko': ko, 'label_en': en} for ko, en in pairs]
+
+    def setUp(self):
+        S.DRY_RUN = True          # keeps the estate observation log out of tests
+
+    def test_it_catches_the_card_that_actually_shipped(self):
+        bad = S.check_korean(self._lines(self.AUG24), '지금 서울은',
+                             'Seoul, right now', log=lambda *_: None)
+        self.assertEqual(len(bad), 3)
+        self.assertTrue(all(b['copied'] for b in bad))
+
+    def test_a_healthy_card_says_nothing(self):
+        good = [('홍대 추정 인파', 'Estimated crowd, Hongdae'),
+                ('잠실 추정 인파', 'Estimated crowd, Jamsil')]
+        self.assertEqual(S.check_korean(self._lines(good), '지금 서울은',
+                                        'Seoul, right now'), [])
+
+    def test_the_opener_is_judged_too(self):
+        good = [('홍대 추정 인파', 'Estimated crowd, Hongdae')]
+        bad = S.check_korean(self._lines(good), 'Seoul, right now',
+                             'Seoul, right now', log=lambda *_: None)
+        self.assertEqual(len(bad), 1)
+        self.assertTrue(bad[0]['opener'])
+
+    def test_one_hangul_syllable_is_enough(self):
+        """⚠️ The false positive to fear. Korean labels legitimately carry Latin
+        — a brand, a station romanisation, a film title — and flagging those
+        would put a finding in the log on healthy cards, which is how a log
+        stops being read. Measured 26 August 2026: across 99 Korean cards in the
+        feed the ONLY Latin-only labels were the three above."""
+        mixed = [('Seoul Sky 서울스카이', 'Seoul Sky (Lotte World Tower)'),
+                 ('F1 더 무비', 'F1 The Movie')]
+        self.assertEqual(S.check_korean(self._lines(mixed), '지금 서울은',
+                                        'Seoul, right now'), [])
+
+    def test_hanja_is_not_korean_for_this_bot(self):
+        """⚠️ Why the range is Hangul syllables and NOT the CJK ideographs.
+        Widening it would let a label of pure Hanja pass as Korean, and this
+        account writes its Korean in Hangul — 90 days of all six bot feeds held
+        not one Hanja. Without this the range is only a comment claiming to be
+        load-bearing: a mutation widening it passed the whole suite."""
+        hanja = [('漢江 水溫', 'Water temperature in the Han')]
+        bad = S.check_korean(self._lines(hanja), '지금 서울은',
+                             'Seoul, right now', log=lambda *_: None)
+        self.assertEqual(len(bad), 1)
+        self.assertFalse(bad[0]['copied'])     # not a copy, simply not Hangul
+
+    def test_it_runs_with_the_model_checker_switched_off(self):
+        """⚠️ The whole point: it is deterministic, so it must not sit behind
+        CHECK_LABELS. A card built when the model checker is off, unreachable or
+        out of quota is exactly when this is the only thing looking."""
+        import inspect
+        src = inspect.getsource(S.compose)
+        i_check = src.index('check_korean(lines')
+        i_gate = src.index('if CHECK_LABELS:')
+        self.assertLess(i_check, i_gate)
+
+    def test_it_never_blocks_the_card(self):
+        """A card with English labels is a bad card; a card that never posts is
+        a dead bot. One in ninety-nine does not buy the right to refuse."""
+        pool = [S.fact(f'crowd_{i}', 'crowd', f'Estimated crowd, Place {i}',
+                       f'{i},000', f'{i},000', pin=True,
+                       label_ko=f'Estimated crowd, Place {i}')
+                for i in (1, 2, 3)]
+        sel = {'opener_en': 'Seoul, right now', 'opener_ko': 'Seoul, right now',
+               'opener_emoji': '',
+               'picks': [{'id': f['id'], 'label_en': '', 'label_ko': '',
+                          'emoji': ''} for f in pool]}
+        c = S.compose(sel, pool)
+        self.assertEqual(len(c['lines']), 3)
+        self.assertTrue(c['ko_body'])
+
+    def test_a_dry_run_writes_nothing_to_the_estate_log(self):
+        """A test filing itself with the Sunday review is a fault invented by
+        the reporting of it. Same rule as _observe_labels."""
+        calls = []
+        real = S.subprocess.run
+        S.subprocess.run = lambda *a, **k: calls.append(a) or real(
+            ['true'], capture_output=True)
+        try:
+            S.DRY_RUN = True
+            S.check_korean(self._lines(self.AUG24), '지금 서울은',
+                           'Seoul, right now', log=lambda *_: None)
+        finally:
+            S.subprocess.run = real
+        self.assertEqual(calls, [])
+
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

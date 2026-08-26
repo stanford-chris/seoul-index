@@ -120,6 +120,31 @@ Each index is rendered to a PNG by `seoul_index_card.py`: the card is laid out i
 - **[World Bank](https://data.worldbank.org)** (no key), with Seoul's own figure from KOSIS: Seoul set against whole **countries** on one measure at a time, which is the point of it: the city is about thirty times denser than the country it sits in, and its birth rate is lower. Seoul always leads the card and the other lines are bare country names, so the opener carries the measure; the year and the "Seoul against whole countries" scope ride the card footnote, since they qualify the figures rather than credit them. This is a different thing from the OECD lines above, which compare Seoul's metro area with other **cities**. An earlier attempt at a country-only vein (Korea against peer nations, no Seoul figure at all) was built and then cut: a card with no Seoul on it is not this account.
 - **[MOLIT 실거래가](https://rt.molit.go.kr)** (via [data.go.kr](https://www.data.go.kr)): one month's apartment-market filings: the dearest and cheapest single sales, a record jeonse deposit, and counts of filings citywide, by district, and jeonse against monthly rent. Every line is a filed transaction or a count of them, never a median or an average, and cancelled filings are excluded. Filings are due within 30 days of a contract, so the bot uses the newest month that can no longer grow (two months back) and caches the harvest for the whole month.
 
+
+### Is the Korean card in Korean?
+`check_korean()` runs on every card, before it is drawn, and flags any Korean label or opener
+carrying **no Hangul**. It exists because on 24 August 2026 a crowd card went out with three of
+its four Korean labels still reading *Estimated crowd in Seoul Station right now*, on a live
+account, unnoticed. The model checker below it was looking: it asks whether a label still says
+what its figure is, and an English label does say that. **Language is a different question and
+a regex owns it**, so this is deterministic, needs no network, and runs whether or not
+`CHECK_LABELS` is on — which is exactly when the model checker is unreachable or out of quota.
+
+⚠️ **It reports and repairs nothing, deliberately.** For the veins the selector translates, its
+answer is the only Korean that exists and the pool's own label is the English being complained
+about. The veins that own their Korean (crowd, spotlight, rush set `label_ko`) never reach the
+selector for it, so the 24 August card could not recur today.
+
+⚠️ **And it never blocks a post.** The measured rate is one card in ninety-nine; a card with
+English labels is a bad card, a card that never posts is a dead bot. That risk posture is also
+why there is **no exemption list**: a Latin-only Korean label is conceivable — a film title on a
+boxoffice card — and has never once occurred. Across 99 Korean cards in the feed on 26 August
+2026 the only Latin-only labels were those three. An exemption for a case that has never
+happened is a guess that can hide a real one, and a false positive here costs one log line.
+
+The range is Hangul syllables and **not** the CJK ideographs, so a label of pure Hanja is
+flagged too: this account writes its Korean in Hangul.
+
 ### Bolding the variable
 A card whose rows are **one metric read at several places** bolds the place and leaves the
 shared wording plain: *Estimated crowd,* **Gangnam Station**. Same rule as the then-and-now

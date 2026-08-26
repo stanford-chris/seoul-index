@@ -4653,6 +4653,76 @@ def _label_check_prompt(rows, opener_en, opener_ko):
         f'"problem": "<one short sentence>"}}]}}')
 
 
+# Any Hangul syllable. NOT the CJK ideographs: 90 days of every feed held not
+# one Hanja, so widening this would be guessing at a case that has never
+# happened, and every character added can hide a real fault. Same reasoning as
+# bot_variety_check.py's Korean ranges.
+HANGUL = re.compile(r'[가-힣]')
+
+
+def check_korean(lines, opener_ko, opener_en, log=print):
+    """Is the Korean card in Korean?
+
+    On 24 August 2026 a crowd card went out with three of its four Korean
+    labels still reading "Estimated crowd in Seoul Station right now". Nothing
+    noticed: check_labels below asks a MODEL whether a label still says what its
+    figure is, and an English label does say that. Language is a different
+    question and a regex owns it outright, so this runs unconditionally rather
+    than behind CHECK_LABELS, needs no network, and cannot itself fail.
+
+    ⚠️ IT REPORTS AND REPAIRS NOTHING, deliberately. There is no Korean to fall
+    back to: for the veins the selector translates, its answer is the only
+    Korean that exists, and the pool's own label is the English this is
+    complaining about. The veins that DO own their Korean (crowd, spotlight,
+    rush set label_ko) never reach the selector for it and so can no longer fail
+    this way at all — the 24 August card could not recur today.
+
+    ⚠️ And it never blocks a post. The measured rate is one card in ninety-nine,
+    and a card with English labels is a bad card while a card that never posts
+    is a dead bot. That also means a false positive costs one log line, which is
+    why there is no exemption list: a Latin-only Korean label is conceivable (a
+    film title on a boxoffice card) and has never once occurred — 0 of 99 Korean
+    cards in the feed on 26 August 2026, the three above being the only Latin
+    labels in the whole history. An exemption for a case that has never happened
+    is a guess that can hide a real one.
+
+    The report says whether each flagged label is BYTE-IDENTICAL to its English
+    sibling, because that is what separates the failure seen (an untranslated
+    copy) from the one imagined (a proper noun with no Hangul in it).
+    """
+    bad = [{'ko': l['label_ko'], 'en': l['label_en'],
+            'copied': l['label_ko'] == l['label_en']}
+           for l in lines if not HANGUL.search(l['label_ko'] or '')]
+    if opener_ko and not HANGUL.search(opener_ko):
+        bad.append({'ko': opener_ko, 'en': opener_en,
+                    'copied': opener_ko == opener_en, 'opener': True})
+    if not bad:
+        return []
+    for b in bad:
+        where = 'opener' if b.get('opener') else 'label'
+        how = 'copied from the English' if b['copied'] else 'no Hangul'
+        log(f'  !! Korean {where} is not Korean ({how}): {b["ko"]!r}')
+    _observe_korean(bad)
+    return bad
+
+
+def _observe_korean(bad):
+    """⚠️ Dry runs report nothing, exactly as _observe_labels refuses to: a test
+    filing itself with the Sunday review is a fault invented by reporting it."""
+    if DRY_RUN or not OBSERVE.exists():
+        return
+    copied = sum(1 for b in bad if b['copied'])
+    text = (f'{len(bad)} Korean label(s)/opener carried no Hangul '
+            f'({copied} byte-identical to the English): {bad[0]["ko"][:60]!r}')
+    try:
+        subprocess.run(
+            ['python3', str(OBSERVE), 'add', '--source', 'seoul-index-korean',
+             '--kind', 'finding', '--key', 'seoul-index-korean-untranslated',
+             text], check=False, capture_output=True)
+    except OSError:
+        pass
+
+
 def check_labels(lines, rows, opener_en, opener_ko, log=print):
     """Check the written labels against the pool\'s own before the card is drawn.
 
@@ -4919,6 +4989,10 @@ def compose(sel, pool):
             for l, t in zip(lines, trimmed):
                 if not l['pin']:
                     l[f'label_{lang}'] = t
+
+    # Is the Korean card actually in Korean? Deterministic, so it runs whether
+    # or not the model checker below does. See check_korean.
+    check_korean(lines, opener_ko, opener_en)
 
     # Check the written labels against the pool's own, LAST: after the trim,
     # after _strip_live_frame and after the river and transport openers are
