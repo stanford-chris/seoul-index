@@ -149,6 +149,37 @@ KO_CITIES = ('일부 게시물은 서울을 다른 '
              '이때 서울은 서울시 자체를 '
              '뜻합니다.')
 
+# ⚠️ A FIFTH SUBJECT, ADDED 27 AUGUST 2026, because the account started doing
+# something none of the other four cards describes. Twice a week it posts a
+# 24-hour animation of one day drawn from the boarding counts, and a reader who
+# arrived from that picture and read all eight cards got an accurate
+# description of a different account: every one of them is about figures.
+# His call, for completeness and transparency.
+#
+# ⚠️ THE FIRST CLAIM IS THE ONE THAT EARNS THE CARD. A reader seeing a
+# recognisable outline of Seoul assumes a map was used. None was: the data has
+# no coordinates beyond a neighbourhood name, no coastline, no road and no
+# river, and the Han and the mountains are visible only because nobody boards a
+# bus in them. Left unsaid, the picture overstates what the account knows.
+# The colour and brightness sentence is second because it is the same
+# explanation the page and the card footnote already carry.
+EN_ART = ('Twice a week a post here is a picture rather than a figure: one named '
+          'day in Seoul, an hour a frame, drawn only from the boardings in each '
+          'neighbourhood.')
+EN_ART2 = ('No map is used. There is no coastline, road or river in the data, so '
+           'the Han and the mountains show up only as the places where nobody '
+           'boards. Colour is each neighbourhood\u2019s own balance between the '
+           'morning and evening peaks; brightness is the boardings in the hour '
+           'shown.')
+KO_ART = ('\uc77c\uc8fc\uc77c\uc5d0 \ub450 \ubc88\uc740 \uc218\uce58\uac00 \uc544\ub2c8\ub77c \uadf8\ub9bc\uc744 \uc62c\ub9bd\ub2c8\ub2e4. '
+          '\uc11c\uc6b8\uc758 \ud558\ub8e8\ub97c \ud55c \uc2dc\uac04\uc5d0 \ud55c \uc7a5\uba74\uc529, \uac01 '
+          '\ud589\uc815\ub3d9\uc758 \uc2b9\ucc28 \uc778\uc6d0\ub9cc\uc73c\ub85c \uadf8\ub838\uc2b5\ub2c8\ub2e4.')
+KO_ART2 = ('\uc9c0\ub3c4\ub294 \uc4f0\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4. \uc790\ub8cc\uc5d0\ub294 \ud574\uc548\uc120\ub3c4 '
+           '\ub3c4\ub85c\ub3c4 \uac15\ub3c4 \uc5c6\uc73c\ubbc0\ub85c, \ud55c\uac15\uacfc \uc0b0\uc740 \uc2b9\ucc28\uac00 '
+           '\uc5c6\ub294 \ube48 \uacf3\uc73c\ub85c\ub9cc \ub098\ud0c0\ub0a9\ub2c8\ub2e4. \uc0c9\uc740 \uac01 '
+           '\ud589\uc815\ub3d9\uc758 \uc544\uce68\u00b7\uc800\ub141 \ud53c\ud06c \uade0\ud615\uc774\uace0, '
+           '\ubc1d\uae30\ub294 \uadf8 \uc2dc\uac04\ub300\uc758 \uc2b9\ucc28 \uc778\uc6d0\uc785\ub2c8\ub2e4.')
+
 CARDS = [
     {'lang': 'en', 'heading': 'About this account', 'emoji': '\U0001f3d9️',
      'body': [EN_INTRO]},
@@ -156,12 +187,14 @@ CARDS = [
      'body': [EN_COUNTS]},
     {'lang': 'en', 'heading': 'About the crowd figures', 'emoji': '\U0001f465', 'body': [EN_CAVEAT]},
     {'lang': 'en', 'heading': 'About the comparisons', 'emoji': '\U0001f30f', 'body': [EN_CITIES]},
+    {'lang': 'en', 'heading': 'About the artwork', 'emoji': '\U0001f3a8', 'body': [EN_ART, EN_ART2]},
     {'lang': 'ko', 'heading': '이 계정에 대하여', 'emoji': '\U0001f3d9️',
      'body': [KO_INTRO]},
     {'lang': 'ko', 'heading': '고정 수치에 대하여', 'emoji': '\U0001f9ee',
      'body': [KO_COUNTS]},
     {'lang': 'ko', 'heading': '인구 수치에 대하여', 'emoji': '\U0001f465', 'body': [KO_CAVEAT]},
     {'lang': 'ko', 'heading': '비교 수치에 대하여', 'emoji': '\U0001f30f', 'body': [KO_CITIES]},
+    {'lang': 'ko', 'heading': '그림에 대하여', 'emoji': '\U0001f3a8', 'body': [KO_ART, KO_ART2]},
 ]
 
 # Every publisher the bot draws on, each hyperlinked in the trailing reply.
