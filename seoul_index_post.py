@@ -2923,32 +2923,46 @@ def kac_facts(key):
         return []
     y, m = m_first.year, m_first.month
     mon_en = MONTHS_EN[m - 1]
+    # ⚠️ Every label here carries its own month AND the fact carries it again as
+    # a period. Both are needed and neither is redundant: on the twenty-year
+    # pair the month is the DISCRIMINATOR ("July 2026" against "July 2006") and
+    # has to stay on the row, while on a single-month card it is the same on
+    # every row and belongs on the masthead. compose() lifts the period to the
+    # dateline and strips it back off the labels only when the whole card is one
+    # month, so the two frames each get the layout they need.
+    per_en, per_ko = f'{mon_en} {y}', f'{y}년 {m}월'
     facts = [fact('kac_pax_now', 'airport',
-                  f'Passengers through Gimpo, {mon_en} {y}',
+                  f'Passengers through Gimpo, {per_en}',
                   grouped(now['pax']), grouped(now['pax']), pair='gimpo_then',
-                  pin=True, label_ko=f'김포공항 이용객, {y}년 {m}월',
+                  pin=True, label_ko=f'김포공항 이용객, {per_ko}',
+                  period_en=per_en, period_ko=per_ko,
                   num=now['pax'], unit='people'),
              fact('kac_flights_now', 'airport',
-                  f'Flights in and out, {mon_en} {y}',
+                  f'Flights in and out, {per_en}',
                   grouped(now['flights']), grouped(now['flights']),
-                  pin=True, label_ko=f'운항 편수, {y}년 {m}월')]
+                  pin=True, label_ko=f'운항 편수, {per_ko}',
+                  period_en=per_en, period_ko=per_ko)]
     then = _kac_month(key, y - KAC_YEARS_BACK, m)
     if then:
+        then_en = f'{mon_en} {y - KAC_YEARS_BACK}'
+        then_ko = f'{y - KAC_YEARS_BACK}년 {m}월'
         facts.append(fact('kac_pax_then', 'airport',
-                          f'Passengers through Gimpo, {mon_en} {y - KAC_YEARS_BACK}',
+                          f'Passengers through Gimpo, {then_en}',
                           grouped(then['pax']), grouped(then['pax']),
                           pair='gimpo_then', pin=True,
-                          label_ko=f'김포공항 이용객, {y - KAC_YEARS_BACK}년 {m}월'))
+                          label_ko=f'김포공항 이용객, {then_ko}',
+                          period_en=then_en, period_ko=then_ko))
     dom = _kac_month(key, y, m, route=0)
     intl = _kac_month(key, y, m, route=1)
     if dom and intl:
         for fid, row, en, ko in (
                 ('kac_dom', dom, 'Domestic passengers', '국내선 이용객'),
                 ('kac_intl', intl, 'International passengers', '국제선 이용객')):
-            facts.append(fact(fid, 'airport', f'{en}, {mon_en} {y}',
+            facts.append(fact(fid, 'airport', f'{en}, {per_en}',
                               grouped(row['pax']), grouped(row['pax']),
                               pair='gimpo_split', pin=True,
-                              label_ko=f'{ko}, {y}년 {m}월',
+                              label_ko=f'{ko}, {per_ko}',
+                              period_en=per_en, period_ko=per_ko,
                               num=row['pax'], unit='people'))
     return facts
 
@@ -3904,7 +3918,7 @@ Rules:
 - "infant" lines count Seoul's children in ONE age band, one line per year across a decade. Labels are BARE YEARS. ⚠️ The card already names the age band on its own line, and YOU ARE NOT TOLD WHICH BAND IT IS — so the opener must NEVER state an age or an age range. Writing "Children aged 0" over the under-six figures is the exact mistake this rule exists to stop. Give a neutral opener that says only that these are Seoul's children over time: "Seoul's children, a decade apart", "Fewer every year in Seoul". Own post, never mixed, and keep the first and last years: the fall between them is the card. State it and stop — never call it a decline, a crisis, or a collapse, and never mention birth rates.
 - "library" lines are the registered members of Seoul Library by decade of life. Labels are BARE AGE BANDS, so the opener MUST name the library and what is counted ("Who holds a card at Seoul Library"). Own post, never mixed. It is ONE library, not the city's 215 — never imply otherwise. ⚠️ The value may carry a trailing "(1 in N)" — that is Python's, and it sets the members of that band against Seoul's registered population of that age. Leave it exactly where it is and NEVER restate it, convert it to a percentage, explain it, or build the opener or a label on it: the card footnote says what it is, and members need not live in Seoul, so the opener must never call it a share of Seoul's teens or of any other age.
 - "complaint" lines are how many faults Seoul's residents reported in a whole year, one line per year. Labels are BARE YEARS, so the opener MUST name what is counted ("Things reported broken in Seoul"). Own post, never mixed, and never characterise a year as better or worse than another.
-- "airport", "health" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split (labels carry their months). A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. These are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
+- "airport", "health" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split. ⚠️ Do NOT put the month in the opener: on the split frame it rides on the card automatically as its dateline, and on the twenty-year pair each label carries its own year, which is the whole point of that frame. A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. These are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
 - "books" lines are checkouts at SEOUL LIBRARY over the last 60 days, counted by SUBJECT: literature, philosophy, 어학 and the rest, in the library's own classification. Labels are BARE SUBJECT NAMES, so the opener MUST name the library and say these are loans, exactly as the "library" membership lines do — and MUST NOT settle on one wording: "What Seoul Library lent, by subject", "Seoul Library's loans, by subject", "Borrowing at Seoul Library, by subject" and "What went out of Seoul Library" are four of many, so write a fresh one rather than reusing the last. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries — never imply otherwise. ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post, never mixed with any other category. ⚠️ The value may carry a trailing "(1 in N)" — that is Python's, and it is the subject's share of every checkout counted, which is why four lines can still say what the other six weigh. Leave it exactly where it is and NEVER restate it, convert it to a percentage, explain it, or build the opener or a label on it; the card footnote gives the total it divides by. ⚠️ TEN subjects are offered and a card takes four, so there is no one right card and THE EXTREMES ARE NOT COMPULSORY. Do not reach for the biggest subject at the top and the smallest at the bottom every time: four subjects from the middle of the list is a card, the four smallest is a card, and a set leaving out the largest number altogether is a card. The two pairs are two arrangements among many rather than the default — a "book_heat" pair is two subjects that came out level, a "book_gap" pair is the least- and most-borrowed of the ten; use at most ONE of them on a card, and prefer neither if the plain four you have chosen already say something. Deliberately vary which subjects appear from post to post and lean hard on AVOID_IDS here: with only ten subjects this vein repeats itself faster than any other. Never say which way the gap runs, never call a subject popular or neglected, and never draw a conclusion about what Seoul reads — set the numbers down and let the reader do it.
@@ -4492,11 +4506,14 @@ def _drop_opener_echo(label, opener, korean):
 # groups — the dated month over its lines, "Right now" over the live ones. The
 # masthead dateline stays the design for single-frame dated cards. See compose().
 LIVE_CATS = {'crowd', 'air', 'bike', 'traffic'}
-# Veins that carry a liftable month/quarter period (they set a dateline). Same
-# four the dateline logic promotes; used early, before scope is built, to spot a
-# groupable live+dated cross pair while ordering the lines.
+# Veins that carry a liftable month/quarter period (they set a dateline). The
+# same ones the dateline logic promotes; used early, before scope is built, to
+# spot a groupable live+dated cross pair while ordering the lines. ⚠️ airport
+# carries one only on its single-month frame — the twenty-year pair spans two
+# months and lifts nothing — so membership here means "may set a dateline", and
+# grouped is confirmed later against whether one actually did.
 DATED_PERIOD_CATS = {'tourism', 'property', 'spending', 'avgbill', 'boxoffice',
-                     'rush'}
+                     'rush', 'airport'}
 # Veins whose lines are BARE LABELS ("60s", "2019") explained by a DESCRIPTOR
 # rather than by a date. On an own post the opener carries that meaning, so this
 # is only a reminder in the footnote — but a cross pair OVERRIDES "own post,
@@ -5072,6 +5089,10 @@ def compose(sel, pool):
     # already said it, so nothing is added. Set by the uses_wb branch below and
     # lifted onto the dateline once the period/grouping logic has settled.
     card_metric_en = card_metric_ko = ''
+    # The single month an airport card covers, once it is known to be single.
+    # Empty when the card spans two months (the twenty-year frame) or carries no
+    # airport line at all.
+    kac_period = ('', '')
     if ('spending' in cats or 'avgbill' in cats) and SALES_Q['en']:
         scope_en.append(('Commercial districts', SALES_Q['en']))
         scope_ko.append(('상권', SALES_Q['ko']))
@@ -5194,6 +5215,21 @@ def compose(sel, pool):
     if uses_kac:
         src_en += ' · Korea Airports Corporation'
         src_ko += ' · 한국공항공사'
+        # ⚠️ Read off THIS CARD's lines, never from the newest published month.
+        # The twenty-year frame puts two months on one card, and a masthead is a
+        # claim about every line under it: "July 2026" flown over a 2006 figure
+        # is simply false. So the month lifts only when every airport line
+        # agrees on it, which is the domestic/international frame — and that is
+        # the frame that shipped on 27 August 2026 with July 2026 spelled out on
+        # all three rows and no dateline at all, which is what this fixes.
+        # No descriptor: the opener already names the airport, and a scope
+        # reading "Gimpo airport" would only repeat it.
+        kac_months = {(l['period_en'], l['period_ko']) for l in lines
+                      if l['cat'] == 'airport'}
+        if len(kac_months) == 1 and all(next(iter(kac_months))):
+            kac_period = kac_months.pop()
+            scope_en.append((None, kac_period[0]))
+            scope_ko.append((None, kac_period[1]))
     if uses_hira:
         # Both provisos are keys to the figures: the region is where the
         # institution is, and the counts are insurance claims.
@@ -5440,6 +5476,17 @@ def compose(sel, pool):
         return out
     scope_en = _scope_strs(scope_en, group_en or dateline_en)
     scope_ko = _scope_strs(scope_ko, group_ko or dateline_ko)
+    # ⚠️ Stripped only once the month has ACTUALLY been promoted, never on the
+    # strength of being liftable: a second dated vein crossing this one leaves
+    # both periods inline in the footnote (see per_pairs above), and a label
+    # that had already given its month away would then sit on a card that says
+    # nowhere which month it covers. removesuffix, so a label that does not end
+    # in the promoted month is left exactly as it is.
+    if kac_period[0] and (group_en or dateline_en) == kac_period[0]:
+        for l in lines:
+            if l['cat'] == 'airport':
+                l['label_en'] = l['label_en'].removesuffix(f', {kac_period[0]}')
+                l['label_ko'] = l['label_ko'].removesuffix(f', {kac_period[1]}')
     # NOTE: the KT-estimate caveat is deliberately NOT added to the source line.
     # It is a caveat, not a credit, and it already rides on the card footnote
     # below; putting it in both made the reply repeat what the card had just

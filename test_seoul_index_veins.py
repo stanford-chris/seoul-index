@@ -9,7 +9,8 @@ live rather than through a composed card.
 
 No network, no model call, no posting: http_get_json is stubbed per test.
 """
-import sys, unittest
+import re, sys, types, unittest
+from datetime import timedelta
 from pathlib import Path
 
 sys.argv = ['test']
@@ -1026,6 +1027,100 @@ class ScreensFrameComparesLikeWithLike(unittest.TestCase):
         """
         self.assertEqual(S.SCREENS_YEARS, (5, 10))
         self.assertLessEqual(max(S.SCREENS_YEARS), 17)
+
+class AirportMonthRidesTheMasthead(unittest.TestCase):
+    """The month a Gimpo card covers belongs on the masthead when the card is one
+    month, and on every row when it is two.
+
+    The card of 27 August 2026 got this backwards: three rows each ending
+    "July 2026" and no dateline at all, where the property card the same week
+    flew "June 2026" in red under its title. But the fix cannot simply move the
+    month, because the twenty-year frame puts July 2026 beside July 2006 and
+    there the month IS the discriminator — a masthead over that card would be a
+    claim about a line it does not cover.
+
+    End to end through kac_facts and the real compose(), because the rule spans
+    both: the harvester writes the labels and compose decides what lifts, and a
+    unit test of either half alone passes while the card still reads wrong.
+    """
+
+    NOW_PAX, DOM, INTL, FLIGHTS, THEN_PAX = 1856656, 1412573, 444083, 10434, 733168
+
+    def facts(self):
+        import subprocess as real_subprocess
+        from datetime import datetime
+
+        today = datetime.now(S.SEOUL_TZ).date()
+        prev = (today.replace(day=1) - timedelta(days=1))
+        self.y, self.m = prev.year, prev.month
+
+        def run(cmd, **kw):
+            url = cmd[-1]
+            ym = re.search(r'startDePd=(\d{6})', url).group(1)
+            route = re.search(r'routeBe=(\d)', url)
+            year = int(ym[:4])
+            if year == self.y:
+                pax = (self.DOM if route and route.group(1) == '0'
+                       else self.INTL if route else self.NOW_PAX)
+            else:
+                pax = self.THEN_PAX
+            xml = ('<response><body><items><item>'
+                   '<Airport>김포</Airport>'
+                   f'<subpassenger>{pax}</subpassenger>'
+                   f'<Subflgt>{self.FLIGHTS}</Subflgt>'
+                   '</item></items></body></response>')
+            return types.SimpleNamespace(stdout=xml, returncode=0)
+
+        S.subprocess.run = run
+        try:
+            facts = S.kac_facts('KEY')
+        finally:
+            S.subprocess.run = real_subprocess.run
+        self.assertTrue(facts, 'the airport vein returned nothing')
+        return {f['id']: f for f in facts}
+
+    def card(self, ids):
+        by_id = self.facts()
+        pool = [by_id[i] for i in ids]
+        sel = {'opener_en': 'Through Gimpo airport', 'opener_ko': '김포공항에서',
+               'opener_emoji': '✈️', 'picks': [{'id': i} for i in ids]}
+        return S.compose(sel, pool)
+
+    def test_one_month_lifts_to_the_dateline_and_leaves_the_rows_bare(self):
+        c = self.card(['kac_dom', 'kac_intl', 'kac_flights_now'])
+        self.assertEqual(c['dateline_en'], f'{S.MONTHS_EN[self.m - 1]} {self.y}')
+        self.assertEqual(c['dateline_ko'], f'{self.y}년 {self.m}월')
+        self.assertEqual([l['label_en'] for l in c['lines']],
+                         ['Domestic passengers', 'International passengers',
+                          'Flights in and out'])
+        # Both languages, or a card is stripped in one and repeating itself in
+        # the other — and only the English reader would ever see the difference.
+        for l in c['lines']:
+            self.assertNotIn(str(self.y), l['label_en'])
+            self.assertNotIn(str(self.y), l['label_ko'])
+        # The masthead is the ONLY place the month appears: not the footnote too.
+        self.assertNotIn(str(self.y), c['note_en'])
+        self.assertNotIn(str(self.y), c['note_ko'])
+        # The alt text carries it as its own line, so a screen-reader user is
+        # told the month exactly once, as a sighted reader is.
+        self.assertIn(f'\n{c["dateline_en"]}\n', c['en_body'])
+
+    def test_two_months_lift_nothing_and_every_row_keeps_its_own(self):
+        c = self.card(['kac_pax_now', 'kac_pax_then', 'kac_flights_now'])
+        self.assertEqual(c['dateline_en'], '')
+        self.assertEqual(c['dateline_ko'], '')
+        then = self.y - S.KAC_YEARS_BACK
+        self.assertEqual(
+            [l['label_en'] for l in c['lines']],
+            [f'Passengers through Gimpo, {S.MONTHS_EN[self.m - 1]} {self.y}',
+             f'Passengers through Gimpo, {S.MONTHS_EN[self.m - 1]} {then}',
+             f'Flights in and out, {S.MONTHS_EN[self.m - 1]} {self.y}'])
+        self.assertEqual(
+            [l['label_ko'] for l in c['lines']],
+            [f'김포공항 이용객, {self.y}년 {self.m}월',
+             f'김포공항 이용객, {then}년 {self.m}월',
+             f'운항 편수, {self.y}년 {self.m}월'])
+
 
 class OpenersAreNotCutMidPhrase(unittest.TestCase):
     """A hard slice at the cap shipped "…film, the same :" to a live render.
