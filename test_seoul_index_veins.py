@@ -9,7 +9,7 @@ live rather than through a composed card.
 
 No network, no model call, no posting: http_get_json is stubbed per test.
 """
-import re, sys, types, unittest
+import json, re, sys, types, unittest
 from datetime import timedelta
 from pathlib import Path
 
@@ -1120,6 +1120,177 @@ class AirportMonthRidesTheMasthead(unittest.TestCase):
             [f'김포공항 이용객, {self.y}년 {self.m}월',
              f'김포공항 이용객, {then}년 {self.m}월',
              f'운항 편수, {self.y}년 {self.m}월'])
+
+
+class MastheadCheckIsNotVeinSpecific(unittest.TestCase):
+    """check_masthead asks the finished card whether a date is on every row and
+    nowhere above them.
+
+    The airport vein was fixed where it lives, but the SHAPE is not
+    vein-specific: the next vein to bake a month into a label would repeat it in
+    silence, because that is not a card that looks broken. It renders perfectly
+    and merely says the same four words three times.
+
+    ⚠️ The false-negative tests matter as much as the positive one. Four veins
+    here deliberately keep a date OFF the masthead — the weather season span,
+    the books window, the OECD vintage, the library-ratio population month —
+    each commented with its reason, so a check that argued for lifting every
+    shared clause would fight four decisions made on purpose. This one reports
+    and repairs nothing.
+    """
+
+    def lines(self, *labels_en, ko=None):
+        ko = ko or [''] * len(labels_en)
+        return [{'label_en': e, 'label_ko': k} for e, k in zip(labels_en, ko)]
+
+    def check(self, lines, dl_en='', dl_ko='', grouped=False):
+        return S.check_masthead(lines, dl_en, dl_ko, grouped, log=lambda m: None)
+
+    def test_the_card_that_shipped_is_found(self):
+        found = self.check(self.lines('Domestic passengers, July 2026',
+                                      'International passengers, July 2026',
+                                      'Flights in and out, July 2026'))
+        self.assertEqual([f['lang'] for f in found], ['en'])
+        self.assertEqual(found[0]['tail'], 'July 2026')
+
+    def test_a_lifted_dateline_is_clean(self):
+        # Not merely because the labels were stripped: a card that HAS a
+        # masthead is short-circuited before the labels are looked at, since
+        # whatever they say the date is already above them.
+        self.assertEqual(
+            self.check(self.lines('Domestic passengers', 'International passengers',
+                                  'Flights in and out'), dl_en='July 2026'), [])
+
+    def test_a_grouped_card_is_clean(self):
+        # A live+dated cross pair carries its date on a group subhead and
+        # correctly flies no masthead. Judging it would raise a finding on the
+        # layout working.
+        self.assertEqual(
+            self.check(self.lines('Domestic passengers, July 2026',
+                                  'International passengers, July 2026'),
+                       grouped=True), [])
+
+    def test_a_date_per_row_is_a_discriminator(self):
+        # The twenty-year frame: a masthead over it would be a claim about a
+        # line it does not cover.
+        self.assertEqual(
+            self.check(self.lines('Passengers through Gimpo, July 2026',
+                                  'Passengers through Gimpo, July 2006',
+                                  'Flights in and out, July 2026')), [])
+
+    def test_one_undated_row_means_no_masthead_was_possible(self):
+        self.assertEqual(
+            self.check(self.lines('Domestic passengers, July 2026',
+                                  'International passengers, July 2026',
+                                  'Flights in and out')), [])
+
+    def test_a_year_that_leads_a_label_is_left_alone(self):
+        # boxhist writes "2026: The Odyssey". The year is the row's whole point.
+        self.assertEqual(
+            self.check(self.lines('2026: The Odyssey', '2021: Escape from Mogadishu',
+                                  '2016: Train to Busan')), [])
+
+    def test_the_pattern_itself_refuses_a_leading_year(self):
+        # ⚠️ Pinned at the REGEX, because no card can pin it: the boxhist rows
+        # above are three different years, so they fail the shared-tail test for
+        # a reason that has nothing to do with the anchor, and a mutation
+        # removing it passes the whole class. This is the only place the anchor
+        # is decidable, and an untested guard is a guard that quietly leaves.
+        self.assertIsNone(S._TRAILING_YEAR.search('2026: The Odyssey'))
+        self.assertIsNone(S._TRAILING_YEAR.search('Summer 2026'))
+        self.assertEqual(
+            S._TRAILING_YEAR.search('Domestic passengers, July 2026').group(1),
+            'July 2026')
+        # The date must TRAIL. A year mid-label is the label's own business.
+        self.assertIsNone(
+            S._TRAILING_YEAR.search('Passengers, July 2026, both terminals'))
+
+    def test_each_language_is_judged_alone(self):
+        # ⚠️ Python writes the English and the selector writes some of the
+        # Korean, so a card can be tidy in one and repeating itself in the
+        # other. A both-languages test would pass this card.
+        found = self.check(self.lines(
+            'Domestic passengers', 'International passengers', 'Flights in and out',
+            ko=['국내선 이용객, 2026년 7월', '국제선 이용객, 2026년 7월',
+                '운항 편수, 2026년 7월']))
+        self.assertEqual([f['lang'] for f in found], ['ko'])
+
+    def test_a_bare_period_row_is_not_a_repeated_date(self):
+        # The weather then-and-now layout draws the metric as a subhead and the
+        # PERIODS as the rows. They are bare and they differ, so nothing here
+        # could match — but if the regex ever lost its comma anchor it would
+        # flag every then-and-now card the account has ever posted.
+        self.assertEqual(self.check(self.lines('Summer 2026', 'Summer 1976')), [])
+
+    def test_the_published_history_is_clean_but_for_the_one_card(self):
+        # ⚠️ Measured, not asserted from taste: every card the account has
+        # posted, replayed through the check under the WORST assumption (that
+        # none of them flew a dateline, which is the loudest this can be). One
+        # hit, and it is the Gimpo card. A second hit here means either a new
+        # fault or a check that has started crying wolf, and both want reading.
+        log = Path(__file__).resolve().parent / 'card_history.jsonl'
+        if not log.exists():                 # a fresh checkout has no history
+            self.skipTest('no card_history.jsonl in this checkout')
+        hits = []
+        for ln in log.read_text(encoding='utf-8').splitlines():
+            if not ln.strip():
+                continue
+            rec = json.loads(ln)
+            rows = [{'label_en': x.get('label', ''), 'label_ko': ''}
+                    for x in rec.get('lines', [])]
+            if self.check(rows):
+                hits.append(rec.get('url') or rec.get('at'))
+        self.assertEqual(
+            len(hits), 1,
+            f'expected only the Gimpo card of 27 August 2026; got {hits}')
+
+
+class NothingFilesFromATestRun(unittest.TestCase):
+    """⚠️ THE TEST SUITE MUST NOT WRITE TO THE ESTATE'S SHARED LOG, and for two
+    months it did.
+
+    Every `_observe_*` here refused a `--dry-run` and still filed from a test,
+    because DRY_RUN reads `sys.argv` and a test process's argv says nothing
+    about --dry-run. Measured 27 August 2026: 148 `seoul-index-korean` findings
+    in memory/observations.jsonl, six per suite run, every one of them a
+    synthetic label from a fixture — and the Sunday estate-review reads that key
+    as one fault recurring for weeks. The check whose job is to keep that log
+    honest was the thing filling it with noise.
+
+    Pinned here rather than left to each author's memory, because it is exactly
+    the kind of rule the next test file forgets.
+    """
+
+    def state(self, name, dry, observe):
+        old = (S.__name__, S.DRY_RUN, S.OBSERVE)
+        S.__dict__['__name__'], S.DRY_RUN, S.OBSERVE = name, dry, observe
+        try:
+            return S.reporting()
+        finally:
+            S.__dict__['__name__'], S.DRY_RUN, S.OBSERVE = old
+
+    def test_an_imported_module_never_reports(self):
+        # This is the case that was broken, and it is how the suite sees it.
+        self.assertFalse(self.state('seoul_index_post', False, S.OBSERVE))
+
+    def test_a_dry_run_never_reports(self):
+        self.assertFalse(self.state('__main__', True, S.OBSERVE))
+
+    def test_a_missing_observe_never_reports(self):
+        self.assertFalse(self.state('__main__', False, Path('/nonexistent')))
+
+    def test_a_real_run_does_report(self):
+        # ⚠️ The positive case matters as much: a guard that refuses everything
+        # silences the checks it is protecting, and a log nobody writes to reads
+        # exactly like an estate with nothing wrong in it.
+        if not S.OBSERVE.exists():
+            self.skipTest('observe.py not installed in this checkout')
+        self.assertTrue(self.state('__main__', False, S.OBSERVE))
+
+    def test_this_module_is_actually_imported_right_now(self):
+        # Belt: if the suite ever ran the bot as __main__, every test above
+        # would still pass while the real log filled up again.
+        self.assertNotEqual(S.__name__, '__main__')
 
 
 class OpenersAreNotCutMidPhrase(unittest.TestCase):

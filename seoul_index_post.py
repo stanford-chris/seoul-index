@@ -81,6 +81,32 @@ CHECK_LABELS = True
 # The estate's shared notebook, read by a weekly review. Optional: this
 # repository is public and the bot runs without it.
 OBSERVE = Path.home() / 'Scripts' / 'observe.py'
+
+
+def reporting():
+    """May this process file into the estate's shared observation log?
+
+    ⚠️ ONLY A REAL RUN MAY, and "real" means this file was executed, not
+    imported. Every `_observe_*` below already refused a `--dry-run`, and every
+    one of them still filed from the TEST SUITE, because DRY_RUN reads
+    `sys.argv` and a test process's argv says nothing about --dry-run. Measured
+    27 August 2026: 148 `seoul-index-korean` findings in
+    `memory/observations.jsonl`, six per suite run, every one of them a
+    synthetic label from a fixture — and the Sunday `estate-review` reads that
+    key as a fault recurring for weeks. The check whose whole job is to keep
+    that log honest was the thing filling it with noise.
+
+    ⚠️ It is checked HERE and not by each caller, because a rule every author
+    has to remember is a rule the next one forgets. That is the same reasoning
+    that put check_masthead in compose() rather than in the airport vein.
+
+    ⚠️ `__name__` is the right test and cannot fail quiet in production: the
+    launchd job runs this file directly (verified in
+    com.chrisstanford.seoulindex.plist), and the ONLY importers are the six
+    test suites. If a real caller ever imports compose() it will report nothing
+    — so give it an explicit opt-in then rather than loosening this.
+    """
+    return __name__ == '__main__' and not DRY_RUN and OBSERVE.exists()
 KEYCHAIN_SERVICE = 'seoulindex-bluesky'
 CLAUDE_TOKEN_ACCOUNT = 'seoulbot'
 CLAUDE_TOKEN_SERVICE = 'claude-oauth-token'
@@ -4726,7 +4752,7 @@ def check_korean(lines, opener_ko, opener_en, log=print):
 def _observe_korean(bad):
     """⚠️ Dry runs report nothing, exactly as _observe_labels refuses to: a test
     filing itself with the Sunday review is a fault invented by reporting it."""
-    if DRY_RUN or not OBSERVE.exists():
+    if not reporting():
         return
     copied = sum(1 for b in bad if b['copied'])
     text = (f'{len(bad)} Korean label(s)/opener carried no Hangul '
@@ -4735,6 +4761,94 @@ def _observe_korean(bad):
         subprocess.run(
             ['python3', str(OBSERVE), 'add', '--source', 'seoul-index-korean',
              '--kind', 'finding', '--key', 'seoul-index-korean-untranslated',
+             text], check=False, capture_output=True)
+    except OSError:
+        pass
+
+
+# A trailing clause carrying a four-digit year: "…, July 2026", "…, 1 June–25
+# August 1976". The `$` is the meaningful anchor — it is what separates a date
+# that QUALIFIES a label from a year that IS one, as on the boxhist card, where
+# "2026: The Odyssey" has the year exactly where it belongs.
+#
+# ⚠️ The comma is NOT load-bearing and the comment here used to imply it was.
+# Measured 27 August 2026 against the looser `([^,]*(?:19|20)\d\d[^,]*)$` over
+# all 81 cards in card_history.jsonl: one hit each, the same card, nothing
+# either form found that the other missed. It is kept because it is the
+# narrower reading of "a date appended to a label" and it yields a clean tail
+# for the report, not because any card has ever needed it. The cost is that a
+# comma-less wording ("Passengers through Gimpo July 2026") would slip past;
+# widen it the day one appears, rather than guessing at one now.
+_TRAILING_YEAR = re.compile(r', ([^,]*(?:19|20)\d\d[^,]*)$')
+
+
+def check_masthead(lines, dateline_en, dateline_ko, grouped, log=print):
+    """Is a date sitting on every row of the card and nowhere above them?
+
+    On 27 August 2026 the Gimpo card went out as three rows each ending
+    "July 2026" with no dateline at all, while the property card two days
+    earlier flew "June 2026" in red under its title and left its rows bare.
+    Nothing noticed, because that is not a card that looks broken: it renders
+    perfectly and merely says the same four words three times.
+
+    The vein was fixed where it lives, but the SHAPE is not vein-specific and
+    the next one to bake a month into a label would repeat it in silence. This
+    asks the question of the finished card instead, so it holds for veins that
+    do not exist yet.
+
+    ⚠️ The test is that EVERY row shares the clause, not that any row carries a
+    date. A date on one row of three is a discriminator and belongs there — that
+    is the airport vein's own twenty-year frame, July 2026 against July 2006,
+    where a masthead would be a claim about a line it does not cover. Only a
+    clause true of every line could have been a masthead.
+
+    ⚠️ Judged per language, and reported if EITHER shows it. The selector writes
+    some Korean labels while Python writes the English, so the two can disagree,
+    and a card tidy in one language and repeating itself in the other is a real
+    fault that a both-languages test would pass.
+
+    ⚠️ It reports and repairs nothing, and never blocks a post. Lifting the
+    clause automatically was considered and rejected: four veins here
+    deliberately keep a date OFF the masthead (the weather season span, the
+    books window, the OECD vintage, the library-ratio population month), each
+    commented with its reason, and a generic lift would overturn all four. This
+    is a prompt to go and look, never a verdict.
+
+    Measured before it was written: 1 of the 81 cards in card_history.jsonl
+    matches, and it is the card above.
+    """
+    if grouped or dateline_en:
+        return []                       # the date already flies above the rows
+    found = []
+    for lang, masthead in (('en', dateline_en), ('ko', dateline_ko)):
+        labels = [l[f'label_{lang}'] or '' for l in lines]
+        if len(labels) < 2:
+            continue
+        tails = {m.group(1) for m in map(_TRAILING_YEAR.search, labels) if m}
+        if len(tails) == 1 and len([x for x in labels if _TRAILING_YEAR.search(x)]) \
+                == len(labels):
+            found.append({'lang': lang, 'tail': tails.pop(),
+                          'labels': list(labels)})
+    for f in found:
+        log(f'  !! every {f["lang"]} label ends ", {f["tail"]}" and no dateline '
+            f'flew: the date belongs on the masthead, not on every row')
+    if found:
+        _observe_masthead(found)
+    return found
+
+
+def _observe_masthead(found):
+    """⚠️ Dry runs report nothing, exactly as _observe_korean refuses to: a test
+    filing itself with the Sunday review is a fault invented by reporting it."""
+    if not reporting():
+        return
+    langs = '/'.join(f['lang'] for f in found)
+    text = (f'{langs} card repeated {found[0]["tail"]!r} on all '
+            f'{len(found[0]["labels"])} rows with no dateline')
+    try:
+        subprocess.run(
+            ['python3', str(OBSERVE), 'add', '--source', 'seoul-index-masthead',
+             '--kind', 'finding', '--key', 'seoul-index-date-on-every-row',
              text], check=False, capture_output=True)
     except OSError:
         pass
@@ -4810,7 +4924,7 @@ def _observe_labels(problems, error):
     ⚠️ Dry runs report nothing: a test filing itself with the weekly review as
     a rejected label is a fault invented by the reporting of it.
     """
-    if DRY_RUN or not OBSERVE.exists():
+    if not reporting():
         return
     if error:
         kind, key = 'finding', 'seoul-index-label-check-unavailable'
@@ -5487,6 +5601,12 @@ def compose(sel, pool):
             if l['cat'] == 'airport':
                 l['label_en'] = l['label_en'].removesuffix(f', {kac_period[0]}')
                 l['label_ko'] = l['label_ko'].removesuffix(f', {kac_period[1]}')
+    # Is a date sitting on every row and nowhere above them? Asked HERE, after
+    # the strip above and after grouped/dateline settled, so it sees the card as
+    # it will actually be drawn rather than a draft of it — the same reason
+    # check_labels runs last. Deterministic, no network, never blocks a post.
+    check_masthead(lines, dateline_en, dateline_ko, grouped)
+
     # NOTE: the KT-estimate caveat is deliberately NOT added to the source line.
     # It is a caveat, not a credit, and it already rides on the card footnote
     # below; putting it in both made the reply repeat what the card had just
@@ -5741,6 +5861,17 @@ def log_card(c, sel, primary, post_uri, handle, fallback):
             'primary': primary,
             'cats': c.get('cats', []),
             'opener': c['opener']['en'],
+            # ⚠️ The masthead as the card ACTUALLY FLEW IT, and `grouped` beside
+            # it so a reader can tell the two empty cases apart: a grouped card
+            # carries its date on a group subhead and correctly has no masthead,
+            # while an ungrouped one with no dateline has the date nowhere above
+            # the rows. Added 27 August 2026, because until then this log
+            # recorded the rows and not the line above them — so the Gimpo card
+            # that repeated "July 2026" three times and flew nothing read here
+            # exactly like a card that had flown it properly, and no audit of
+            # this file could ever have found it.
+            'dateline': '' if c.get('grouped') else c.get('dateline_en', ''),
+            'grouped': bool(c.get('grouped')),
             'note': sel.get('note', ''),
             'lines': [{'label': l['label_en'], 'value': l['value_en']}
                       for l in c['lines']],
@@ -5783,6 +5914,13 @@ def tail_cards(n):
         print(head)
         if r.get('opener'):
             print(f'  {r["opener"]}')
+        # Printed where it sits on the card: under the title, above the rows.
+        # Entries written before 27 August 2026 carry no 'dateline' key at all,
+        # so they print nothing rather than an confident empty masthead.
+        if r.get('dateline'):
+            print(f'  {r["dateline"]}')
+        elif r.get('grouped'):
+            print('  (grouped: the date rides a subhead)')
         for l in r.get('lines', []):
             print(f'  {l.get("label", "")}: {l.get("value", "")}')
         if r.get('note'):
