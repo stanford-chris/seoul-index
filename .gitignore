@@ -42,3 +42,8 @@ card_history.jsonl
 
 # Label-check verdicts, the rejected ones included (local log)
 label_checks.jsonl
+
+# Accumulated Ttareungi readings (Seoul stopped publishing the stock history
+# in May 2021, so these cannot be re-fetched either)
+bike_history.jsonl
+bike_history.jsonl.bak-*

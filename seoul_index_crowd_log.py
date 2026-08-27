@@ -43,13 +43,18 @@ import net_guard
 HERE = Path(__file__).parent
 CONFIG = HERE / 'seoul_index_config.json'
 HISTORY = HERE / 'crowd_history.jsonl'
+# ⚠️ A SEPARATE FILE, not more lines in crowd_history.jsonl. load_history() and
+# show_stats() below assume every line is a crowd reading with 'area' and 'mid';
+# a second record shape in the same file would not fail, it would quietly skew
+# the baselines the crowd cards are built from.
+BIKE_HISTORY = HERE / 'bike_history.jsonl'
 SEOUL_TZ = ZoneInfo('Asia/Seoul')
 STATS = '--stats' in sys.argv
 
 # Kept in step with seoul_index_post.CROWD_SPOTS by importing it, so the log and
 # the posts can never drift onto different sets of places.
 try:
-    from seoul_index_post import CROWD_SPOTS
+    from seoul_index_post import CROWD_SPOTS, bike_counts
 except ImportError:                                  # stand alone if need be
     CROWD_SPOTS = [{'area': '잠실 관광특구', 'en': 'Jamsil', 'ko': '잠실'}]
 
@@ -100,6 +105,46 @@ def sample(api_key):
                 json.JSONDecodeError) as e:
             problems.append(f'{en}: {type(e).__name__} {e}')
     return records, problems
+
+
+def sample_bikes(api_key):
+    """One citywide Ttareungi reading, or None.
+
+    ⚠️⚠️ THIS EXISTS BECAUSE SEOUL STOPPED PUBLISHING THE HISTORY, and the check
+    was made rather than assumed (27 August 2026). Every maintained 따릉이
+    dataset on data.seoul.go.kr is a FLOW — rentals and returns, daily, monthly,
+    per station — or the live snapshot this reads. The only STOCK history,
+    "일별 대여소별 거치수량", covers January 2019 to May 2021 and has not been
+    added to since. Stock cannot be derived from flow here, because the
+    rebalancing trucks move bikes between docks and that movement is never a
+    rental. So "how many docks stood empty at six on a Thursday" is, for
+    anything after May 2021, only knowable if somebody wrote it down.
+
+    ⚠️ THE AGGREGATE ONLY, and the per-station question is deliberately left
+    open rather than silently decided. Per-station stock is what Seoul used to
+    publish and is the richer record, at a measured ~225 MB a year against about
+    1 MB for this; and ~/Projects now goes to the NAS nightly with no delta
+    compression (Matched data: 0 on every run), so that is 225 MB re-sent every
+    night. The API cost is identical either way — every row must be fetched to
+    total them — so the choice is storage, not calls, and it can be revisited.
+    What cannot be revisited is the stretch of history that passes before it is.
+
+    ⚠️ The paging lives in seoul_index_post.bike_counts and is NOT copied here.
+    """
+    got = bike_counts(api_key)
+    if not got:
+        return None
+    stations, bikes, racks, empty = got
+    stamp = datetime.now(SEOUL_TZ)
+    return {
+        'at': stamp.strftime('%Y-%m-%d %H:%M'),
+        'weekday': stamp.strftime('%a'),
+        'hour': stamp.hour,
+        'stations': stations,
+        'bikes': bikes,
+        'racks': racks,
+        'empty': empty,
+    }
 
 
 def load_history():
@@ -177,8 +222,18 @@ def main():
         with HISTORY.open('a', encoding='utf-8') as fh:
             for rec in records:
                 fh.write(json.dumps(rec, ensure_ascii=False) + '\n')
+    # ⚠️ AFTER the crowd write and independent of it. The two feeds fail
+    # separately, and a bikeList outage must not cost the hour's crowd readings
+    # (or the reverse). Same reason sample() skips a bad spot instead of dying.
+    bike = sample_bikes(api_key)
+    if bike:
+        with BIKE_HISTORY.open('a', encoding='utf-8') as fh:
+            fh.write(json.dumps(bike, ensure_ascii=False) + '\n')
+
     stamp = datetime.now(SEOUL_TZ).strftime('%Y-%m-%d %H:%M')
-    print(f'[{stamp}] logged {len(records)}/{len(CROWD_SPOTS)} spots'
+    bikenote = (f"; bikes {bike['bikes']:,} at {bike['stations']:,} stations, "
+                f"{bike['empty']:,} empty" if bike else '; bikes NOT READ')
+    print(f'[{stamp}] logged {len(records)}/{len(CROWD_SPOTS)} spots{bikenote}'
           + (f'; {len(problems)} problem(s): ' + '; '.join(problems) if problems else ''))
 
 

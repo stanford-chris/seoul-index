@@ -1196,8 +1196,15 @@ def count_facts(api_key):
     return out
 
 
-def bike_facts(api_key):
-    """Live Ttareungi (public-bike) numbers, citywide, right now.
+def bike_counts(api_key):
+    """Citywide Ttareungi totals right now: (stations, bikes, racks, empty),
+    or None if the sweep could not be completed.
+
+    ⚠️ ONE IMPLEMENTATION, TWO CONSUMERS. bike_facts() builds a card from this
+    and seoul_index_crowd_log.py archives it hourly. It was extracted on
+    27 August 2026 rather than copied, because a second copy of the paging
+    below would drift from this one and scripts_tidy.sh check 3b exists
+    precisely because that has already happened elsewhere in this estate.
 
     The bikeList service returns one row per docking station — bikes currently
     parked (parkingBikeTotCnt), rack capacity (rackTotCnt) and occupancy — and
@@ -1206,10 +1213,11 @@ def bike_facts(api_key):
     echoes the page size, so it is NO USE as a grand total: page until a short
     page instead (verified live on the Mini 28 Jul 2026 — 1000+1000+742 rows).
 
-    Aggregate-only, by design: station names come back as messy Korean strings
-    ('102. 망원역 1번출구 앞') that the English name table does not carry, so a
-    named line would fall back to Korean on the English card. The citywide totals
-    carry the story without names, and stay fully owned by Python."""
+    ⚠️ NONE, NOT ZEROS, on a failed sweep. A half-read city looks exactly like a
+    quiet one — plausible totals, all of them too low — and an archive of those
+    is worse than a gap, because a gap announces itself and a wrong reading does
+    not. The caller decides what to do about it.
+    """
     base = f'http://openapi.seoul.go.kr:8088/{api_key}/json/bikeList'
     stations = bikes = racks = empty = 0
     start, page = 1, 1000
@@ -1217,7 +1225,7 @@ def bike_facts(api_key):
         try:
             d = http_get_json(f'{base}/{start}/{start + page - 1}/')
         except RuntimeError:
-            return []   # a network failure would misreport the citywide totals
+            return None   # a network failure would misreport the citywide totals
         # bikeList's list_total_count just echoes the page size, so it can't be
         # used as a grand total; page until a short page instead. Past the last
         # station the response simply omits 'rentBikeStatus', so .get() -> {} ->
@@ -1236,8 +1244,20 @@ def bike_facts(api_key):
         if len(rows) < page:
             break   # last (partial) page
         start += page
-    if not stations:
+    return (stations, bikes, racks, empty) if stations else None
+
+
+def bike_facts(api_key):
+    """Live Ttareungi (public-bike) numbers, citywide, right now.
+
+    Aggregate-only, by design: station names come back as messy Korean strings
+    ('102. 망원역 1번출구 앞') that the English name table does not carry, so a
+    named line would fall back to Korean on the English card. The citywide totals
+    carry the story without names, and stay fully owned by Python."""
+    got = bike_counts(api_key)
+    if not got:
         return []
+    stations, bikes, racks, empty = got
     # pin the two "right now" labels: the selector would otherwise trim "right
     # now" as ornament and leave a live count reading like a fixed total.
     return [
