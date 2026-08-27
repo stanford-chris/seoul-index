@@ -48,13 +48,21 @@ HISTORY = HERE / 'crowd_history.jsonl'
 # a second record shape in the same file would not fail, it would quietly skew
 # the baselines the crowd cards are built from.
 BIKE_HISTORY = HERE / 'bike_history.jsonl'
+# ⚠️ ONE FILE for the four thin feeds, discriminated by a 'feed' key, rather
+# than four more files beside crowd_ and bike_history. Those two have their own
+# because each already has readers assuming its shape; these four have none, and
+# a table plus one append means the NEXT feed costs a row rather than new
+# plumbing. Measured 27 August 2026 at 6.2 MB a year for all four together.
+FEED_HISTORY = HERE / 'feeds_history.jsonl'
 SEOUL_TZ = ZoneInfo('Asia/Seoul')
 STATS = '--stats' in sys.argv
 
 # Kept in step with seoul_index_post.CROWD_SPOTS by importing it, so the log and
 # the posts can never drift onto different sets of places.
 try:
-    from seoul_index_post import CROWD_SPOTS, bike_counts
+    from seoul_index_post import (CROWD_SPOTS, bike_counts, air_readings,
+                              kma_now, _hrfco_latest_level, _traffic_speed,
+                              JAMSU_OBS)
 except ImportError:                                  # stand alone if need be
     CROWD_SPOTS = [{'area': '잠실 관광특구', 'en': 'Jamsil', 'ko': '잠실'}]
 
@@ -147,6 +155,85 @@ def sample_bikes(api_key):
     }
 
 
+def _feed_air(keys):
+    vals = air_readings(keys['api_key'])
+    return {'pm25': {d: v for d, v in vals}} if vals else None
+
+
+def _feed_weather(keys):
+    got = kma_now(keys['data_go_kr_key'])
+    return {'obs': got} if got else None
+
+
+def _feed_river(keys):
+    got = _hrfco_latest_level(keys['hrfco_api_key'])
+    if not got:
+        return None
+    level, when = got
+    return {'obs': JAMSU_OBS, 'level_m': level,
+            'reading_at': when.strftime('%Y-%m-%d %H:%M') if hasattr(when, 'strftime') else str(when)}
+
+
+def _feed_traffic(keys):
+    """Speed on each curated link.
+
+    ⚠️ THE EXPENSIVE ONE, and it is worth knowing the number before adding a
+    road. TrafficInfo is keyed by a single 표준링크 with no citywide listing, so
+    this is ONE CALL PER LINK: 11 links x 19 sweeps = 209 requests a day, which
+    is the whole estate's largest single consumer of the shared Seoul key after
+    the crowd sampler. Measured total on that key is ~911/day with this
+    included.
+
+    ⚠️ Rows whose name_en begins with '_' are documentation, not links, exactly
+    as traffic_facts() treats them.
+
+    ⚠️ A link that fails is OMITTED, not zeroed: 0 km/h is a real reading that
+    means gridlock. The record says how many of how many answered so a thin
+    sweep is visible rather than looking like a quiet road.
+    """
+    links = [l for l in json.loads((HERE / 'traffic_links.json').read_text())
+             if l.get('link_id') and not l.get('name_en', '').startswith('_')]
+    speeds = {}
+    for l in links:
+        spd = _traffic_speed(keys['api_key'], l['link_id'])
+        if spd is not None:
+            speeds[l['name_en']] = spd
+    return {'kmh': speeds, 'read': len(speeds), 'of': len(links)} if speeds else None
+
+
+# ⚠️ Adding a feed is a row here and nothing else. Each is fetched
+# independently and a failure costs only its own line: these are four separate
+# providers (Seoul, KMA via data.go.kr, HRFCO) and one being down must not take
+# the others' hour with it.
+FEEDS = [
+    ('air', _feed_air),
+    ('weather', _feed_weather),
+    ('river', _feed_river),
+    ('traffic', _feed_traffic),
+]
+
+
+def sample_feeds(keys):
+    """One reading per thin feed. Returns (records, problems)."""
+    stamp = datetime.now(SEOUL_TZ)
+    records, problems = [], []
+    for name, fn in FEEDS:
+        try:
+            got = fn(keys)
+        except Exception as e:                      # noqa: BLE001 - see below
+            # Deliberately broad: a new feed's parser raising something
+            # unforeseen must cost that feed's line, never the whole sweep.
+            problems.append(f'{name}: {type(e).__name__} {e}')
+            continue
+        if not got:
+            problems.append(f'{name}: no reading')
+            continue
+        records.append({'at': stamp.strftime('%Y-%m-%d %H:%M'),
+                        'weekday': stamp.strftime('%a'),
+                        'hour': stamp.hour, 'feed': name, **got})
+    return records, problems
+
+
 def load_history():
     """Every reading logged so far. Skips any malformed line rather than dying,
     so one bad append can never cost us the whole history."""
@@ -230,10 +317,18 @@ def main():
         with BIKE_HISTORY.open('a', encoding='utf-8') as fh:
             fh.write(json.dumps(bike, ensure_ascii=False) + '\n')
 
+    feeds, feed_problems = sample_feeds(json.loads(CONFIG.read_text()))
+    if feeds:
+        with FEED_HISTORY.open('a', encoding='utf-8') as fh:
+            for rec in feeds:
+                fh.write(json.dumps(rec, ensure_ascii=False) + '\n')
+    problems += feed_problems
+
     stamp = datetime.now(SEOUL_TZ).strftime('%Y-%m-%d %H:%M')
     bikenote = (f"; bikes {bike['bikes']:,} at {bike['stations']:,} stations, "
                 f"{bike['empty']:,} empty" if bike else '; bikes NOT READ')
     print(f'[{stamp}] logged {len(records)}/{len(CROWD_SPOTS)} spots{bikenote}'
+          + f'; feeds {len(feeds)}/{len(FEEDS)}'
           + (f'; {len(problems)} problem(s): ' + '; '.join(problems) if problems else ''))
 
 

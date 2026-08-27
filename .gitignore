@@ -47,3 +47,8 @@ label_checks.jsonl
 # in May 2021, so these cannot be re-fetched either)
 bike_history.jsonl
 bike_history.jsonl.bak-*
+
+# The four thin feeds (air, weather, river, traffic), accumulated hourly
+feeds_history.jsonl
+feeds_history.jsonl.bak-*
+*.bak-predupe

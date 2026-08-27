@@ -888,14 +888,71 @@ def spotlight_sel(spot, facts):
     }
 
 
-def air_facts(api_key):
+def air_readings(api_key):
+    """[(district, pm25)] for every reporting monitor, or None.
+
+    ⚠️ Extracted 27 August 2026 so air_facts() and the hourly archive read the
+    endpoint through one function. Same reason as bike_counts: two copies of the
+    field names drift, and FPM in particular is easy to get wrong.
+
+    ⚠️ FPM is PM2.5, NOT PM10. The service documents 미세먼지(PM-10), 오존,
+    이산화질소, 일산화탄소, 아황산가스; OZON/NTDX/CBMX/SPDX take four of those,
+    leaving PM as the documented PM-10 and FPM as the fine fraction. PM >= FPM in
+    23 of 25 districts and CRST_SBSTN names "PM-2.5" outright.
+
+    ⚠️ The station key is MSRSTN_NM. MSRSTE_NM and SAREA_NM are tried first for
+    historical reasons and BOTH are absent from the live response — measured
+    27 August 2026, when reading them alone collapsed all 25 districts to one
+    null key and made a 373-byte record look like 61.
+
+    ⚠️ None, not [], on a failed read: a partial city and a clean one must not
+    look alike to an archive.
+    """
     try:
         d = http_get_json(
             f'http://openapi.seoul.go.kr:8088/{api_key}/json/ListAirQualityByDistrictService/1/25/')
         rows = [v for v in d.values() if isinstance(v, dict) and 'row' in v][0]['row']
-        vals = [(x.get('MSRSTE_NM') or x.get('SAREA_NM') or x.get('MSRSTN_NM'),
-                 float(x['FPM'])) for x in rows
-                if str(x.get('FPM', '')).replace('.', '', 1).isdigit()]
+    except (RuntimeError, KeyError, IndexError, ValueError):
+        return None
+    vals = [(x.get('MSRSTE_NM') or x.get('SAREA_NM') or x.get('MSRSTN_NM'),
+             float(x['FPM'])) for x in rows
+            if str(x.get('FPM', '')).replace('.', '', 1).isdigit()]
+    return vals or None
+
+
+def kma_now(key):
+    """Every 초단기실황 observation at the city point right now, or None.
+
+    _kma_air_at() takes one variable (T1H) at one stated hour, which is what a
+    card needs. This takes the whole reading at the current hour, which is what
+    an archive needs: temperature, humidity, wind, precipitation.
+
+    ⚠️ The endpoint keeps ONE DAY. Verified 27 August 2026 by asking for older
+    dates: anything past 24 hours answers "최근 1일 간의 자료만 제공합니다".
+    The same measurements live permanently in ASOS (AsosHourlyInfoService,
+    station 108), reachable on this same key, so this archive is a convenience
+    rather than the only copy.
+    """
+    if not key:
+        return None
+    now = datetime.now(SEOUL_TZ)
+    p = {'serviceKey': key, 'pageNo': '1', 'numOfRows': '20', 'dataType': 'JSON',
+         'base_date': now.strftime('%Y%m%d'), 'base_time': now.strftime('%H00'),
+         'nx': str(KMA_NOW_NX), 'ny': str(KMA_NOW_NY)}
+    url = ('http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/'
+           'getUltraSrtNcst?' + urllib.parse.urlencode(p, safe='%'))
+    try:
+        d = http_get_json(url)
+        items = d['response']['body']['items']['item']
+    except (RuntimeError, KeyError, TypeError):
+        return None
+    out = {i['category']: i['obsrValue'] for i in items if i.get('category')}
+    return out or None
+
+
+def air_facts(api_key):
+    try:
+        vals = air_readings(api_key)
         if not vals:
             return []
         worst = max(vals, key=lambda t: t[1])
