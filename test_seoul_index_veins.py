@@ -854,6 +854,41 @@ class BoxOfficeIsSeoulOnly(unittest.TestCase):
                          ['The Odyssey', 'Spider-Man', 'Insidious', 'Conan'])
 
 
+class ShoutedKobisTitlesAreFixed(unittest.TestCase):
+    """KOFIC's own movieNmEn field is inconsistently cased: "The Odyssey" but
+    also "THE END OF OAK STREET" (confirmed live against movieCd 20264557,
+    27 Aug 2026), which reached a real card shouting. isupper() catches only
+    the genuinely shouted titles and re-cases them, minor words lowercase
+    except first and last."""
+
+    def test_a_shouted_title_is_recased(self):
+        self.assertEqual(S._fix_shouted_title('THE END OF OAK STREET'),
+                         'The End of Oak Street')
+
+    def test_a_properly_cased_title_is_left_alone(self):
+        for t in ('The Odyssey', 'Spider-Man: Brand New Day',
+                  'The Journey to Gyeongju'):
+            self.assertEqual(S._fix_shouted_title(t), t)
+
+    def test_an_internal_hyphen_is_recased_on_both_sides(self):
+        self.assertEqual(S._fix_shouted_title('SPIDER-MAN RETURNS'),
+                         'Spider-Man Returns')
+
+    def test_first_and_last_word_stay_capitalised_even_if_minor(self):
+        self.assertEqual(S._fix_shouted_title('OF MICE AND MEN'),
+                         'Of Mice and Men')
+
+    def test_empty_and_non_shouted_strings_pass_through(self):
+        self.assertEqual(S._fix_shouted_title(''), '')
+        self.assertEqual(S._fix_shouted_title('1987'), '1987')
+
+    def test_the_fix_applies_through_kobis_title_en(self):
+        """End to end, not just the helper: this is what actually reaches the
+        card, via boxoffice_facts's own call to _kobis_title_en."""
+        with Stub({'searchMovieInfo': _bo_info('THE END OF OAK STREET')}):
+            self.assertEqual(S._kobis_title_en('KEY', '1'), 'The End of Oak Street')
+
+
 class BoxOfficeCardIsAlwaysComplete(unittest.TestCase):
     """A selector that returns three films must not produce a three-film card.
 
@@ -1243,6 +1278,51 @@ class MastheadCheckIsNotVeinSpecific(unittest.TestCase):
         self.assertEqual(
             len(hits), 1,
             f'expected only the Gimpo card of 27 August 2026; got {hits}')
+
+
+class CultureCardLabels(unittest.TestCase):
+    """A museum card's own opener already says "A year at Seoul's museums"
+    (서울 박물관의 1년), so a per-line "A year's visitors to..." (연간 관람객)
+    repeated the year a third time — caught on the 28 Aug 2026 card
+    (3mu3yywrhdj2x). Same fix in both languages, and 'culture' also joined
+    EMOJI_ALL_OR_NONE the same day: the card mixes visitor totals and
+    facility counts, so an obvious emoji exists for some lines and not
+    others, which is the "three of four" look that rule exists to prevent.
+    """
+
+    def facts(self):
+        import subprocess as real_subprocess
+
+        def run(cmd, **kw):
+            url = cmd[-1]
+            if 'clifMsmv1' in url:
+                rows = [{'sggCd': '11110', 'crtrYr': '2023',
+                         'msmNm': '국립중앙박물관', 'fyerVwngNope': '4180285'}]
+            elif 'clifArglv1' in url:
+                rows = [{'sggCd': '11110', 'arglNm': '서울시립미술관',
+                         'fyerVwngNope': '2096952'}]
+            else:
+                rows = []
+            body = json.dumps({'response': {'body': {'data': rows}}})
+            return types.SimpleNamespace(stdout=body, returncode=0)
+
+        S.subprocess.run = run
+        try:
+            facts = S.culture_facts('KEY')
+        finally:
+            S.subprocess.run = real_subprocess.run
+        self.assertTrue(facts, 'the culture vein returned nothing')
+        return {f['id']: f for f in facts}
+
+    def test_no_redundant_a_years_prefix(self):
+        top = self.facts()['culture_top_msm']
+        self.assertEqual(top['label_en'], 'Visitors to the National Museum of Korea')
+        self.assertNotIn('year', top['label_en'].lower())
+        self.assertEqual(top['label_ko'], '국립중앙박물관 관람객')
+        self.assertNotIn('연간', top['label_ko'])
+
+    def test_culture_is_emoji_all_or_none(self):
+        self.assertIn('culture', S.EMOJI_ALL_OR_NONE)
 
 
 class NothingFilesFromATestRun(unittest.TestCase):

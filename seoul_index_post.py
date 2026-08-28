@@ -236,7 +236,11 @@ ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist'}
 
 # Veins whose lines are all the same KIND of thing, where a partial set of line
 # emoji reads as an oversight rather than a judgement. See even_out_emoji.
-EMOJI_ALL_OR_NONE = {'boxoffice', 'boxhist'}
+# 'culture' joined 28 Aug 2026: a museum card mixes visitor totals and
+# facility counts, and an obvious emoji (a flag, a museum) exists for some
+# lines and not others, which is exactly the "three of four" look this rule
+# exists to prevent — the user's call, on the 3mu3yywrhdj2x post.
+EMOJI_ALL_OR_NONE = {'boxoffice', 'boxhist', 'culture'}
 
 # Curated live-crowd locations (citydata_ppltn AREA_NM, all verified to resolve).
 # A mix of packed / quiet / touristy / young so contrasts are available.
@@ -3238,9 +3242,13 @@ def culture_facts(key):
             print(f'Warning: no English name for {ko_name!r} — '
                   f'using Korean on the English card.')
             en = ko_name
-        facts.append(fact(fid, 'culture', f"A year's visitors to {en}",
+        # No "A year's" here: the opener already says "A year at Seoul's
+        # museums" (서울 박물관의 1년) and the footnote carries the survey year,
+        # so the per-line prefix was saying it a third time. See the 28 Aug
+        # 2026 post at 3mu3yywrhdj2x.
+        facts.append(fact(fid, 'culture', f'Visitors to {en}',
                           grouped(n), grouped(n), pair='top_house', pin=True,
-                          label_ko=f'{ko_name} 연간 관람객'))
+                          label_ko=f'{ko_name} 관람객'))
     return facts
 
 
@@ -3428,6 +3436,39 @@ SCREENS_YEARS = (5, 10)
 BOXOFFICE_D = {'en': None, 'ko': None}
 
 
+_TITLE_MINOR_WORDS = {
+    'a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'from', 'in',
+    'into', 'nor', 'of', 'off', 'on', 'onto', 'or', 'per', 'so', 'the',
+    'to', 'up', 'via', 'vs', 'with', 'yet',
+}
+
+
+def _title_case_word(word):
+    """Capitalize one word, honouring an internal hyphen: SPIDER-MAN -> Spider-Man."""
+    return '-'.join(p[:1] + p[1:].lower() for p in word.split('-'))
+
+
+def _fix_shouted_title(name):
+    """KOFIC's own movieNmEn is inconsistently cased: most titles are properly
+    styled ("The Odyssey") but some are published in full caps ("THE END OF
+    OAK STREET" — confirmed straight off the API, movieCd 20264557, 27 Aug
+    2026). isupper() catches only the shouted ones, and re-title-cases them
+    with minor words lowercase except first and last, matching house style.
+    A title that is upper case because it is genuinely all-initials (an
+    acronym with no lowercase letters) would read the same way and get
+    title-cased too; none has come up yet, and fixing that would need a named
+    override in seoul_index_names_en.json rather than a blanket rule.
+    """
+    if not name or not name.isupper():
+        return name
+    words = name.split(' ')
+    last = len(words) - 1
+    return ' '.join(
+        w.lower() if 0 < i < last and w.strip('.,:;!?()"‘’').lower()
+        in _TITLE_MINOR_WORDS else _title_case_word(w)
+        for i, w in enumerate(words))
+
+
 def _kobis_title_en(key, movie_cd):
     """The English title KOFIC itself publishes for a film, or ''.
 
@@ -3440,7 +3481,8 @@ def _kobis_title_en(key, movie_cd):
     try:
         d = http_get_json(f'{KOBIS_BASE}/movie/searchMovieInfo.json'
                           f'?key={key}&movieCd={movie_cd}')
-        return (d['movieInfoResult']['movieInfo'].get('movieNmEn') or '').strip()
+        en = (d['movieInfoResult']['movieInfo'].get('movieNmEn') or '').strip()
+        return _fix_shouted_title(en)
     except (RuntimeError, KeyError, TypeError):
         return ''
 
