@@ -530,6 +530,73 @@ def won_en(amount):
     return f'₩{grouped(amount)}'
 
 
+# Categories that ever post a won_en() value. compose() reads this to decide
+# whether a card needs the "$1 ≈ ₩N" footnote at all.
+WON_CATS = {'price', 'spending', 'avgbill', 'property'}
+
+# Set once per run by refresh_usd_rate(), read by compose() for the footnote.
+# ⚠️ Deliberately a single rate on the FOOTNOTE, not a per-value "(~$18.3M)"
+# suffix on every won_en() line. That was the first design, and it was
+# rejected on measurement, not on taste: the flagship property line, "Most
+# paid for an apartment (Yongsan-gu)  ₩25.0bn", is already 47 characters —
+# adding "(~$18.3M)" pushes the row past the ~53-character budget documented
+# above transport_facts() and wraps the exact line most worth anchoring. One
+# rate converts every won figure on the card without touching any of their
+# widths, at the cost of asking the reader to do the multiplication once.
+USD_RATE = {'rate': None}
+
+
+def refresh_usd_rate(state):
+    """KRW->USD from the European Central Bank's daily reference rate, via
+    api.frankfurter.dev (no key, no signup). Cached once per KST calendar day
+    in state, exactly as transport_cache/molit_agg cache their own daily
+    lookups, since the bot posts several times a day and the rate does not.
+
+    ⚠️ The project's old domain, api.frankfurter.app, now 301-redirects here —
+    verified 28 August 2026 — and http_get_json() shells out to curl with no
+    -L, so it silently receives Cloudflare's redirect HTML, fails to parse it
+    as JSON, retries twice more the same way, then raises. Point at the
+    canonical api.frankfurter.dev directly rather than relying on a redirect
+    that itself could one day stop resolving.
+
+    ECB publishes on weekdays only, so this can be serving Friday's rate on a
+    Sunday — no worse than the KMA weather lines already do, and won->dollar
+    movement over a couple of days is well inside the "$1 ≈ ₩N" footnote's
+    own rounding. On a failed fetch, yesterday's cached rate is reused rather
+    than dropped: a rate is an approximate anchor, never a precise claim, so a
+    day or two of extra staleness costs far less than losing the anchor
+    outright for a whole run. Only a HARD failure (nothing ever cached, and
+    today's fetch also failed) leaves USD_RATE empty, which compose() reads as
+    "say nothing" rather than showing a wrong figure — same rule as every
+    other unmakeable check in this file."""
+    today = datetime.now(SEOUL_TZ).strftime('%Y-%m-%d')
+    cache = state.get('usd_rate_cache') or {}
+    if cache.get('fetched') == today and cache.get('rate'):
+        USD_RATE['rate'] = cache['rate']
+        return
+    try:
+        d = http_get_json('https://api.frankfurter.dev/v1/latest?from=KRW&to=USD')
+        rate = float(d['rates']['USD'])
+        # Sanity floor/ceiling: KRW/USD has sat between roughly 1,000 and
+        # 1,600 won per dollar for two decades. A schema change or a bad
+        # response would otherwise post a nonsense conversion with total
+        # confidence.
+        if not (1 / 2000 < rate < 1 / 500):
+            raise ValueError(f'implausible KRW->USD rate: {rate}')
+    # RuntimeError is http_get_json()'s own "all 3 retries failed" — caught
+    # here alongside a malformed or short-of-schema response, so a network
+    # blip and a changed API shape both fall back the same safe way.
+    except (RuntimeError, OSError, ValueError, KeyError, TypeError) as e:
+        print(f'Warning: USD rate fetch failed ({e})'
+              + (' — reusing cached rate.' if cache.get('rate')
+                 else ' — won lines carry no $ footnote this run.'))
+        USD_RATE['rate'] = cache.get('rate')
+        return
+    state['usd_rate_cache'] = {'fetched': today, 'rate': rate,
+                               'ecb_date': d.get('date')}
+    USD_RATE['rate'] = rate
+
+
 @lru_cache(maxsize=1)
 def _names_en():
     """Korean -> English names for stations and districts. The Seoul feeds return
@@ -2755,6 +2822,13 @@ def molit_facts(molit_key):
     return facts
 
 
+# The three fact ids whose label uses the word "jeonse" without explaining it.
+# compose() glosses the term once, in the footnote, when any of these is picked.
+JEONSE_IDS = {'apt_top_jeonse', 'lease_jeonse_n', 'lease_wolse_n'}
+JEONSE_NOTE_EN = ('Jeonse is a lump-sum deposit paid instead of monthly rent, '
+                  'refunded when the lease ends')
+
+
 # --- weather (KMA ASOS, the official Seoul station) ------------------------
 # 기상청's daily surface observations for station 108 — the Seoul reference
 # station, observing since 1907 — via data.go.kr (자동승인, approved 22 Jul
@@ -3985,6 +4059,10 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
                kobis_key=None):
     # gov_key is the shared data.go.kr key: one key, per-API 활용신청, so the
     # property, weather, airport, health and culture veins all ride on it.
+    # Harvested here alongside everything else, once per run, though nothing
+    # below reads it: compose() (called later, on whichever facts the selector
+    # picks) is USD_RATE's only reader, for the card's "$1 ≈ ₩N" footnote.
+    refresh_usd_rate(state)
     pool = []
     pool += crowd_facts(api_key, crowd_window(state))
     pool += air_facts(api_key)
@@ -5750,6 +5828,27 @@ def compose(sel, pool):
     else:
         note_en = 'Crowds are KT-estimated' if estimated else ''
         note_ko = '인구는 KT 추정' if estimated else ''
+    # ⚠️ Appended to note_en directly, never to scope_en: scope_en/scope_ko are
+    # read positionally by the zip() at per_pairs above, so an English-only
+    # scope entry with no Korean twin would shift every later scope_ko entry
+    # out of alignment with the scope_en it is meant to pair with. And it has
+    # no Korean twin on purpose — jeonse has no Western equivalent, the same
+    # problem "The Anyangcheon" had before "tributaries" fixed it, but a
+    # Korean reader needs no gloss for a term they already know (the imperial-
+    # conversion reasoning, not the KT-estimate one).
+    if any(p['id'] in JEONSE_IDS for p in picks):
+        note_en = ' · '.join(p for p in [note_en, JEONSE_NOTE_EN] if p)
+    # Same not-to-scope_en reasoning as jeonse above, and the same English-only
+    # rule: a won figure needs no dollar anchor for a reader who already
+    # thinks in won. One rate note covers every won_en() value on the card,
+    # however many are picked, without adding anything to any single line's
+    # width (see WON_CATS / USD_RATE for why a per-value suffix was rejected).
+    # Silently absent when refresh_usd_rate() could not get a rate at all —
+    # an absent footnote is honest, a wrong or ancient one is not.
+    if (cats & WON_CATS) and USD_RATE.get('rate'):
+        per_usd = round(1 / USD_RATE['rate'])
+        note_en = ' · '.join(p for p in [note_en, f'$1 ≈ ₩{per_usd:,}']
+                             if p)
     # Caveat first, then scope: a warning about the numbers outranks a key to
     # them. Everything here is deliberately absent from the source reply, which
     # sits one post below and would otherwise repeat the card verbatim.
