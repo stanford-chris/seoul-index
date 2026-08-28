@@ -10,9 +10,13 @@ Pillow crops the result to the content.
 Design is fixed by seoul_index_post.compose(): a bold header (## + optional
 opener emoji + title), then one row per line (optional emoji + label, a red
 dotted leader, a bold right-aligned value), then an optional muted footnote for
-a caveat on the numbers ("Crowds are KT-estimated"). Source + hashtags are NOT
-on the card — the poster keeps those as real, clickable text under the image,
-which a rendered PNG cannot be.
+a caveat on the numbers ("Crowds are KT-estimated"). Hashtags are NEVER on the
+card, and Source usually is not either — the poster normally keeps it as real,
+clickable text under the image, which a rendered PNG cannot be. ⚠️ The one
+exception is compose()'s `credit_on_card` (added 28 Aug 2026, for the boxhist
+"then and now" card, which has no dateline of its own): there the credit rides
+the dateline slot below as plain red text, unlinked, and the poster drops the
+source reply entirely rather than say it twice.
 
 The card is rendered on a magenta sentinel background and cropped to content, so
 3-line, 4-line, and wrapped-long-label posts all come out tight with no guessed

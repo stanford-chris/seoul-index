@@ -5750,6 +5750,22 @@ def compose(sel, pool):
     if per_pairs and len({pe for pe, _ in per_pairs}) == 1:
         dateline_en, dateline_ko = per_pairs[0]
 
+    # ⚠️ The boxhist card carries no dateline of its own (each row is a
+    # different year and names it), which leaves the masthead sitting empty
+    # while the credit rides a full extra reply post underneath. Flying the
+    # credit there instead was chosen 28 August 2026 after a reader asked for
+    # it on https://bsky.app/profile/seoul-index.bsky.social/post/3mu5baibvie24.
+    # Gated on the card being ENTIRELY the boxhist vein (never true today —
+    # boxhist never shares a post with boxoffice or anything else — but this
+    # is what stops a future cross-category boxhist card from losing its real
+    # dateline, or another publisher's credit, to a masthead that only
+    # explains part of the card). `credit_on_card` also drops the credit from
+    # the trailing source line (see _body below) and from the threaded source
+    # reply (see main()), so the two posts don't say the same thing twice.
+    credit_on_card = (cats == {'boxhist'})
+    if credit_on_card:
+        dateline_en, dateline_ko = src_en, src_ko
+
     # Confirm the grouped layout now the period is settled: a live+dated cross
     # pair groups only if a single month was actually lifted. When it groups, the
     # month heads its own group instead of flying as a lone masthead dateline, so
@@ -5974,18 +5990,28 @@ def compose(sel, pool):
     def _body(op, items, note, src, tail, masthead):
         parts = [it['subhead'] if 'subhead' in it
                  else _pl(it['emoji'], it['label'], it['value']) for it in items]
+        # src is blanked (never just short) for a credit_on_card card, so the
+        # trailing line is dropped rather than left as a bare '\n': every other
+        # card still gets its usual '\nSource: ...' tail unchanged.
+        src_tail = f'\n{src}{tail}' if (src or tail) else ''
         return curly(op + ':\n' + (f'{masthead}\n' if masthead else '')
                      + '\n'.join(parts)
-                     + (f'\n{note}' if note else '') + '\n' + src + tail)
-    en_body = _body(op_en, items_en, note_en, src_en, tail_en,
-                    '' if grouped else dateline_en)
-    ko_body = _body(op_ko, items_ko, note_ko, src_ko, tail_ko,
-                    '' if grouped else dateline_ko)
+                     + (f'\n{note}' if note else '') + src_tail)
+    # credit_on_card: the masthead line above IS src_en/src_ko now, so passing
+    # it again here would print the credit twice in the same plaintext body
+    # (once as the masthead, once as its usual trailing line). source_reply()
+    # still hyperlinks kobis.or.kr wherever it sits in the body, so the domain
+    # stays clickable in the plaintext-fallback path even with src blanked here.
+    en_body = _body(op_en, items_en, note_en, '' if credit_on_card else src_en,
+                    tail_en, '' if grouped else dateline_en)
+    ko_body = _body(op_ko, items_ko, note_ko, '' if credit_on_card else src_ko,
+                    tail_ko, '' if grouped else dateline_ko)
 
     return {
         'opener': {'emoji': opener_emoji, 'en': opener_en, 'ko': opener_ko},
         'lines': lines, 'items_en': items_en, 'items_ko': items_ko,
         'grouped': grouped, 'src_en': src_en, 'src_ko': src_ko,
+        'credit_on_card': credit_on_card,
         'note_en': note_en, 'note_ko': note_ko,
         'dateline_en': dateline_en, 'dateline_ko': dateline_ko,
         'wiki_en': wiki_en, 'wiki_ko': wiki_ko,
@@ -6312,7 +6338,10 @@ def main():
     print(f'\nNote: {sel.get("note", "")}')
     print(f'\nEN alt / fallback ({len(en_alt)} chars):\n{"-"*46}\n{en_alt}\n{"-"*46}')
     print(f'\nKO alt / fallback ({len(ko_alt)} chars):\n{"-"*46}\n{ko_alt}\n{"-"*46}')
-    print(f'\nEN source post: {en_source.build_text()!r}\nKO source post: {ko_source.build_text()!r}')
+    if c.get('credit_on_card'):
+        print('\n(credit rides the card masthead — no source reply will be posted)')
+    else:
+        print(f'\nEN source post: {en_source.build_text()!r}\nKO source post: {ko_source.build_text()!r}')
 
     # No length guard here. In the normal path en_alt/ko_alt ride as the cards'
     # image ALT text, which Bluesky does not length-limit (there is no maxLength
@@ -6357,22 +6386,38 @@ def main():
         def _reply(parent_ref, root_ref):
             return models.AppBskyFeedPost.ReplyRef(parent=parent_ref, root=root_ref)
 
-        # 4-post chain: EN card → EN source → KO card → KO source. Card posts
-        # carry only the hashtags (see tag_line) so the card stays visually
-        # first; each source reply carries the clickable link + tags. Every
-        # reply's root stays the first (EN card) post.
-        p1 = bsky.send_image(text=tag_line(), image=en_bytes, image_alt=en_alt,
-                             langs=['en'], image_aspect_ratio=en_ar)
-        posted_uri = p1.uri
-        root_ref = models.create_strong_ref(p1)
-        p2 = bsky.send_post(text=en_source, reply_to=_reply(root_ref, root_ref), langs=['en'])
-        p2_ref = models.create_strong_ref(p2)
-        p3 = bsky.send_image(text=tag_line(), image=ko_bytes, image_alt=ko_alt,
-                             reply_to=_reply(p2_ref, root_ref), langs=['ko'],
-                             image_aspect_ratio=ko_ar)
-        p3_ref = models.create_strong_ref(p3)
-        bsky.send_post(text=ko_source, reply_to=_reply(p3_ref, root_ref), langs=['ko'])
-        print('\nPosted (4-post thread: EN card, EN source, KO card, KO source).')
+        if c.get('credit_on_card'):
+            # 2-post chain: EN card → KO card. The credit already flies on the
+            # card itself (see `credit_on_card` in compose()), so the source
+            # reply this thread would otherwise carry is dropped rather than
+            # repeating what the card just said one post above it — the same
+            # reasoning the KT-estimate caveat and the crowd note already
+            # follow for the footnote.
+            p1 = bsky.send_image(text=tag_line(), image=en_bytes, image_alt=en_alt,
+                                 langs=['en'], image_aspect_ratio=en_ar)
+            posted_uri = p1.uri
+            root_ref = models.create_strong_ref(p1)
+            bsky.send_image(text=tag_line(), image=ko_bytes, image_alt=ko_alt,
+                            reply_to=_reply(root_ref, root_ref), langs=['ko'],
+                            image_aspect_ratio=ko_ar)
+            print('\nPosted (2-post thread: EN card, KO card — credit rides the card).')
+        else:
+            # 4-post chain: EN card → EN source → KO card → KO source. Card posts
+            # carry only the hashtags (see tag_line) so the card stays visually
+            # first; each source reply carries the clickable link + tags. Every
+            # reply's root stays the first (EN card) post.
+            p1 = bsky.send_image(text=tag_line(), image=en_bytes, image_alt=en_alt,
+                                 langs=['en'], image_aspect_ratio=en_ar)
+            posted_uri = p1.uri
+            root_ref = models.create_strong_ref(p1)
+            p2 = bsky.send_post(text=en_source, reply_to=_reply(root_ref, root_ref), langs=['en'])
+            p2_ref = models.create_strong_ref(p2)
+            p3 = bsky.send_image(text=tag_line(), image=ko_bytes, image_alt=ko_alt,
+                                 reply_to=_reply(p2_ref, root_ref), langs=['ko'],
+                                 image_aspect_ratio=ko_ar)
+            p3_ref = models.create_strong_ref(p3)
+            bsky.send_post(text=ko_source, reply_to=_reply(p3_ref, root_ref), langs=['ko'])
+            print('\nPosted (4-post thread: EN card, EN source, KO card, KO source).')
     else:
         # Plaintext fallback (card render failed): there are no card posts here,
         # so these full-text posts must carry the hashtags themselves — the tags
