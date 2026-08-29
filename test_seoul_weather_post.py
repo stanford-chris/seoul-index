@@ -14,8 +14,9 @@ render_card or atproto.
 """
 import sys
 import unittest
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 sys.argv = ['test']
@@ -40,6 +41,34 @@ class FmtC(unittest.TestCase):
     def test_english_pairs_a_rounded_fahrenheit_regardless(self):
         self.assertEqual(W.fmt_c_en(31.0), '31°C (88°F)')
         self.assertEqual(W.fmt_c_en(26.5), '26.5°C (80°F)')
+
+
+class FormatAmpm(unittest.TestCase):
+    def test_on_the_hour_omits_minutes(self):
+        self.assertEqual(W.format_ampm(5, 0), '5 a.m.')
+        self.assertEqual(W.format_ampm(17, 0), '5 p.m.')
+
+    def test_minutes_are_kept_and_zero_padded(self):
+        self.assertEqual(W.format_ampm(5, 3), '5:03 a.m.')
+        self.assertEqual(W.format_ampm(18, 56), '6:56 p.m.')
+
+    def test_midnight_and_noon_are_still_twelve(self):
+        self.assertEqual(W.format_ampm(0, 0), '12 a.m.')
+        self.assertEqual(W.format_ampm(12, 0), '12 p.m.')
+
+
+class FmtHhmmAmpm(unittest.TestCase):
+    def test_english(self):
+        self.assertEqual(W.fmt_hhmm_ampm('0533'), '5:33 a.m.')
+        self.assertEqual(W.fmt_hhmm_ampm('1856'), '6:56 p.m.')
+
+    def test_korean_uses_the_ampm_ko_convention(self):
+        # Same 오전/오후 vocabulary as _ampm_ko() in seoul_index_post.py.
+        self.assertEqual(W.fmt_hhmm_ampm_ko('0533'), '오전 5시 33분')
+        self.assertEqual(W.fmt_hhmm_ampm_ko('1856'), '오후 6시 56분')
+
+    def test_korean_on_the_hour_omits_minutes(self):
+        self.assertEqual(W.fmt_hhmm_ampm_ko('0500'), '오전 5시')
 
 
 class LatestBase(unittest.TestCase):
@@ -169,36 +198,75 @@ class BuildCardLines(unittest.TestCase):
         base.update(over)
         return base
 
-    def test_a_dry_forecast_has_no_precipitation_row(self):
+    def test_precipitation_is_never_its_own_row_any_more(self):
+        # Conditions now carries everything rain-related, on every kind of
+        # day — there is no longer a separate "Precipitation" row at all.
+        for over in ({}, {'pty': '4'}, {'pty': '4', 'pop': None}, {'pop': None}):
+            _, lines_en, _, lines_ko = W.build_card_lines(self._summary(**over))
+            self.assertNotIn('Precipitation', [l['label'] for l in lines_en])
+            self.assertNotIn('강수형태', [l['label'] for l in lines_ko])
+
+    def test_a_dry_forecast_folds_the_rain_chance_into_conditions(self):
+        # sky='3', pop=40, pty=None — the exact shape the old "Sky" label
+        # used to split into two rows ("Sky: Partly cloudy" and a separate
+        # "Chance of rain: 40%"); now it is one "Conditions" row.
         _, lines_en, _, lines_ko = W.build_card_lines(self._summary())
-        labels_en = [l['label'] for l in lines_en]
-        labels_ko = [l['label'] for l in lines_ko]
-        self.assertNotIn('Precipitation', labels_en)
-        self.assertNotIn('강수형태', labels_ko)
-
-    def test_a_wet_forecast_has_one_row_not_two(self):
-        # "Chance of rain" and "Precipitation" used to both appear and say
-        # the same thing twice — now there is exactly one rain-related row.
-        _, lines_en, _, lines_ko = W.build_card_lines(self._summary(pty='4'))
-        rain_labels_en = [l['label'] for l in lines_en
-                          if l['label'] in ('Chance of rain', 'Precipitation')]
-        self.assertEqual(rain_labels_en, ['Precipitation'])
-        row = next(l for l in lines_ko if l['label'] == '강수형태')
-        self.assertEqual(row['value'], '소나기 (40%)')
-
-    def test_a_wet_forecast_with_no_pop_shows_the_type_alone(self):
-        _, lines_en, _, _ = W.build_card_lines(self._summary(pty='4', pop=None))
-        row = next(l for l in lines_en if l['label'] == 'Precipitation')
-        self.assertEqual(row['value'], 'Showers')
-
-    def test_no_pop_omits_the_rain_chance_row_rather_than_showing_none(self):
-        _, lines_en, _, _ = W.build_card_lines(self._summary(pop=None))
-        self.assertNotIn('Chance of rain', [l['label'] for l in lines_en])
-
-    def test_an_unrecognised_sky_code_omits_the_sky_row_rather_than_a_blank(self):
-        _, lines_en, _, lines_ko = W.build_card_lines(self._summary(sky='9'))
         self.assertNotIn('Sky', [l['label'] for l in lines_en])
-        self.assertNotIn('하늘상태', [l['label'] for l in lines_ko])
+        self.assertNotIn('Chance of rain', [l['label'] for l in lines_en])
+        row_en = next(l for l in lines_en if l['label'] == 'Conditions')
+        self.assertEqual(row_en['value'], 'Partly cloudy with a 40% chance of rain')
+        row_ko = next(l for l in lines_ko if l['label'] == '날씨')
+        self.assertEqual(row_ko['value'], '구름많음, 강수확률 40%')
+
+    def test_a_wet_forecast_names_the_actual_type_not_generic_rain(self):
+        # An active precipitation type (snow, showers, ...) is folded into
+        # Conditions as the noun, rather than always saying "rain" or
+        # splitting into a second row.
+        _, lines_en, _, lines_ko = W.build_card_lines(self._summary(pty='4'))
+        row_en = next(l for l in lines_en if l['label'] == 'Conditions')
+        self.assertEqual(row_en['value'], 'Partly cloudy with a 40% chance of showers')
+        # Korean stays with the generic 강수확률 figure rather than a type
+        # word, matching the dry-day phrasing — deliberately not attempting
+        # a natural Korean sentence naming the specific type.
+        row_ko = next(l for l in lines_ko if l['label'] == '날씨')
+        self.assertEqual(row_ko['value'], '구름많음, 강수확률 40%')
+
+    def test_a_wet_forecast_with_no_pop_shows_sky_and_type_with_no_percent(self):
+        _, lines_en, _, lines_ko = W.build_card_lines(self._summary(pty='4', pop=None))
+        row_en = next(l for l in lines_en if l['label'] == 'Conditions')
+        self.assertEqual(row_en['value'], 'Partly cloudy with showers')
+        row_ko = next(l for l in lines_ko if l['label'] == '날씨')
+        self.assertEqual(row_ko['value'], '구름많음, 소나기')
+
+    def test_no_pop_and_no_precipitation_type_shows_sky_alone(self):
+        _, lines_en, _, _ = W.build_card_lines(self._summary(pop=None))
+        row = next(l for l in lines_en if l['label'] == 'Conditions')
+        self.assertEqual(row['value'], 'Partly cloudy')
+
+    def test_an_unrecognised_sky_code_still_states_the_rain_chance(self):
+        # No sky text to prepend, but the figure itself must not be dropped.
+        _, lines_en, _, lines_ko = W.build_card_lines(self._summary(sky='9'))
+        row_en = next(l for l in lines_en if l['label'] == 'Conditions')
+        self.assertEqual(row_en['value'], 'A 40% chance of rain')
+        row_ko = next(l for l in lines_ko if l['label'] == '날씨')
+        self.assertEqual(row_ko['value'], '강수확률 40%')
+
+    def test_an_unrecognised_sky_code_with_an_active_type_and_no_pop(self):
+        _, lines_en, _, lines_ko = W.build_card_lines(self._summary(sky='9', pty='4', pop=None))
+        row_en = next(l for l in lines_en if l['label'] == 'Conditions')
+        self.assertEqual(row_en['value'], 'Showers')
+        row_ko = next(l for l in lines_ko if l['label'] == '날씨')
+        self.assertEqual(row_ko['value'], '소나기')
+
+    def test_a_clear_forecast_with_no_pop_shows_conditions_alone(self):
+        _, lines_en, _, _ = W.build_card_lines(self._summary(sky='1', pop=None))
+        row = next(l for l in lines_en if l['label'] == 'Conditions')
+        self.assertEqual(row['value'], 'Clear')
+
+    def test_conditions_emoji_prefers_precipitation_over_plain_sky(self):
+        _, lines_en, _, _ = W.build_card_lines(self._summary(sky='1', pty='1'))
+        row = next(l for l in lines_en if l['label'] == 'Conditions')
+        self.assertEqual(row['emoji'], W.PTY_EMOJI['1'])
 
     def test_high_and_low_always_carry_both_units_in_english_only(self):
         opener_en, lines_en, opener_ko, lines_ko = W.build_card_lines(self._summary())
@@ -220,19 +288,127 @@ class BuildCardLines(unittest.TestCase):
         self.assertEqual(next(l for l in lines_en if l['label'] == 'Humidity')['value'], '62%')
         self.assertEqual(next(l for l in lines_ko if l['label'] == '습도')['value'], '62%')
 
+    def test_no_sunrise_or_sunset_omits_both_rows(self):
+        # today_summary() never sets these — they land in the summary dict
+        # separately, from a different call, so absence must not crash.
+        _, lines_en, _, _ = W.build_card_lines(self._summary())
+        labels = [l['label'] for l in lines_en]
+        self.assertNotIn('Sunrise', labels)
+        self.assertNotIn('Sunset', labels)
+
+    def test_sunrise_and_sunset_rows_when_present(self):
+        _, lines_en, _, lines_ko = W.build_card_lines(
+            self._summary(sunrise='0533', sunset='1856'))
+        self.assertEqual(next(l for l in lines_en if l['label'] == 'Sunrise')['value'],
+                         '5:33 a.m.')
+        self.assertEqual(next(l for l in lines_en if l['label'] == 'Sunset')['value'],
+                         '6:56 p.m.')
+        self.assertEqual(next(l for l in lines_ko if l['label'] == '일출')['value'],
+                         '오전 5시 33분')
+        self.assertEqual(next(l for l in lines_ko if l['label'] == '일몰')['value'],
+                         '오후 6시 56분')
+
+    def test_no_rain_24h_omits_the_row(self):
+        _, lines_en, _, _ = W.build_card_lines(self._summary())
+        self.assertNotIn("Yesterday's rainfall", [l['label'] for l in lines_en])
+
+    def test_a_genuinely_dry_yesterday_also_omits_the_row(self):
+        # A measured 0.0mm and no reading at all must read the same way —
+        # matching kma_facts()'s own `if rn:` rule in seoul_index_post.py.
+        _, lines_en, _, _ = W.build_card_lines(self._summary(rain_24h=0.0))
+        self.assertNotIn("Yesterday's rainfall", [l['label'] for l in lines_en])
+
+    def test_rain_24h_row_when_present(self):
+        _, lines_en, _, lines_ko = W.build_card_lines(self._summary(rain_24h=12.5))
+        self.assertEqual(next(l for l in lines_en if l['label'] == "Yesterday's rainfall")['value'],
+                         '12.5mm')
+        self.assertEqual(next(l for l in lines_ko if l['label'] == '어제 강수량')['value'],
+                         '12.5mm')
+
+
+class FetchSunTimes(unittest.TestCase):
+    """XML parsing only, via a mocked curl — no real network call. This is
+    the one fetcher in the file that isn't JSON, so it's the one place a
+    schema surprise would be silent otherwise."""
+
+    def _run(self, stdout, returncode=0):
+        with patch('seoul_weather_post.subprocess.run') as mock_run:
+            mock_run.return_value.returncode = returncode
+            mock_run.return_value.stdout = stdout
+            return W.fetch_sun_times('fake-key', '20260830')
+
+    def test_a_normal_response_yields_both_times(self):
+        xml = ('<response><body><items><item>'
+               '<sunrise>0533</sunrise><sunset>1856</sunset>'
+               '</item></items></body></response>')
+        self.assertEqual(self._run(xml), ('0533', '1856'))
+
+    def test_an_unapproved_key_error_response_is_none_not_a_crash(self):
+        # data.go.kr's real shape for "no 활용신청 on this API yet" — a
+        # different root element entirely, with no sunrise/sunset anywhere.
+        xml = ('<OpenAPI_ServiceResponse><cmmMsgHeader>'
+               '<returnAuthMsg>SERVICE_KEY_IS_NOT_REGISTERED_ERROR</returnAuthMsg>'
+               '</cmmMsgHeader></OpenAPI_ServiceResponse>')
+        self.assertIsNone(self._run(xml))
+
+    def test_malformed_xml_is_none_not_a_crash(self):
+        self.assertIsNone(self._run('<response><body>'))
+
+    def test_empty_response_is_none(self):
+        self.assertIsNone(self._run(''))
+
+    def test_curl_failure_is_none(self):
+        self.assertIsNone(self._run('<response/>', returncode=1))
+
+    def test_no_key_short_circuits_without_calling_curl(self):
+        with patch('seoul_weather_post.subprocess.run') as mock_run:
+            self.assertIsNone(W.fetch_sun_times(None, '20260830'))
+            mock_run.assert_not_called()
+
+
+class YesterdayRain(unittest.TestCase):
+    def test_a_wet_day_returns_the_millimetres(self):
+        with patch('seoul_weather_post._wx_rows', return_value=[{'sumRn': '12.5'}]):
+            self.assertEqual(W.yesterday_rain('fake-key', date(2026, 8, 30)), 12.5)
+
+    def test_a_dry_day_is_none_not_zero(self):
+        # sumRn == 0.0 and a missing row must read the same way — matching
+        # kma_facts()'s own `if rn:` rule in seoul_index_post.py.
+        with patch('seoul_weather_post._wx_rows', return_value=[{'sumRn': '0.0'}]):
+            self.assertIsNone(W.yesterday_rain('fake-key', date(2026, 8, 30)))
+
+    def test_a_missing_row_is_none(self):
+        with patch('seoul_weather_post._wx_rows', return_value=[]):
+            self.assertIsNone(W.yesterday_rain('fake-key', date(2026, 8, 30)))
+
+    def test_no_key_short_circuits_without_calling_wx_rows(self):
+        with patch('seoul_weather_post._wx_rows') as mock_rows:
+            self.assertIsNone(W.yesterday_rain(None, date(2026, 8, 30)))
+            mock_rows.assert_not_called()
+
 
 class Footnotes(unittest.TestCase):
     def test_states_the_issue_time_and_that_it_is_a_forecast(self):
+        # House style: "a.m."/"p.m.", lowercase, with periods — not a bare
+        # 24-hour clock reading.
         note_en, note_ko = W.footnotes('0500')
-        self.assertIn('05:00', note_en)
+        self.assertIn('issued at 5 a.m. KST', note_en)
         self.assertIn('forecast', note_en.lower())
         self.assertIn('5시', note_ko)
 
     def test_midnight_base_time_formats_without_a_stray_leading_zero_bug(self):
         # '2300' -> hour 23, not 3 — a naive int(base_time[:1]) trap.
         note_en, note_ko = W.footnotes('2300')
-        self.assertIn('23:00', note_en)
+        self.assertIn('issued at 11 p.m. KST', note_en)
         self.assertIn('23시', note_ko)
+
+    def test_every_kma_base_hour_renders_a_clean_twelve_hour_reading(self):
+        expected = {'0200': '2 a.m.', '0500': '5 a.m.', '0800': '8 a.m.',
+                    '1100': '11 a.m.', '1400': '2 p.m.', '1700': '5 p.m.',
+                    '2000': '8 p.m.', '2300': '11 p.m.'}
+        for base_time, want in expected.items():
+            note_en, _ = W.footnotes(base_time)
+            self.assertIn(want, note_en, base_time)
 
 
 if __name__ == '__main__':

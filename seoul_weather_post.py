@@ -41,9 +41,11 @@ import collections
 import fcntl
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import urllib.parse
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -54,7 +56,7 @@ from seoul_index_card import render_card, CardRenderError, curly
 from seoul_index_post import (
     KMA_NOW_NX, KMA_NOW_NY, SEOUL_TZ, KEYCHAIN_SERVICE, TAGS,
     http_get_json, keychain_password, write_json_atomic, strip_emoji,
-    source_reply, tag_line, LINK_DOMAINS,
+    source_reply, tag_line, LINK_DOMAINS, _wx_rows, _wx_num,
 )
 
 HERE = Path(__file__).parent
@@ -106,6 +108,29 @@ def fmt_c_en(celsius):
     return f'{fmt_c(celsius)} ({f:.0f}°F)'
 
 
+def format_ampm(hour, minute):
+    """(5, 0) -> '5 a.m.'; (18, 56) -> '6:56 p.m.' — house style is always
+    a.m./p.m., lowercase, with periods; never a bare 24-hour clock."""
+    period = 'a.m.' if hour < 12 else 'p.m.'
+    hour_12 = hour % 12 or 12
+    return f'{hour_12} {period}' if minute == 0 else f'{hour_12}:{minute:02d} {period}'
+
+
+def fmt_hhmm_ampm(hhmm):
+    """'0533' -> '5:33 a.m.' — KASI's raw sunrise/sunset field format."""
+    return format_ampm(int(hhmm[:2]), int(hhmm[2:]))
+
+
+def fmt_hhmm_ampm_ko(hhmm):
+    """'0533' -> '오전 5시 33분' — the same 오전/오후 convention _ampm_ko()
+    already uses in seoul_index_post.py, extended to carry minutes (that
+    one is hour-only; sunrise/sunset is almost never exactly on the hour)."""
+    hour, minute = int(hhmm[:2]), int(hhmm[2:])
+    period = '오전' if hour < 12 else '오후'
+    hour_12 = hour % 12 or 12
+    return f'{period} {hour_12}시 {minute:02d}분' if minute else f'{period} {hour_12}시'
+
+
 def latest_base(now):
     """(base_date, base_time) of the most recent getVilageFcst run that
     should already be published, given `now` (aware, Asia/Seoul).
@@ -148,6 +173,51 @@ def fetch_forecast(key, base_date, base_time):
         return d['response']['body']['items']['item']
     except (KeyError, TypeError):
         return None
+
+
+def fetch_sun_times(key, date_str):
+    """(sunrise, sunset) as raw 'HHMM' strings for Seoul on date_str
+    (YYYYMMDD), or None on any failure — including "not yet approved for
+    this key", which looks identical to any other empty response.
+
+    한국천문연구원_출몰시각 정보 (data.go.kr 15012688) — a separate 활용신청 on
+    the same account/key as the forecast call above, so this returns None
+    until that approval lands. ⚠️ Unlike every other API this account uses,
+    this service has NO JSON option at all (confirmed against its own
+    documentation) — it is XML only, so this is the one fetcher here that
+    doesn't go through http_get_json."""
+    if not key:
+        return None
+    p = {'serviceKey': key, 'locdate': date_str, 'location': '서울'}
+    url = ('http://apis.data.go.kr/B090041/openapi/service/RiseSetInfoService/'
+           'getAreaRiseSetInfo?' + urllib.parse.urlencode(p, safe='%'))
+    r = subprocess.run(['curl', '-s', '--max-time', '30', url],
+                       capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    try:
+        root = ET.fromstring(r.stdout)
+    except ET.ParseError:
+        return None
+    sunrise, sunset = root.findtext('.//sunrise'), root.findtext('.//sunset')
+    if not (sunrise and sunset):
+        return None
+    return sunrise.strip(), sunset.strip()
+
+
+def yesterday_rain(key, today):
+    """Yesterday's ASOS daily total rainfall in mm, or None if the row is
+    missing or there was no rain — a genuine dry day (sumRn == 0.0) reads
+    the same as an absent row, matching kma_facts()'s own `if rn:` in
+    seoul_index_post.py, so both are simply omitted from the card rather
+    than shown as a manufactured '0.0mm'."""
+    if not key:
+        return None
+    yday = today - timedelta(days=1)
+    rows = _wx_rows(key, f'{yday:%Y%m%d}', f'{yday:%Y%m%d}')
+    if not rows:
+        return None
+    return _wx_num(rows[0], 'sumRn') or None
 
 
 def today_summary(items, target_date):
@@ -223,35 +293,53 @@ def build_card_lines(summary):
                 {'emoji': '🔻', 'label': 'Low', 'value': fmt_c_en(lo)}]
     lines_ko = [{'emoji': '🔺', 'label': '최고기온', 'value': fmt_c(hi)},
                 {'emoji': '🔻', 'label': '최저기온', 'value': fmt_c(lo)}]
-    if sky_en:
-        lines_en.append({'emoji': SKY_EMOJI.get(sky, ''), 'label': 'Sky',
-                         'value': sky_en})
-        lines_ko.append({'emoji': SKY_EMOJI.get(sky, ''), 'label': '하늘상태',
-                         'value': sky_ko})
-    # One row for rain, not two: a "Chance of rain" line beside a
-    # "Precipitation" line said the same thing twice whenever both were
-    # present. Dry days keep the plain percentage; a day with a precipitation
-    # type folds it and the percentage into one row instead. Sits right after
-    # Sky — the two are one weather judgement, not separated by humidity.
     pty_en, pty_ko = PTY_TEXT.get(pty, ('', '')) if pty else ('', '')
-    if pty_en and pop is not None:
-        lines_en.append({'emoji': PTY_EMOJI.get(pty, ''), 'label': 'Precipitation',
-                         'value': f'{pty_en} ({pop}%)'})
-        lines_ko.append({'emoji': PTY_EMOJI.get(pty, ''), 'label': '강수형태',
-                         'value': f'{pty_ko} ({pop}%)'})
-    elif pty_en:
-        lines_en.append({'emoji': PTY_EMOJI.get(pty, ''), 'label': 'Precipitation',
-                         'value': pty_en})
-        lines_ko.append({'emoji': PTY_EMOJI.get(pty, ''), 'label': '강수형태',
-                         'value': pty_ko})
+    # Conditions carries the whole weather judgement in one row: sky, and —
+    # when there's anything to say about rain — the day's own chance of it.
+    # A day with an active precipitation type names that type as the noun
+    # ("...chance of snow") rather than a separate "Precipitation" row, so
+    # the sky and the rain figure are never split across two lines.
+    cond_emoji = PTY_EMOJI.get(pty, '') if pty_en else SKY_EMOJI.get(sky, '')
+    rain_noun_en = pty_en.lower() if pty_en else 'rain'
+    if sky_en and pop is not None:
+        lines_en.append({'emoji': cond_emoji, 'label': 'Conditions',
+                         'value': f'{sky_en} with a {pop}% chance of {rain_noun_en}'})
+        lines_ko.append({'emoji': cond_emoji, 'label': '날씨',
+                         'value': f'{sky_ko}, 강수확률 {pop}%'})
+    elif sky_en and pty_en:
+        lines_en.append({'emoji': cond_emoji, 'label': 'Conditions',
+                         'value': f'{sky_en} with {rain_noun_en}'})
+        lines_ko.append({'emoji': cond_emoji, 'label': '날씨',
+                         'value': f'{sky_ko}, {pty_ko}'})
+    elif sky_en:
+        lines_en.append({'emoji': cond_emoji, 'label': 'Conditions', 'value': sky_en})
+        lines_ko.append({'emoji': cond_emoji, 'label': '날씨', 'value': sky_ko})
     elif pop is not None:
-        lines_en.append({'emoji': '☔', 'label': 'Chance of rain',
-                         'value': f'{pop}%'})
-        lines_ko.append({'emoji': '☔', 'label': '강수확률',
-                         'value': f'{pop}%'})
+        lines_en.append({'emoji': cond_emoji or '☔', 'label': 'Conditions',
+                         'value': f'A {pop}% chance of {rain_noun_en}'})
+        lines_ko.append({'emoji': cond_emoji or '☔', 'label': '날씨',
+                         'value': f'강수확률 {pop}%'})
+    elif pty_en:
+        lines_en.append({'emoji': cond_emoji, 'label': 'Conditions', 'value': pty_en})
+        lines_ko.append({'emoji': cond_emoji, 'label': '날씨', 'value': pty_ko})
     if humidity is not None:
         lines_en.append({'emoji': '💧', 'label': 'Humidity', 'value': f'{humidity}%'})
         lines_ko.append({'emoji': '💧', 'label': '습도', 'value': f'{humidity}%'})
+
+    sunrise, sunset = summary.get('sunrise'), summary.get('sunset')
+    if sunrise:
+        lines_en.append({'emoji': '🌅', 'label': 'Sunrise', 'value': fmt_hhmm_ampm(sunrise)})
+        lines_ko.append({'emoji': '🌅', 'label': '일출', 'value': fmt_hhmm_ampm_ko(sunrise)})
+    if sunset:
+        lines_en.append({'emoji': '🌇', 'label': 'Sunset', 'value': fmt_hhmm_ampm(sunset)})
+        lines_ko.append({'emoji': '🌇', 'label': '일몰', 'value': fmt_hhmm_ampm_ko(sunset)})
+
+    rain_24h = summary.get('rain_24h')
+    if rain_24h:
+        lines_en.append({'emoji': '🌧️', 'label': "Yesterday's rainfall",
+                         'value': f'{rain_24h:.1f}mm'})
+        lines_ko.append({'emoji': '🌧️', 'label': '어제 강수량',
+                         'value': f'{rain_24h:.1f}mm'})
 
     if pty:
         op_emoji = PTY_EMOJI.get(pty, '🌂')
@@ -264,11 +352,11 @@ def build_card_lines(summary):
 
 
 def footnotes(base_time):
-    hhmm = f'{base_time[:2]}:{base_time[2:]}'
-    hour_ko = int(base_time[:2])
-    note_en = (f"Korea Meteorological Administration's forecast, issued "
-              f'{hhmm} KST — not an observed reading')
-    note_ko = f'기상청이 {hour_ko}시에 발표한 예보이며, 실제 관측값이 아닙니다'
+    hour, minute = int(base_time[:2]), int(base_time[2:])
+    time_en = format_ampm(hour, minute)
+    note_en = (f"Korea Meteorological Administration's forecast, issued at "
+              f'{time_en} KST — not an observed reading')
+    note_ko = f'기상청이 {hour}시에 발표한 예보이며, 실제 관측값이 아닙니다'
     return note_en, note_ko
 
 
@@ -316,9 +404,19 @@ def main():
                  f'{base_date} {base_time} run — KMA response may have '
                  f'changed shape.')
 
+    # Both best-effort: sun times need their own 활용신청 on this key (not
+    # yet approved as of 30 August 2026, so this returns None until then),
+    # and yesterday's rain row is simply absent on a dry day. Neither is
+    # worth aborting the post over.
+    sun = fetch_sun_times(gov_key, target_date)
+    summary['sunrise'], summary['sunset'] = sun if sun else (None, None)
+    summary['rain_24h'] = yesterday_rain(gov_key, now.date())
+
     print(f'Forecast run {base_date} {base_time} → {target_date}: '
          f'hi {summary["hi"]:.1f}°C, lo {summary["lo"]:.1f}°C, '
-         f'pop {summary["pop"]}, sky {summary["sky"]}, pty {summary["pty"]}')
+         f'pop {summary["pop"]}, sky {summary["sky"]}, pty {summary["pty"]}, '
+         f'sunrise {summary["sunrise"]}, sunset {summary["sunset"]}, '
+         f'rain_24h {summary["rain_24h"]}')
 
     opener_en, lines_en, opener_ko, lines_ko = build_card_lines(summary)
     note_en, note_ko = footnotes(base_time)

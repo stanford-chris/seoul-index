@@ -156,6 +156,9 @@ def _item_html(item):
     return _row_html(item)
 
 
+HANDLE_WATERMARK = '@seoul-index.bsky.social'
+
+
 def _build_html(opener, lines, footnote='', dateline=''):
     op_emoji = opener.get('emoji') or ''
     op_lead = f'{_esc(op_emoji)} ' if op_emoji else ''
@@ -185,12 +188,15 @@ html,body{{margin:0;background:#{SENTINEL}}}
 .r .led{{flex:1 0 34px;border-bottom:2px dotted {RED};margin:0 9px}}
 .r .val{{font-weight:700;line-height:1;white-space:nowrap}}
 .fn{{margin-top:20px;font-size:13px;line-height:1.4;color:{MUTED}}}
+.handle{{margin-top:14px;padding-top:12px;
+  font-size:12px;letter-spacing:.04em;color:{MUTED}}}
 </style></head><body>
 <div class="card">
 <div class="{h_class}"><span class="md">##</span> {op_lead}{_esc(opener['text'])}</div>
 {dl}
 {rows}
 {foot}
+<div class="handle">{_esc(HANDLE_WATERMARK)}</div>
 </div></body></html>"""
 
 
