@@ -11,6 +11,7 @@ books_agg.json
 # Card previews written into the working tree by --dry-run
 card_*.png
 meth_*.png
+weather_card_*.png
 
 # Post archive written before a wipe (public text, but not part of the source)
 seoul_index_posts_archive.json
@@ -30,11 +31,17 @@ crowd_history.jsonl.bak-*
 # One line per posted card, for skimming output to catch duds (local log)
 card_history.jsonl
 
+# One line per posted forecast card (local log)
+weather_history.jsonl
+
 # Leftover from an interrupted atomic JSON write (write_json_atomic)
 *.json.tmp
 
 # Single-run lock held by seoul_index_post.py for the length of a run
 .post.lock
+
+# Single-run lock held by seoul_weather_post.py for the length of a run
+.weather.lock
 
 # Timestamped backups written by the deploy script before it edits files
 *.predeploy.bak
