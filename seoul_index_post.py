@@ -4144,6 +4144,7 @@ Rules:
 - "airport", "health" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split. ⚠️ Do NOT put the month in the opener: on the split frame it rides on the card automatically as its dateline, and on the twenty-year pair each label carries its own year, which is the whole point of that frame. A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. These are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
+- "transport" lines are Seoul's total subway and bus boardings for the most recently published day, plus that day's busiest and quietest subway stations. The subway and bus TOTAL labels already carry the date in the label itself ("Subway boardings on 26 August", "Bus boardings the same day") — there is no separate dateline to lean on here, so do NOT put a date anywhere in the opener, and do NOT write a second, different date of your own: a neutral opener with no date at all is enough, e.g. "Through the turnstiles", "Seoul on the move". Never call a station busy, quiet, packed or empty — the four numbers say it.
 - "books" lines are checkouts at SEOUL LIBRARY over the last 60 days, counted by SUBJECT: literature, philosophy, 어학 and the rest, in the library's own classification. Labels are BARE SUBJECT NAMES, so the opener MUST name the library and say these are loans, exactly as the "library" membership lines do — and MUST NOT settle on one wording: "What Seoul Library lent, by subject", "Seoul Library's loans, by subject", "Borrowing at Seoul Library, by subject" and "What went out of Seoul Library" are four of many, so write a fresh one rather than reusing the last. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries — never imply otherwise. ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post, never mixed with any other category. ⚠️ The value may carry a trailing "(1 in N)" — that is Python's, and it is the subject's share of every checkout counted, which is why four lines can still say what the other six weigh. Leave it exactly where it is and NEVER restate it, convert it to a percentage, explain it, or build the opener or a label on it; the card footnote gives the total it divides by. ⚠️ TEN subjects are offered and a card takes four, so there is no one right card and THE EXTREMES ARE NOT COMPULSORY. Do not reach for the biggest subject at the top and the smallest at the bottom every time: four subjects from the middle of the list is a card, the four smallest is a card, and a set leaving out the largest number altogether is a card. The two pairs are two arrangements among many rather than the default — a "book_heat" pair is two subjects that came out level, a "book_gap" pair is the least- and most-borrowed of the ten; use at most ONE of them on a card, and prefer neither if the plain four you have chosen already say something. Deliberately vary which subjects appear from post to post and lean hard on AVOID_IDS here: with only ten subjects this vein repeats itself faster than any other. Never say which way the gap runs, never call a subject popular or neglected, and never draw a conclusion about what Seoul reads — set the numbers down and let the reader do it.
 - "rush" lines are SUBWAY BOARDINGS at one named station in ONE HOUR of the day. Labels are a station and a clock time ("City Hall, 6 p.m."), so the opener MUST say IN WORDS that these are subway boardings, e.g. "Boarding the Seoul subway", "Through the turnstiles, by the hour" — the same case as the world, traffic, price and books lines — and MUST NOT settle on one wording, so write a fresh one rather than reusing the last. ⚠️ EVERY figure is a WHOLE MONTH of that hour: never write or imply that one is a single day's, a single evening's, an average, or "in an hour". ⚠️ Do NOT put the month in the opener: it rides on the card as its dateline. The PAIR offered is the SAME station at its morning hour and its evening hour, and that contrast IS the joke: use both halves and let it sit there unremarked. Never point out that one is larger, never call a station busy, quiet, dead or booming, and never label a place residential, commercial, a business district or a dormitory suburb: the four numbers say all of it, and saying it as well is the one thing this account never does. Own post, never mixed with any other category.
 - "boxoffice" lines are cinema ADMISSIONS on SEOUL screens for ONE day, film by film, from the Korean Film Council's ticketing network. Labels are BARE FILM TITLES, so the opener MUST say IN WORDS that the figures are admissions or tickets, and that they are Seoul's: a title and a bare number leave the reader to guess whether it is people, screens or won. "Seoul at the cinema" is NOT enough on its own and neither is "What Seoul watched" — write e.g. "Cinema admissions in Seoul", "Tickets sold in Seoul's cinemas", "Seats filled in Seoul's cinemas" (관객수 / 티켓 in the Korean), the same case as the world, traffic, price and books lines — and MUST NOT settle on one wording, so write a fresh one rather than reusing the last. ⚠️ These are SEOUL's admissions, NOT the country's: never write "nationwide", "across Korea" or any national framing, and never imply the figures are a film's total. ⚠️ Do NOT put the date in the opener: the day rides on the card automatically as its dateline. ⚠️ Titles are printed exactly as they come, in each language: never translate, shorten or reword a film title. ⚠️ EVERY film on this card gets an "emoji", with no exceptions: the general rule above lets you leave one blank where nothing obvious fits, and that is right for an abstract line but wrong here, since a film is always ABOUT something. Take it from the subject, the genre or the title itself: 🕷 for a Spider-Man film, 👻 for a horror, 🕵 for a detective story, 🐋 for a whale, 🏛 or ⛵ for an ancient epic, 🎞 or 🍿 as a last resort. If a card would go out with one film tagged and another bare, every emoji on it is stripped instead, so a lazy blank costs the whole card its emoji rather than just that line. Own post, never mixed with any other category. ⚠️ The four films offered are the day's FOUR most-watched in Seoul, and you must use ALL FOUR, every time: this card is the complete top four in order, not a selection from a longer list, and dropping one leaves a hole in a ranking that a reader will take for the ranking. Do not number the lines (they are already sorted by value) and do not write an opener that ranks them ("the day's winners", "Seoul's biggest"): the footnote says what the set is, and the arrangement does the rest. Never call a film a hit, a flop or a winner, never say which is beating which, and never remark on the gap between them.
@@ -5142,6 +5143,105 @@ def _observe_labels(problems, error):
         pass
 
 
+# --- category-mixing guard --------------------------------------------------
+# Added 30 August 2026, after a card mixed 'price' and 'avgbill' with no
+# sanctioned reason: SELECT_PROMPT tells the selector every vein is its own
+# post, with exactly two named exceptions (the LIVE_CATS+SCOPED_CATS "grouped"
+# layout, and a genuine CROSS_PAIRS coincidence) — but nothing before this
+# checked the model actually used one rather than just mixing veins because
+# nothing stopped it. `sel` carries no field naming which mechanism (if
+# either) justified a mix, so this recomputes cross_vein_pairs(pool) itself
+# rather than trusting the model's say-so.
+def _validate_card_categories(precats, picks, pool):
+    """Raise RuntimeError if any category in `precats` has no sanctioned
+    reason to share the card. Returns True when the card is a genuine
+    CROSS_PAIRS mix (as opposed to the live+scoped grouped layout, which
+    already separates categories under their own subheads) — the case where
+    sorted-by-value lines from two different veins sit directly next to each
+    other with nothing to tell them apart, so _cross_pair_hints() below has
+    work to do."""
+    if len(precats) <= 1:
+        return False
+    live, scoped = precats & LIVE_CATS, precats & SCOPED_CATS
+    # Matches maybe_grouped's own test exactly (bool(precats & LIVE_CATS) and
+    # bool(precats & SCOPED_CATS)): at least one live category and at least
+    # one scoped category, nothing outside either set. Does NOT require
+    # exactly one of each — two different scoped veins can legitimately ride
+    # alongside one live vein (see test_two_scoped_veins_do_not_group: crowd
+    # + library + complaint is "merely cramped, not wrong", since nothing
+    # groups when more than one scope competes for the masthead, but it is
+    # still a sanctioned card, not an invalid one).
+    live_scoped_ok = bool(live) and bool(scoped) and precats == live | scoped
+    ids = {p['id'] for p in picks}
+    cross_linked = set()
+    for pr in cross_vein_pairs(pool):
+        if pr['a'] in ids and pr['b'] in ids:
+            cross_linked.add(pr['a_cat'])
+            cross_linked.add(pr['b_cat'])
+    allowed = (live | scoped if live_scoped_ok else set()) | cross_linked
+    bad = precats - allowed
+    if bad:
+        raise RuntimeError(
+            f'card mixes categories {sorted(precats)} with no sanctioned reason '
+            f'(no live+scoped grouping or CROSS_PAIRS coincidence links '
+            f'{sorted(bad)} to the rest of the picks)')
+    return bool(cross_linked) and not live_scoped_ok
+
+
+# A prefix ("<descriptor>, <original label>") added ONLY on a genuine
+# cross-pair card, matching the "Cheapest, a traditional market (Dongjak-gu)"
+# shape the price vein already uses elsewhere. A category absent from this
+# dict already carries its own metric word in its bare label (verified
+# against every cross-pairable category's actual label code, 30 Aug 2026:
+# property says "paid"/"deposit", tourism says "Visitors", transport/rush
+# and airport say "boardings"/"Passengers", national's pop_seoul fact is a
+# full sentence, and crowd's label is pinned to always read "Estimated
+# crowd, <place>") and needs no hint. 'price' and 'infant' are handled
+# separately below, since their descriptor is run-specific (which item,
+# which age band) rather than a fixed word.
+_CROSS_HINT = {
+    'spending': ('Quarterly spending', '분기별 지출'),
+    'avgbill': ('Average bill', '평균 결제액'),
+    'boxoffice': ('Admissions', '관객수'),
+    'rush': ('Boardings', '승차 인원'),
+    'daynight': ('Population', '생활인구'),
+    'library': ('Library members', '도서관 회원'),
+}
+
+
+def _cross_pair_hints(lines):
+    """Give each cross-pair line its own metric, since the opener structurally
+    can't (SELECT_PROMPT requires a neutral opener on a cross-pair card, and
+    naming one vein's metric there would falsely frame the other's line) and
+    the coincidence itself must stay unremarked (SELECT_PROMPT: "let the
+    coincidence sit there unremarked... never write a line, opener or note
+    that points out that the two numbers match"). This only labels what each
+    figure IS — it never says the two figures are close, which is the
+    reader's own discovery to make."""
+    for l in lines:
+        cat = l['cat']
+        if cat == 'price':
+            # The ranked lead/cheapest/dearest lines already say "Cheapest"/
+            # "Dearest" — inherently a price word — so only the plain,
+            # unranked lines need the item named.
+            if 'Cheapest' in l['label_en'] or 'Dearest' in l['label_en']:
+                continue
+            if PRICE_LABEL['en']:
+                rest = l['label_en']
+                l['label_en'] = f'Price of {PRICE_LABEL["en"]}, {rest[0].lower()}{rest[1:]}'
+            if PRICE_LABEL['ko'] and l['label_ko']:
+                l['label_ko'] = f'{PRICE_LABEL["ko"]} 가격, {l["label_ko"]}'
+        elif cat == 'infant':
+            if INFANT_PERIOD['en']:
+                l['label_en'] = f"{INFANT_PERIOD['en']}, {l['label_en']}"
+            if INFANT_PERIOD['ko']:
+                l['label_ko'] = f"{INFANT_PERIOD['ko']}, {l['label_ko']}"
+        elif cat in _CROSS_HINT:
+            hint_en, hint_ko = _CROSS_HINT[cat]
+            l['label_en'] = f"{hint_en}, {l['label_en']}"
+            l['label_ko'] = f"{hint_ko}, {l['label_ko']}"
+
+
 def compose(sel, pool):
     by_id = {f['id']: f for f in pool}
     picks = [p for p in sel.get('picks', []) if p.get('id') in by_id]
@@ -5150,6 +5250,7 @@ def compose(sel, pool):
         raise RuntimeError(f'selector returned too few valid picks: {len(picks)}')
     spotlight = any(by_id[p['id']]['cat'] == 'spotlight' for p in picks)
     precats = {by_id[p['id']]['cat'] for p in picks}
+    is_cross_pair = _validate_card_categories(precats, picks, pool)
     # A live "right now" vein beside a scoped one reads two frames at once, so it
     # groups: the scoped lines first under their own subhead (their month, or the
     # descriptor that says what they count), live lines under "Right now".
@@ -5335,6 +5436,11 @@ def compose(sel, pool):
               'value_en': l['value_en'], 'pin': l['pin']}
              for q, l in zip(picks, lines)],
             opener_en, opener_ko)
+
+    # Runs LAST, after every trim and check above, so nothing downstream
+    # mistakes an added hint for an unchecked assertion or trims it back off.
+    if is_cross_pair:
+        _cross_pair_hints(lines)
 
     # Source line credits every distinct source used. Seoul Open Data covers
     # everything except the KOSIS 'national' figures, which get their own credit.
