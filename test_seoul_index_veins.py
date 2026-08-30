@@ -692,7 +692,12 @@ class LibraryRatio(unittest.TestCase):
         # _sortkey strips one trailing parenthetical. A "10,921 · 1 in 65" form
         # would return None here and silently drop the size sort on the card.
         self.assertEqual(S._sortkey(f['library_10']['value_en']), ('num', 10921.0))
-        self.assertEqual(f['library_10']['num'], 10921)   # collisions unaffected
+        # No num/unit, deliberately, since 30 August 2026: library membership
+        # is a static, undated running total, and cross_vein_pairs() used to
+        # collide it against unrelated live crowd counts purely because both
+        # landed in the same range. See seoul_index_post.py's library_facts().
+        self.assertIsNone(f['library_10']['num'])
+        self.assertIsNone(f['library_10']['unit'])
 
     def test_korean_counts_people_rather_than_translating_the_english(self):
         f = self.facts(self.pop_rows())

@@ -1127,15 +1127,23 @@ def transport_facts(api_key, state):
         # busiest is always a major hub with a short name, so it fits; only a
         # long-named quietest station wraps, which is a graceful loss of the
         # leader, not a break.
+        # ⚠️ The date is now IN these two labels too, since 30 August 2026.
+        # They are the only 'transport' facts with num/unit set (sub_total and
+        # bus_total are not cross-eligible), so a CROSS_PAIR can post one of
+        # them alone, with neither sibling total present to carry the date. A
+        # live card did exactly that on 23 August 2026: a bare "Busiest subway
+        # station, Gangnam: 90,066" sat under a tourism vein's "June 2026"
+        # opener with nothing to say the figure was one day, not the month.
+        # Pinned, so the selector cannot reword the date back out.
         fact('sub_busiest', 'transport',
-             f'Busiest subway station, {en_name(c["busiest_st"], "stations")}',
+             f'Busiest subway station, {en_name(c["busiest_st"], "stations")}, {d}',
              grouped(c['busiest_v']), grouped(c['busiest_v']), pair='station_gap', pin=True,
-             label_ko=f'가장 붐빈 지하철역, {c["busiest_st"]}',
+             label_ko=f'가장 붐빈 지하철역, {c["busiest_st"]} ({d_ko})',
              num=c['busiest_v'], unit='people'),
         fact('sub_quietest', 'transport',
-             f'Quietest subway station, {en_name(c["quietest_st"], "stations")}',
+             f'Quietest subway station, {en_name(c["quietest_st"], "stations")}, {d}',
              grouped(c['quietest_v']), grouped(c['quietest_v']), pair='station_gap', pin=True,
-             label_ko=f'가장 한산한 지하철역, {c["quietest_st"]}',
+             label_ko=f'가장 한산한 지하철역, {c["quietest_st"]} ({d_ko})',
              num=c['quietest_v'], unit='people'),
     ]
     return facts
@@ -2317,16 +2325,23 @@ def library_facts(api_key, kosis_key=None):
         # the honest one here (see the ⚠️ above LIBRARY_POP_TBL). It rides in a
         # TRAILING PARENTHETICAL on purpose — _sortkey() strips one before
         # reading the magnitude, so the card still orders these lines by member
-        # count, and cross_vein_pairs still collides on `num`. A "10,921 · 1 in
-        # 65" form would have made every value unparseable and silently dropped
-        # the size sort on this card.
+        # count. A "10,921 · 1 in 65" form would have made every value
+        # unparseable and silently dropped the size sort on this card.
         n = round(pop[band] / total) if pop.get(band) else 0
         if n >= LIBRARY_POP_MIN:
             v_en, v_ko = f'{v_en} (1 in {grouped(n)})', f'{v_ko} ({grouped(n)}명 중 1명)'
             ratios += 1
+        # ⚠️ NO num/unit here, deliberately, since 30 August 2026. Library
+        # membership is a static, undated running total, unlike every other
+        # cross-eligible vein, which is bound to a day, month, quarter or year.
+        # cross_vein_pairs() used to collide it against anything else in the
+        # 10,000-20,000 range regardless of what that other figure counted, and
+        # it produced two live posts pairing library members by age band
+        # against unrelated live crowd counts: a numeric coincidence between
+        # two unrelated groups of people, not a real juxtaposition. Two
+        # magnitudes landing close together is not, on its own, interesting.
         facts.append(fact(f'library_{band}', 'library', en, v_en, v_ko,
-                          pair='library_ages', pin=True,
-                          label_ko=ko, num=total, unit='people'))
+                          pair='library_ages', pin=True, label_ko=ko))
     facts = facts if len(facts) >= LIBRARY_MIN_LINES else []
     # Only claim the ratio in the footnote if one actually went out on a line,
     # and only alongside lines that survived the minimum-count cut.
