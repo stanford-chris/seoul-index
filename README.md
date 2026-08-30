@@ -245,6 +245,7 @@ Every post hyperlinks its source.
 | File | Purpose |
 | --- | --- |
 | `seoul_index_post.py` | Harvest, select, compose, render and post one index (English + Korean card thread). |
+| `seoul_weather_post.py` | Standalone daily companion to `seoul_index_post.py`: posts today's Seoul weather forecast (KMA's 단기예보), once a day, on its own schedule outside the main index rotation. No `claude -p` selector step — a forecast card is five fixed numbers, built directly by Python in both languages. Shares the account's config and Bluesky credential with `seoul_index_post.py`. |
 | `seoul_index_card.py` | Render an index or prose card to a PNG (headless Chrome, cropped with Pillow); the poster falls back to plaintext if it fails. |
 | `seoul_index_methodology.py` | Post the pinned methodology / "about" thread as prose cards. A card is an image, so changing a word means re-posting all seven records: `--replace` posts the new thread, pins it, then deletes the one that was pinned when the run started. It deletes only after the replacement is up, and only if what was pinned has the shape this script posts (six captionless image posts, then the credits reply), since whatever is pinned is not guaranteed to be its own thread. |
 | `seoul_index_sales.py` | Monthly full scan of the commercial-district sales dataset into `sales_agg.json` (the poster reads this cheaply). |
@@ -298,7 +299,7 @@ python3 seoul_index_post.py             # post one index (English + Korean card 
 python3 seoul_index_post.py --only=books  # build the card from ONE vein and post it
 ```
 
-The live account posts four times a day (8:30 a.m., 12:30 p.m., 4:30 p.m. and 8:30 p.m. KST) via `launchd`, the fourth slot added on 25 August 2026 to drain the vein-floor queue faster, with the crowd sampler running hourly from 05:00 to 23:00, the sales scan monthly (the sales data is quarterly, so a weekly scan was recomputing a figure that moves four times a year) and the books harvest weekly on Sundays at 05:20. Books is weekly rather than monthly because its counts move daily (they rose by one overnight between 21 and 22 August 2026), and the card carries no date of its own, so a month-old harvest would read as current.
+The live account posts four times a day (8:30 a.m., 12:30 p.m., 4:30 p.m. and 8:30 p.m. KST) via `launchd`, the fourth slot added on 25 August 2026 to drain the vein-floor queue faster, with the crowd sampler running hourly from 05:00 to 23:00, the sales scan monthly (the sales data is quarterly, so a weekly scan was recomputing a figure that moves four times a year) and the books harvest weekly on Sundays at 05:20. Books is weekly rather than monthly because its counts move daily (they rose by one overnight between 21 and 22 August 2026), and the card carries no date of its own, so a month-old harvest would read as current. `seoul_weather_post.py` runs separately, once a day at 05:25.
 
 `--only=<cat>` builds the card from one vein and takes the same path the vein floor takes when it promotes a starved one. It exists because there was otherwise no way to show a particular vein on demand: the floor picks whichever vein has waited longest, so asking to see a new one meant either waiting its turn or posting the wrong card to find out. It refuses, naming the veins that exist, when the one asked for has fewer than three facts.
 
