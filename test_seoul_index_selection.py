@@ -389,6 +389,108 @@ class ScopedVeinHeadsItsOwnGroup(unittest.TestCase):
                           f'{cat} has a descriptor but would never group')
 
 
+class TourismBoxofficeCrossPairGroupsBySpan(unittest.TestCase):
+    """A tourism+boxoffice CROSS_PAIR puts a whole month's visitors beside one
+    day's admissions on the same card. Flagged live, 30 Aug 2026
+    (https://bsky.app/profile/seoul-index.bsky.social/post/3mudkt6v5d42v):
+    neither span could be lifted to a single masthead (they disagree), so both
+    sat inline in one footnote line with nothing tying either one to the lines
+    it actually covers. period_grouped fixes this the way metric_grouped and
+    the live+scoped "grouped" layout already fix the same shape of problem
+    elsewhere: draw each span once, as a subhead over its own lines.
+    """
+
+    def _pool_and_sel(self):
+        S.TOUR_M['en'], S.TOUR_M['ko'] = 'June 2026', '2026년 6월'
+        S.TOUR_M['month_en'], S.TOUR_M['month_ko'] = 'June', '6월'
+        S.BOXOFFICE_D['en'], S.BOXOFFICE_D['ko'] = '30 August', '8월 30일'
+        S.BOXOFFICE_D['month_en'], S.BOXOFFICE_D['month_ko'] = 'August', '8월'
+        pool = [
+            S.fact('bo_1', 'boxoffice', '"The Odyssey"', '92,090', '92,090',
+                  label_ko='"오디세이"', pin=True, num=92090, unit='people'),
+            S.fact('tour_aq', 'tourism', 'Visitors to the Lotte World Aquarium',
+                  '87,648', '87,648', label_ko='롯데월드 아쿠아리움 방문객',
+                  pin=True, num=87648, unit='people'),
+            S.fact('tour_sky', 'tourism', 'Visitors to Seoul Sky', '86,492',
+                  '86,492', label_ko='서울스카이 방문객', pin=True,
+                  num=86492, unit='people'),
+        ]
+        picks = [{'id': f['id'], 'emoji': ''} for f in pool]
+        sel = {'opener_en': 'Seoul by the numbers',
+              'opener_ko': '숫자로 보는 서울', 'opener_emoji': '', 'picks': picks}
+        return sel, pool
+
+    def tearDown(self):
+        for d in (S.TOUR_M, S.BOXOFFICE_D):
+            for k in list(d):
+                d[k] = None
+
+    def _subheads(self, items):
+        return [it['subhead'] for it in items if 'subhead' in it]
+
+    def _rows_under(self, items, subhead):
+        out, on = [], False
+        for it in items:
+            if 'subhead' in it:
+                on = it['subhead'] == subhead
+                continue
+            if on:
+                out.append(it['label'])
+        return out
+
+    def test_the_card_is_recognised_as_a_cross_pair_and_groups_by_span(self):
+        c = S.compose(*self._pool_and_sel())
+        self.assertTrue(c['period_grouped'])
+        self.assertFalse(c['grouped'], 'not the live+scoped mechanism')
+
+    def test_each_span_heads_only_its_own_lines(self):
+        c = S.compose(*self._pool_and_sel())
+        self.assertEqual(self._subheads(c['items_en']),
+                         ['30 August', 'The entire month of June'])
+        self.assertEqual(
+            self._rows_under(c['items_en'], '30 August'),
+            ['Admissions, "The Odyssey"'])
+        self.assertEqual(
+            self._rows_under(c['items_en'], 'The entire month of June'),
+            ['Visitors to the Lotte World Aquarium',
+             'Visitors to Seoul Sky'])
+
+    def test_korean_card_groups_too(self):
+        c = S.compose(*self._pool_and_sel())
+        self.assertEqual(self._subheads(c['items_ko']),
+                         ['8월 30일', '6월 한 달 전체'])
+
+    def test_the_span_is_not_also_left_in_the_footnote(self):
+        """It now heads a group instead — saying it twice is the fault this
+        exists to fix, in a new shape. The exact day DOES legitimately appear
+        now (in the subhead itself, via en_body/ko_body), just not a second
+        time in the footnote proper (note_en/note_ko)."""
+        c = S.compose(*self._pool_and_sel())
+        self.assertNotIn('Paid-admission sites', c['note_en'])
+        self.assertNotIn('most-watched', c['note_en'])
+        self.assertNotIn('30 August', c['note_en'])
+        self.assertNotIn('June 2026', c['note_en'])
+        self.assertEqual(c['en_body'].count('30 August'), 1)
+        self.assertEqual(c['en_body'].count('The entire month of June'), 1)
+
+    def test_no_masthead_flies_over_the_whole_card(self):
+        """Neither span is true of every line, so lifting either as a single
+        dateline would misstate the other vein's lines — the same reasoning
+        _card_payload already applies to a live+scoped grouped card."""
+        c = S.compose(*self._pool_and_sel())
+        self.assertEqual(S._card_payload(c, 'en')[3], '')
+        self.assertEqual(S._card_payload(c, 'ko')[3], '')
+
+    def test_check_masthead_is_not_fooled_by_the_grouping(self):
+        """check_masthead's own guard (grouped or period_grouped) must see
+        this card as already explained, not flag it for having no masthead."""
+        c = S.compose(*self._pool_and_sel())
+        found = S.check_masthead(c['lines'], c['dateline_en'], c['dateline_ko'],
+                                 c['grouped'] or c['period_grouped'],
+                                 log=lambda m: None)
+        self.assertEqual(found, [])
+
+
 class LibraryRatioOnTheCard(unittest.TestCase):
     """The "1 in N" beside a library count is a ratio between two publishers.
 

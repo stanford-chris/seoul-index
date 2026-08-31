@@ -825,8 +825,8 @@ class BoxOfficeIsSeoulOnly(unittest.TestCase):
         the selector must never be handed the job of producing it."""
         with Stub({'searchDailyBoxOfficeList': _bo_rows(FIVE), **TITLES}):
             facts = S.boxoffice_facts('KEY')
-        f = next(f for f in facts if f['label_en'] == 'The Odyssey')
-        self.assertEqual(f['label_ko'], '오디세이')
+        f = next(f for f in facts if f['label_en'] == '"The Odyssey"')
+        self.assertEqual(f['label_ko'], '"오디세이"')
         self.assertTrue(f['pin'])
 
     def test_the_card_can_be_dated(self):
@@ -856,7 +856,8 @@ class BoxOfficeIsSeoulOnly(unittest.TestCase):
         self.assertEqual(len(facts), S.BOXOFFICE_N)
         self.assertTrue(all(f['pair'] is None for f in facts))
         self.assertEqual([f['label_en'] for f in facts],
-                         ['The Odyssey', 'Spider-Man', 'Insidious', 'Conan'])
+                         ['"The Odyssey"', '"Spider-Man"', '"Insidious"',
+                          '"Conan"'])
 
 
 class ShoutedKobisTitlesAreFixed(unittest.TestCase):
