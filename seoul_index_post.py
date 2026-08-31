@@ -398,6 +398,23 @@ WORLD_COOLDOWN_DAYS = 3
 # repeats.
 SPENDING_COOLDOWN_DAYS = 3
 
+# Bike, traffic and transport get the same cooldown for the same reason as
+# spending, just never named until a card_history.jsonl audit on 31 Aug 2026
+# found it: each vein's facts() function hands the selector essentially one
+# fixed structural pairing every single call, so whenever the category is
+# reached for at all, it is nearly always the same card. bike_facts() always
+# pairs bike_avail/bike_racks as 'bike_stock' and bike_stations/bike_empty as
+# 'bike_reach' — there is no other bike comparison to draw. traffic_facts()
+# draws from the same curated road list (traffic_links.json) every run, so
+# "fastest vs slowest" keeps landing on the same two roads. transport_facts()
+# always pairs sub_total/bus_total as 'modes'. The audit found bike identical
+# in substance on 5 of 5 posts since 5 Aug, traffic on 3 of 3 since 30 Jul and
+# transport on 3 of 3 since 28 Jul — this is what spending looked like before
+# 17 Aug. Same fix, same 3-day value.
+BIKE_COOLDOWN_DAYS = 3
+TRAFFIC_COOLDOWN_DAYS = 3
+TRANSPORT_COOLDOWN_DAYS = 3
+
 # Rotating openers offered to the selector (it may also write its own). Kept
 # deliberately neutral — time/place framings, never a punchline. The house style
 # is Harper's: the arrangement carries the joke, the opener never gives it away.
@@ -3946,6 +3963,17 @@ def world_facts():
 WB_BASE = 'https://api.worldbank.org/v2'
 WB_DOMAIN = 'data.worldbank.org'
 NATION_COOLDOWN_DAYS = 3   # like WORLD_COOLDOWN_DAYS: keep nation posts occasional
+
+# NOT a typo for the constant above: 'nation' (World Bank, this section) and
+# 'national' (KOSIS, kosis_facts()) are two distinct categories that happen to
+# share the opener "Seoul and the nation", which is exactly how this one went
+# unnoticed — a card_history.jsonl audit on 31 Aug 2026, prompted by a reader
+# spotting the same fertility-rate card twice in 12 days, found 'national' had
+# no cooldown of its own at all. It needs one more than most: kosis_facts()
+# returns at most five facts, annual and near-static for months, forming only
+# two possible pairs ('share_gap' population, 'fertility_gap' fertility) — an
+# even smaller, more frozen pool than spending's quarterly pair.
+NATIONAL_COOLDOWN_DAYS = 3
 SEOUL_AREA_KM2 = 605.21    # Seoul Metropolitan Government official city area
 
 # Peer countries recognisable to an English and a Korean reader; any country
@@ -4250,8 +4278,10 @@ def cross_vein_pairs(pool):
 def apply_cooldown(pool, state, stamp_key, cat, days, label):
     """Drop `cat` from the pool if its last post is younger than `days`.
 
-    Shared by the world and spending veins, which both get reached for far more
-    often than their share of the pool warrants. Two deliberate refusals to
+    Shared by the world, spending, bike, traffic, transport and national
+    veins, each reached for far more often — relative to how much genuinely
+    different content it can produce — than its share of the pool warrants.
+    Two deliberate refusals to
     fire: an unrecoverable or missing stamp means no cooldown, and the filter is
     abandoned if it would leave fewer than 5 facts. A guard should never be the
     thing that empties the pool and skips a post.
@@ -6532,13 +6562,23 @@ def main():
         if len(pool) < 5:
             sys.exit(f'Pool too small ({len(pool)} facts) — data sources may be down.')
 
-        # Vein cooldowns (see WORLD_COOLDOWN_DAYS, SPENDING_COOLDOWN_DAYS).
-        # Applied before the rotation below, so that a post held back here is
-        # dropped from the running rather than merely deferred to the next post.
+        # Vein cooldowns (see WORLD_COOLDOWN_DAYS, SPENDING_COOLDOWN_DAYS, and
+        # the bike/traffic/transport trio added 31 Aug 2026 for the same
+        # frozen-pair reason as spending). Applied before the rotation below,
+        # so that a post held back here is dropped from the running rather
+        # than merely deferred to the next post.
         pool = apply_cooldown(pool, state, 'last_world_at', 'world',
                               WORLD_COOLDOWN_DAYS, 'World')
         pool = apply_cooldown(pool, state, 'last_spending_at', 'spending',
                               SPENDING_COOLDOWN_DAYS, 'Spending')
+        pool = apply_cooldown(pool, state, 'last_bike_at', 'bike',
+                              BIKE_COOLDOWN_DAYS, 'Bike')
+        pool = apply_cooldown(pool, state, 'last_traffic_at', 'traffic',
+                              TRAFFIC_COOLDOWN_DAYS, 'Traffic')
+        pool = apply_cooldown(pool, state, 'last_transport_at', 'transport',
+                              TRANSPORT_COOLDOWN_DAYS, 'Transport')
+        pool = apply_cooldown(pool, state, 'last_national_at', 'national',
+                              NATIONAL_COOLDOWN_DAYS, 'National')
 
         # The floor under the veins the selector never reaches for. Applied
         # after the cooldowns so a promoted vein is never one the cooldown has
@@ -6718,6 +6758,14 @@ def main():
         state['last_spending_at'] = state['last_success_at']
     if primary == 'nation':
         state['last_nation_at'] = state['last_success_at']
+    if primary == 'bike':
+        state['last_bike_at'] = state['last_success_at']
+    if primary == 'traffic':
+        state['last_traffic_at'] = state['last_success_at']
+    if primary == 'transport':
+        state['last_transport_at'] = state['last_success_at']
+    if primary == 'national':
+        state['last_national_at'] = state['last_success_at']
     write_json_atomic(STATE, state, ensure_ascii=False, indent=2)
 
     log_card(c, sel, primary, posted_uri, handle, fallback=cards is None)
