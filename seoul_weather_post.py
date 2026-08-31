@@ -328,11 +328,11 @@ def build_card_lines(summary):
 
     sunrise, sunset = summary.get('sunrise'), summary.get('sunset')
     if sunrise:
-        lines_en.append({'emoji': '🌅', 'label': 'Sunrise', 'value': fmt_hhmm_ampm(sunrise)})
-        lines_ko.append({'emoji': '🌅', 'label': '일출', 'value': fmt_hhmm_ampm_ko(sunrise)})
+        lines_en.append({'emoji': '☀️', 'label': 'Sunrise', 'value': fmt_hhmm_ampm(sunrise)})
+        lines_ko.append({'emoji': '☀️', 'label': '일출', 'value': fmt_hhmm_ampm_ko(sunrise)})
     if sunset:
-        lines_en.append({'emoji': '🌇', 'label': 'Sunset', 'value': fmt_hhmm_ampm(sunset)})
-        lines_ko.append({'emoji': '🌇', 'label': '일몰', 'value': fmt_hhmm_ampm_ko(sunset)})
+        lines_en.append({'emoji': '🌙', 'label': 'Sunset', 'value': fmt_hhmm_ampm(sunset)})
+        lines_ko.append({'emoji': '🌙', 'label': '일몰', 'value': fmt_hhmm_ampm_ko(sunset)})
 
     rain_24h = summary.get('rain_24h')
     if rain_24h:
