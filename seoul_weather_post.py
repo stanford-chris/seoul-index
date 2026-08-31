@@ -109,6 +109,17 @@ def fmt_c_en(celsius):
     return f'{fmt_c(celsius)} ({f:.0f}°F)'
 
 
+def to_in(mm):
+    """'34.8' -> '34.8mm (1.37 in)'. English card only, as with to_f() and
+    to_mph() in seoul_index_post.py. Two decimal places, not to_f()'s and
+    to_mph()'s whole number: a whole-inch rounding would read every rainy
+    day here (typically a few mm to a few tens of mm) as 0 or 1 in, which
+    is the "$0.00" failure this account's other conversions never have to
+    guard against — 25.4mm is worth a whole degree or a whole mph, but
+    it's most of a typical day's total rainfall."""
+    return f'{mm:.1f}mm ({mm / 25.4:.2f} in)'
+
+
 def format_ampm(hour, minute):
     """(5, 0) -> '5 a.m.'; (18, 56) -> '6:56 p.m.' — house style is always
     a.m./p.m., lowercase, with periods; never a bare 24-hour clock."""
@@ -133,13 +144,14 @@ def fmt_hhmm_ampm_ko(hhmm):
 
 
 def fmt_forecast_rain_en(mm, exact):
-    """(2.0, True) -> '2.0mm'; (2.0, False) -> '2.0mm or more'; (0.0, False)
-    -> 'less than 1mm' — the one case where the summed figure is 0 but the
-    day isn't genuinely dry, because the only rain KMA forecast was a
-    '1mm 미만' hour that has no exact mm to add. See forecast_rain_today()."""
+    """(2.0, True) -> '2.0mm (0.08 in)'; (2.0, False) -> '2.0mm (0.08 in) or
+    more'; (0.0, False) -> 'less than 1mm (0.04 in)' — the one case where
+    the summed figure is 0 but the day isn't genuinely dry, because the
+    only rain KMA forecast was a '1mm 미만' hour that has no exact mm to
+    add. See forecast_rain_today()."""
     if mm == 0.0 and not exact:
-        return 'less than 1mm'
-    return f'{mm:.1f}mm' if exact else f'{mm:.1f}mm or more'
+        return 'less than 1mm (0.04 in)'
+    return to_in(mm) if exact else f'{to_in(mm)} or more'
 
 
 def fmt_forecast_rain_ko(mm, exact):
@@ -395,7 +407,7 @@ def build_card_lines(summary):
     rain_24h = summary.get('rain_24h')
     if rain_24h:
         lines_en.append({'emoji': '🌧️', 'label': "Yesterday's rainfall",
-                         'value': f'{rain_24h:.1f}mm'})
+                         'value': to_in(rain_24h)})
         lines_ko.append({'emoji': '🌧️', 'label': '어제 강수량',
                          'value': f'{rain_24h:.1f}mm'})
 

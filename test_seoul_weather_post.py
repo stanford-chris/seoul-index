@@ -71,13 +71,19 @@ class FmtHhmmAmpm(unittest.TestCase):
         self.assertEqual(W.fmt_hhmm_ampm_ko('0500'), '오전 5시')
 
 
+class ToIn(unittest.TestCase):
+    def test_converts_and_rounds_to_two_decimal_places(self):
+        self.assertEqual(W.to_in(34.8), '34.8mm (1.37 in)')
+        self.assertEqual(W.to_in(4.0), '4.0mm (0.16 in)')
+
+
 class FmtForecastRain(unittest.TestCase):
     def test_exact_figure(self):
-        self.assertEqual(W.fmt_forecast_rain_en(4.0, True), '4.0mm')
+        self.assertEqual(W.fmt_forecast_rain_en(4.0, True), '4.0mm (0.16 in)')
         self.assertEqual(W.fmt_forecast_rain_ko(4.0, True), '4.0mm')
 
     def test_inexact_figure_reads_as_a_floor(self):
-        self.assertEqual(W.fmt_forecast_rain_en(30.0, False), '30.0mm or more')
+        self.assertEqual(W.fmt_forecast_rain_en(30.0, False), '30.0mm (1.18 in) or more')
         self.assertEqual(W.fmt_forecast_rain_ko(30.0, False), '30.0mm 이상')
 
     def test_zero_but_inexact_is_a_trace_not_a_dry_day(self):
@@ -85,7 +91,7 @@ class FmtForecastRain(unittest.TestCase):
         # by omitting the row entirely) from "the only rain forecast was a
         # '1mm 미만' hour with no number to add" — both sum to 0.0, but only
         # the second is a real forecast worth stating.
-        self.assertEqual(W.fmt_forecast_rain_en(0.0, False), 'less than 1mm')
+        self.assertEqual(W.fmt_forecast_rain_en(0.0, False), 'less than 1mm (0.04 in)')
         self.assertEqual(W.fmt_forecast_rain_ko(0.0, False), '1mm 미만')
 
 
@@ -404,7 +410,7 @@ class BuildCardLines(unittest.TestCase):
     def test_rain_24h_row_when_present(self):
         _, lines_en, _, lines_ko = W.build_card_lines(self._summary(rain_24h=12.5))
         self.assertEqual(next(l for l in lines_en if l['label'] == "Yesterday's rainfall")['value'],
-                         '12.5mm')
+                         '12.5mm (0.49 in)')
         self.assertEqual(next(l for l in lines_ko if l['label'] == '어제 강수량')['value'],
                          '12.5mm')
 
@@ -426,7 +432,7 @@ class BuildCardLines(unittest.TestCase):
         _, lines_en, _, lines_ko = W.build_card_lines(
             self._summary(rain_forecast_mm=0.0, rain_forecast_exact=False))
         self.assertEqual(next(l for l in lines_en if l['label'] == 'Rain expected')['value'],
-                         'less than 1mm')
+                         'less than 1mm (0.04 in)')
         self.assertEqual(next(l for l in lines_ko if l['label'] == '예상 강수량')['value'],
                          '1mm 미만')
 
@@ -434,7 +440,7 @@ class BuildCardLines(unittest.TestCase):
         _, lines_en, _, lines_ko = W.build_card_lines(
             self._summary(rain_forecast_mm=13.0, rain_forecast_exact=True))
         self.assertEqual(next(l for l in lines_en if l['label'] == 'Rain expected')['value'],
-                         '13.0mm')
+                         '13.0mm (0.51 in)')
         self.assertEqual(next(l for l in lines_ko if l['label'] == '예상 강수량')['value'],
                          '13.0mm')
 
@@ -442,7 +448,7 @@ class BuildCardLines(unittest.TestCase):
         _, lines_en, _, lines_ko = W.build_card_lines(
             self._summary(rain_forecast_mm=30.0, rain_forecast_exact=False))
         self.assertEqual(next(l for l in lines_en if l['label'] == 'Rain expected')['value'],
-                         '30.0mm or more')
+                         '30.0mm (1.18 in) or more')
         self.assertEqual(next(l for l in lines_ko if l['label'] == '예상 강수량')['value'],
                          '30.0mm 이상')
 
@@ -460,8 +466,8 @@ class BuildCardLines(unittest.TestCase):
                         labels_en.index("Yesterday's rainfall"))
         rain_row = next(l for l in lines_en if l['label'] == 'Rain expected')
         y_row = next(l for l in lines_en if l['label'] == "Yesterday's rainfall")
-        self.assertEqual(rain_row['value'], '35.0mm or more')
-        self.assertEqual(y_row['value'], '34.8mm')
+        self.assertEqual(rain_row['value'], '35.0mm (1.38 in) or more')
+        self.assertEqual(y_row['value'], '34.8mm (1.37 in)')
         self.assertNotIn('value_lead', rain_row)
         self.assertNotIn('value_lead', y_row)
 
