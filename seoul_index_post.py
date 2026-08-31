@@ -234,13 +234,15 @@ STARVE_MIN_FACTS = 3
 # years the moment a middle one came out highest.
 ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist'}
 
-# Veins whose lines are all the same KIND of thing, where a partial set of line
-# emoji reads as an oversight rather than a judgement. See even_out_emoji.
-# 'culture' joined 28 Aug 2026: a museum card mixes visitor totals and
-# facility counts, and an obvious emoji (a flag, a museum) exists for some
-# lines and not others, which is exactly the "three of four" look this rule
-# exists to prevent — the user's call, on the 3mu3yywrhdj2x post.
-EMOJI_ALL_OR_NONE = {'boxoffice', 'boxhist', 'culture'}
+# Every vein's lines are all-or-nothing on emoji, not just a chosen few: a
+# partial set reads as an oversight rather than a judgement, whatever the
+# category. See even_out_emoji. Started as a per-vein allowlist (boxoffice,
+# boxhist, then 'culture' on 28 Aug 2026, after a museum card mixed a
+# flag/museum emoji with bare visitor-count lines — the user's call, on the
+# 3mu3yywrhdj2x post) and generalised to every category on 31 Aug 2026,
+# also the user's call. A genuinely mixed CARD is still fine — a cross-vein
+# pair post can show one vein's lines all tagged and the other vein's lines
+# all bare — this only forces consistency WITHIN a single vein's own lines.
 
 # Curated live-crowd locations (citydata_ppltn AREA_NM, all verified to resolve).
 # A mix of packed / quiet / touristy / young so contrasts are available.
@@ -4534,22 +4536,24 @@ def complete_boxoffice(picks, pool):
 
 
 def even_out_emoji(lines, cats):
-    """All the films carry an emoji, or none of them do.
+    """Within any one vein, all lines carry an emoji, or none of them do.
 
     The prompt tells the selector to tag a line ONLY where an obvious emoji
-    exists, which is right for a mixed card: a spending card can carry ☕ beside
-    an abstract share with nothing. A box office card is not mixed. Every line
-    is the same KIND of thing, a film, so an emoji on three of four reads as an
-    oversight rather than a judgement, and that is exactly what the second live
-    preview looked like: 🕷 Spider-Man, 👻 Insidious, 🕵️ Conan, and The Odyssey
-    bare at the top.
+    exists, which is right for a genuinely mixed CARD: a cross-vein pair post
+    can carry a fully-tagged vein beside a fully-bare one. It is wrong within
+    ONE vein's own lines, where every line is the same KIND of thing (four
+    films, four museums, four bike stats) and an emoji on some but not all
+    reads as an oversight rather than a judgement — exactly what the second
+    box office live preview looked like: 🕷 Spider-Man, 👻 Insidious, 🕵️ Conan,
+    and The Odyssey bare at the top.
 
     Deterministic rather than another sentence in the prompt: the selector is
-    being asked for a judgement per line, and consistency across lines is not a
-    judgement, it is a rule. Applied per category so a genuine mixed card is
-    left alone.
+    being asked for a judgement per line, and consistency across lines is not
+    a judgement, it is a rule. Applied per category (not globally across the
+    whole card) so a genuine cross-vein pair is left alone; universal across
+    every category (not a chosen allowlist) since 31 Aug 2026.
     """
-    for cat in EMOJI_ALL_OR_NONE & cats:
+    for cat in cats:
         ours = [l for l in lines if l.get('cat') == cat]
         if ours and not all(l['emoji'] for l in ours):
             for l in ours:
@@ -5634,8 +5638,25 @@ def compose(sel, pool):
         # under. The card must never say the bridge is closed or submerged.
         src_en += ' · HRFCO'
         src_ko += ' · 한강홍수통제소'
-        scope_en.append(('Flood-warning tiers at this gauge', LEVEL_PERIOD['en']))
-        scope_ko.append(('이 지점의 홍수특보 기준수위', LEVEL_PERIOD['ko']))
+        # Shortened from "... at this gauge" on 31 Aug 2026: the opener
+        # ("The Han at Jamsu Bridge") already scopes the whole card to one
+        # gauge, so the descriptor was repeating it. The period half of this
+        # pair still carries the reading time up to the masthead dateline —
+        # only the wording changed, not the (descriptor, period) mechanism.
+        scope_en.append(('Flood-warning tiers', LEVEL_PERIOD['en']))
+        scope_ko.append(('홍수특보 기준수위', LEVEL_PERIOD['ko']))
+    if 'bike' in cats:
+        # ⚠️ Bikes waiting can genuinely outnumber docking points, both
+        # citywide and per station (measured 31 Aug 2026: 1,078 of ~2,700
+        # stations, one showing 36 against 15 racks) — not a bot error. Most
+        # Ttareungi bikes now use a QR/wheel self-lock rather than clicking
+        # into an individual dock, so a full rack does not stop a bike being
+        # parked at that station; "docking points" counts installed rack
+        # slots, "bikes waiting" counts bikes actually parked there by any
+        # method. Raised by a reader on the 3muefbvgoce2v post. Korean
+        # round-tripped through Naver by the user before landing.
+        scope_en.append(('QR-lock bikes can be parked past a full rack', None))
+        scope_ko.append(('QR 잠금 자전거는 거치대가 가득 차도 인근 주차 가능', None))
     if 'rush' in cats and RUSH_M['en']:
         # ⚠️ Without this the card says "City Hall, 6 p.m.: 347,582" under a
         # month dateline, which reads as one evening and is out by about

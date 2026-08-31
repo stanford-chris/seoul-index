@@ -958,11 +958,12 @@ class BoxOfficeEmojiAreAllOrNone(unittest.TestCase):
         S.even_out_emoji(lines, {'boxoffice'})
         self.assertEqual([l['emoji'] for l in lines], ['🎬', '🕷', '👻', '🕵️'])
 
-    def test_other_veins_keep_their_mixed_emoji(self):
-        """A spending card carrying ☕ beside an abstract share is correct."""
+    def test_other_veins_are_evened_out_too(self):
+        """Generalised to every category on 31 Aug 2026: a partial set on a
+        spending card is cleared exactly like a partial set of films."""
         lines = self._lines(['☕', '', '📚'], cat='spending')
         S.even_out_emoji(lines, {'spending'})
-        self.assertEqual([l['emoji'] for l in lines], ['☕', '', '📚'])
+        self.assertEqual([l['emoji'] for l in lines], ['', '', ''])
 
     def test_a_cross_pair_card_only_evens_out_its_films(self):
         """A boxoffice line can share a card with another vein on a cross pair,
@@ -1289,10 +1290,13 @@ class CultureCardLabels(unittest.TestCase):
     """A museum card's own opener already says "A year at Seoul's museums"
     (서울 박물관의 1년), so a per-line "A year's visitors to..." (연간 관람객)
     repeated the year a third time — caught on the 28 Aug 2026 card
-    (3mu3yywrhdj2x). Same fix in both languages, and 'culture' also joined
-    EMOJI_ALL_OR_NONE the same day: the card mixes visitor totals and
-    facility counts, so an obvious emoji exists for some lines and not
+    (3mu3yywrhdj2x). Same fix in both languages, and 'culture' also became
+    subject to even_out_emoji the same day: the card mixes visitor totals
+    and facility counts, so an obvious emoji exists for some lines and not
     others, which is the "three of four" look that rule exists to prevent.
+    Generalised from a 3-category allowlist to every category on 31 Aug
+    2026, so this is now no different from any other vein — see
+    BoxOfficeEmojiAreAllOrNone.test_other_veins_are_evened_out_too.
     """
 
     def facts(self):
@@ -1327,7 +1331,9 @@ class CultureCardLabels(unittest.TestCase):
         self.assertNotIn('연간', top['label_ko'])
 
     def test_culture_is_emoji_all_or_none(self):
-        self.assertIn('culture', S.EMOJI_ALL_OR_NONE)
+        lines = [{'emoji': '🏛', 'cat': 'culture'}, {'emoji': '', 'cat': 'culture'}]
+        S.even_out_emoji(lines, {'culture'})
+        self.assertEqual([l['emoji'] for l in lines], ['', ''])
 
 
 class NothingFilesFromATestRun(unittest.TestCase):
