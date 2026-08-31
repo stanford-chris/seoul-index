@@ -40,6 +40,7 @@ Usage:
 import collections
 import fcntl
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -131,6 +132,23 @@ def fmt_hhmm_ampm_ko(hhmm):
     return f'{period} {hour_12}시 {minute:02d}분' if minute else f'{period} {hour_12}시'
 
 
+def fmt_forecast_rain_en(mm, exact):
+    """(2.0, True) -> '2.0mm'; (2.0, False) -> '2.0mm or more'; (0.0, False)
+    -> 'less than 1mm' — the one case where the summed figure is 0 but the
+    day isn't genuinely dry, because the only rain KMA forecast was a
+    '1mm 미만' hour that has no exact mm to add. See forecast_rain_today()."""
+    if mm == 0.0 and not exact:
+        return 'less than 1mm'
+    return f'{mm:.1f}mm' if exact else f'{mm:.1f}mm or more'
+
+
+def fmt_forecast_rain_ko(mm, exact):
+    """Korean counterpart of fmt_forecast_rain_en(), same three cases."""
+    if mm == 0.0 and not exact:
+        return '1mm 미만'
+    return f'{mm:.1f}mm' if exact else f'{mm:.1f}mm 이상'
+
+
 def latest_base(now):
     """(base_date, base_time) of the most recent getVilageFcst run that
     should already be published, given `now` (aware, Asia/Seoul).
@@ -218,6 +236,43 @@ def yesterday_rain(key, today):
     if not rows:
         return None
     return _wx_num(rows[0], 'sumRn') or None
+
+
+_PCP_MM_RE = re.compile(r'^(\d+(?:\.\d+)?)mm$')
+
+
+def forecast_rain_today(items, target_date):
+    """Today's forecast rainfall total in mm, summed from the hourly PCP
+    (강수량) rows in the SAME getVilageFcst response already fetched for
+    today_summary() — no extra call and no separate 활용신청, unlike
+    yesterday_rain()'s ASOS observation.
+
+    Returns (mm, exact): mm is the sum of every hour's figure it could
+    parse; exact is False if any hour reported a bucketed range instead of
+    a plain number. Confirmed live 1 September 2026 (base 0500): ordinary
+    hours read '4.0mm', '9.0mm', '1.0mm'; a dry hour reads '강수없음'
+    (counted as 0); a trace hour reads '1mm 미만' with no number at all.
+    KMA's own published format additionally buckets the heavy-rain end
+    ('30.0~50.0mm', '50.0mm 이상'), not observed live but handled the same
+    way — anything that isn't a plain 'N.Nmm' or '강수없음' can only push
+    the true total up, so the return says "at least this much" rather than
+    inventing a number for it. (None, None) if the day has no PCP rows at
+    all, so an absent forecast reads the same way as every other
+    best-effort figure on this card rather than as a false zero."""
+    total, exact, seen = 0.0, True, False
+    for i in items:
+        if i.get('fcstDate') != target_date or i.get('category') != 'PCP':
+            continue
+        seen = True
+        v = i.get('fcstValue', '')
+        if v == '강수없음':
+            continue
+        m = _PCP_MM_RE.match(v)
+        if m:
+            total += float(m.group(1))
+        else:
+            exact = False
+    return (total, exact) if seen else (None, None)
 
 
 def today_summary(items, target_date):
@@ -322,17 +377,20 @@ def build_card_lines(summary):
     elif pty_en:
         lines_en.append({'emoji': cond_emoji, 'label': 'Conditions', 'value': pty_en})
         lines_ko.append({'emoji': cond_emoji, 'label': '날씨', 'value': pty_ko})
-    if humidity is not None:
-        lines_en.append({'emoji': '💧', 'label': 'Humidity', 'value': f'{humidity}%'})
-        lines_ko.append({'emoji': '💧', 'label': '습도', 'value': f'{humidity}%'})
 
-    sunrise, sunset = summary.get('sunrise'), summary.get('sunset')
-    if sunrise:
-        lines_en.append({'emoji': '☀️', 'label': 'Sunrise', 'value': fmt_hhmm_ampm(sunrise)})
-        lines_ko.append({'emoji': '☀️', 'label': '일출', 'value': fmt_hhmm_ampm_ko(sunrise)})
-    if sunset:
-        lines_en.append({'emoji': '🌙', 'label': 'Sunset', 'value': fmt_hhmm_ampm(sunset)})
-        lines_ko.append({'emoji': '🌙', 'label': '일몰', 'value': fmt_hhmm_ampm_ko(sunset)})
+    # Rain expected (forecast, today) and yesterday's rainfall (observed)
+    # are unrelated readings from two different sources — either can be
+    # present without the other — but grouped adjacently rather than
+    # merged onto one line: the combined text ("Rain expected 35.0mm or
+    # more" beside "Yesterday's rainfall 34.8mm") is too long for one row
+    # and wraps badly, unlike the short sunrise/sunset pair above.
+    rain_mm, rain_exact = summary.get('rain_forecast_mm'), summary.get('rain_forecast_exact')
+    has_forecast = rain_mm is not None and not (rain_mm == 0.0 and rain_exact)
+    if has_forecast:
+        lines_en.append({'emoji': '☂️', 'label': 'Rain expected',
+                         'value': fmt_forecast_rain_en(rain_mm, rain_exact)})
+        lines_ko.append({'emoji': '☂️', 'label': '예상 강수량',
+                         'value': fmt_forecast_rain_ko(rain_mm, rain_exact)})
 
     rain_24h = summary.get('rain_24h')
     if rain_24h:
@@ -340,6 +398,27 @@ def build_card_lines(summary):
                          'value': f'{rain_24h:.1f}mm'})
         lines_ko.append({'emoji': '🌧️', 'label': '어제 강수량',
                          'value': f'{rain_24h:.1f}mm'})
+
+    if humidity is not None:
+        lines_en.append({'emoji': '💧', 'label': 'Humidity', 'value': f'{humidity}%'})
+        lines_ko.append({'emoji': '💧', 'label': '습도', 'value': f'{humidity}%'})
+
+    sunrise, sunset = summary.get('sunrise'), summary.get('sunset')
+    # fetch_sun_times() only ever returns both or neither (it refuses a
+    # response missing either field), so one combined row rather than a
+    # sunrise row and a separate sunset row. Sunrise's time bolds via emph
+    # (a run inside the otherwise-regular label); Sunset's time bolds
+    # because it's the row's actual value — "Sunset" itself sits in
+    # value_lead, at regular weight, so only the two clock times bold.
+    if sunrise and sunset:
+        sr_en, ss_en = fmt_hhmm_ampm(sunrise), fmt_hhmm_ampm(sunset)
+        sr_ko, ss_ko = fmt_hhmm_ampm_ko(sunrise), fmt_hhmm_ampm_ko(sunset)
+        lines_en.append({'emoji': '☀️', 'label': f'Sunrise {sr_en}', 'emph': sr_en,
+                         'value_lead': '🌙 Sunset ', 'value': ss_en,
+                         'alt': f'Sunrise {sr_en}, Sunset {ss_en}'})
+        lines_ko.append({'emoji': '☀️', 'label': f'일출 {sr_ko}', 'emph': sr_ko,
+                         'value_lead': '🌙 일몰 ', 'value': ss_ko,
+                         'alt': f'일출 {sr_ko}, 일몰 {ss_ko}'})
 
     if pty:
         op_emoji = PTY_EMOJI.get(pty, '🌂')
@@ -351,22 +430,38 @@ def build_card_lines(summary):
     return opener_en, lines_en, opener_ko, lines_ko
 
 
-def footnotes(base_time):
+def footnotes(base_time, has_yesterday_rain=False):
+    """The caveat is "not an observed reading" for every figure on the card
+    EXCEPT yesterday's rainfall, which is an ASOS observation, not a KMA
+    forecast — so a card carrying that row needs the caveat to say so,
+    or it flatly misdescribes the one reading that actually is observed."""
     hour, minute = int(base_time[:2]), int(base_time[2:])
     time_en = format_ampm(hour, minute)
     note_en = (f"Korea Meteorological Administration's forecast, issued at "
               f'{time_en} KST — not an observed reading')
     note_ko = f'기상청이 {hour}시에 발표한 예보이며, 실제 관측값이 아닙니다'
+    if has_yesterday_rain:
+        note_en += ", except yesterday's rainfall, which is"
+        note_ko += '. 다만 어제 강수량은 실제 관측값입니다'
     return note_en, note_ko
 
 
 def build_alt_bodies(opener, lines, footnote):
     """Plain-text rendering of one card's content, for its image ALT text —
     matching seoul_index_post.py's own body/alt convention (curly() applied,
-    emoji stripped separately by the caller for the alt itself)."""
+    emoji stripped separately by the caller for the alt itself).
+
+    The default "{label}: {value}" template only reads 'label' and 'value',
+    so a row using 'value_lead' (sunrise/sunset packs a second emoji-led
+    reading into the value slot) needs its own 'alt' string, or that
+    second reading's wording is silently absent from the alt text
+    entirely — not just unbolded, but never said."""
     parts = [curly(f"{opener['emoji']} {opener['text']}".strip())]
     for l in lines:
-        parts.append(curly(f"{l['emoji']} {l['label']}: {l['value']}".strip()))
+        if 'alt' in l:
+            parts.append(curly(l['alt']))
+        else:
+            parts.append(curly(f"{l['emoji']} {l['label']}: {l['value']}".strip()))
     if footnote:
         parts.append(curly(footnote))
     return '\n'.join(parts)
@@ -404,22 +499,27 @@ def main():
                  f'{base_date} {base_time} run — KMA response may have '
                  f'changed shape.')
 
-    # Both best-effort: sun times need their own 활용신청 on this key (not
-    # yet approved as of 30 August 2026, so this returns None until then),
-    # and yesterday's rain row is simply absent on a dry day. Neither is
-    # worth aborting the post over.
+    # All three best-effort: sun times need their own 활용신청 on this key
+    # (not yet approved as of 30 August 2026, so this returns None until
+    # then), yesterday's rain row is simply absent on a dry day, and the
+    # forecast total is None only if KMA's response carries no PCP rows at
+    # all. None of the three is worth aborting the post over.
     sun = fetch_sun_times(gov_key, target_date)
     summary['sunrise'], summary['sunset'] = sun if sun else (None, None)
     summary['rain_24h'] = yesterday_rain(gov_key, now.date())
+    summary['rain_forecast_mm'], summary['rain_forecast_exact'] = \
+        forecast_rain_today(items, target_date)
 
     print(f'Forecast run {base_date} {base_time} → {target_date}: '
          f'hi {summary["hi"]:.1f}°C, lo {summary["lo"]:.1f}°C, '
          f'pop {summary["pop"]}, sky {summary["sky"]}, pty {summary["pty"]}, '
          f'sunrise {summary["sunrise"]}, sunset {summary["sunset"]}, '
-         f'rain_24h {summary["rain_24h"]}')
+         f'rain_24h {summary["rain_24h"]}, '
+         f'rain_forecast {summary["rain_forecast_mm"]} '
+         f'(exact={summary["rain_forecast_exact"]})')
 
     opener_en, lines_en, opener_ko, lines_ko = build_card_lines(summary)
-    note_en, note_ko = footnotes(base_time)
+    note_en, note_ko = footnotes(base_time, has_yesterday_rain=bool(summary.get('rain_24h')))
     dateline_en = f'{now:%-d %B %Y}'
     dateline_ko = f'{now.year}년 {now.month}월 {now.day}일'
 

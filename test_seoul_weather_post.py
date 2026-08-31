@@ -71,6 +71,24 @@ class FmtHhmmAmpm(unittest.TestCase):
         self.assertEqual(W.fmt_hhmm_ampm_ko('0500'), '오전 5시')
 
 
+class FmtForecastRain(unittest.TestCase):
+    def test_exact_figure(self):
+        self.assertEqual(W.fmt_forecast_rain_en(4.0, True), '4.0mm')
+        self.assertEqual(W.fmt_forecast_rain_ko(4.0, True), '4.0mm')
+
+    def test_inexact_figure_reads_as_a_floor(self):
+        self.assertEqual(W.fmt_forecast_rain_en(30.0, False), '30.0mm or more')
+        self.assertEqual(W.fmt_forecast_rain_ko(30.0, False), '30.0mm 이상')
+
+    def test_zero_but_inexact_is_a_trace_not_a_dry_day(self):
+        # Distinguishes "every hour was 강수없음" (a genuine zero, handled
+        # by omitting the row entirely) from "the only rain forecast was a
+        # '1mm 미만' hour with no number to add" — both sum to 0.0, but only
+        # the second is a real forecast worth stating.
+        self.assertEqual(W.fmt_forecast_rain_en(0.0, False), 'less than 1mm')
+        self.assertEqual(W.fmt_forecast_rain_ko(0.0, False), '1mm 미만')
+
+
 class LatestBase(unittest.TestCase):
     def test_picks_the_most_recent_ready_run(self):
         # 08:25 KST: 0800 published (ready at 08:20), 1100 not yet.
@@ -191,6 +209,58 @@ class TodaySummary(unittest.TestCase):
         self.assertIsNone(s['humidity'])
 
 
+class ForecastRainToday(unittest.TestCase):
+    """PCP reduction — the same shape of test as TodaySummary above: the
+    failure to fear is a plausible wrong total, not a crash."""
+
+    def test_no_pcp_rows_at_all_is_none_not_zero(self):
+        items = [_row('20260829', '1500', 'TMP', '31')]
+        mm, exact = W.forecast_rain_today(items, '20260829')
+        self.assertIsNone(mm)
+        self.assertIsNone(exact)
+
+    def test_a_dry_day_sums_to_zero_and_stays_exact(self):
+        items = [_row('20260829', h, 'PCP', '강수없음') for h in ('0600', '0900', '1200')]
+        self.assertEqual(W.forecast_rain_today(items, '20260829'), (0.0, True))
+
+    def test_plain_figures_sum_exactly(self):
+        items = [
+            _row('20260829', '0600', 'PCP', '4.0mm'),
+            _row('20260829', '0700', 'PCP', '9.0mm'),
+            _row('20260829', '0800', 'PCP', '강수없음'),
+        ]
+        self.assertEqual(W.forecast_rain_today(items, '20260829'), (13.0, True))
+
+    def test_a_trace_hour_marks_the_total_inexact(self):
+        # '1mm 미만' has no number to add — confirmed live 1 September 2026 —
+        # so it can only push the true total up, never down.
+        items = [
+            _row('20260829', '0600', 'PCP', '4.0mm'),
+            _row('20260829', '0900', 'PCP', '1mm 미만'),
+        ]
+        self.assertEqual(W.forecast_rain_today(items, '20260829'), (4.0, False))
+
+    def test_a_bucketed_heavy_rain_range_also_marks_inexact(self):
+        # Not observed live (no heavy-rain day yet), but KMA's published
+        # format buckets the top end the same way it buckets the trace end.
+        items = [_row('20260829', '1500', 'PCP', '30.0~50.0mm')]
+        self.assertEqual(W.forecast_rain_today(items, '20260829'), (0.0, False))
+
+    def test_other_dates_in_the_same_response_are_ignored(self):
+        items = [
+            _row('20260829', '1500', 'PCP', '4.0mm'),
+            _row('20260830', '1500', 'PCP', '99.0mm'),  # tomorrow — must not leak in
+        ]
+        self.assertEqual(W.forecast_rain_today(items, '20260829'), (4.0, True))
+
+    def test_other_categories_at_the_same_hour_are_ignored(self):
+        items = [
+            _row('20260829', '1500', 'TMP', '31'),
+            _row('20260829', '1500', 'PCP', '2.0mm'),
+        ]
+        self.assertEqual(W.forecast_rain_today(items, '20260829'), (2.0, True))
+
+
 class BuildCardLines(unittest.TestCase):
     def _summary(self, **over):
         base = {'hi': 30.0, 'lo': 22.0, 'pop': 40, 'sky': '3', 'pty': None,
@@ -288,25 +358,38 @@ class BuildCardLines(unittest.TestCase):
         self.assertEqual(next(l for l in lines_en if l['label'] == 'Humidity')['value'], '62%')
         self.assertEqual(next(l for l in lines_ko if l['label'] == '습도')['value'], '62%')
 
-    def test_no_sunrise_or_sunset_omits_both_rows(self):
+    def test_no_sunrise_or_sunset_omits_the_row(self):
         # today_summary() never sets these — they land in the summary dict
         # separately, from a different call, so absence must not crash.
         _, lines_en, _, _ = W.build_card_lines(self._summary())
-        labels = [l['label'] for l in lines_en]
-        self.assertNotIn('Sunrise', labels)
-        self.assertNotIn('Sunset', labels)
+        self.assertNotIn('Sunrise · Sunset', [l['label'] for l in lines_en])
 
-    def test_sunrise_and_sunset_rows_when_present(self):
+    def test_only_one_of_the_pair_present_also_omits_the_row(self):
+        # fetch_sun_times() only ever returns both fields or neither, but
+        # the row logic itself should not assume that — a summary carrying
+        # just one must not silently print the other as an empty half.
+        _, lines_en, _, _ = W.build_card_lines(self._summary(sunrise='0533'))
+        self.assertNotIn('Sunrise · Sunset', [l['label'] for l in lines_en])
+        _, lines_en, _, _ = W.build_card_lines(self._summary(sunset='1856'))
+        self.assertNotIn('Sunrise · Sunset', [l['label'] for l in lines_en])
+
+    def test_sunrise_and_sunset_share_one_row(self):
+        # Sunrise's time bolds via 'emph' inside the (regular) label;
+        # Sunset's time bolds because it's the row's actual value, with
+        # the word "Sunset" itself living in 'value_lead' at regular
+        # weight — so both clock times bold and neither word does.
         _, lines_en, _, lines_ko = W.build_card_lines(
             self._summary(sunrise='0533', sunset='1856'))
-        self.assertEqual(next(l for l in lines_en if l['label'] == 'Sunrise')['value'],
-                         '5:33 a.m.')
-        self.assertEqual(next(l for l in lines_en if l['label'] == 'Sunset')['value'],
-                         '6:56 p.m.')
-        self.assertEqual(next(l for l in lines_ko if l['label'] == '일출')['value'],
-                         '오전 5시 33분')
-        self.assertEqual(next(l for l in lines_ko if l['label'] == '일몰')['value'],
-                         '오후 6시 56분')
+        row_en = next(l for l in lines_en if l['label'].startswith('Sunrise'))
+        row_ko = next(l for l in lines_ko if l['label'].startswith('일출'))
+        self.assertEqual(row_en['label'], 'Sunrise 5:33 a.m.')
+        self.assertEqual(row_en['emph'], '5:33 a.m.')
+        self.assertEqual(row_en['value_lead'], '🌙 Sunset ')
+        self.assertEqual(row_en['value'], '6:56 p.m.')
+        self.assertEqual(row_en['alt'], 'Sunrise 5:33 a.m., Sunset 6:56 p.m.')
+        self.assertEqual(row_ko['label'], '일출 오전 5시 33분')
+        self.assertEqual(row_ko['value_lead'], '🌙 일몰 ')
+        self.assertEqual(row_ko['value'], '오후 6시 56분')
 
     def test_no_rain_24h_omits_the_row(self):
         _, lines_en, _, _ = W.build_card_lines(self._summary())
@@ -324,6 +407,63 @@ class BuildCardLines(unittest.TestCase):
                          '12.5mm')
         self.assertEqual(next(l for l in lines_ko if l['label'] == '어제 강수량')['value'],
                          '12.5mm')
+
+    def test_no_forecast_rain_data_omits_the_row(self):
+        # forecast_rain_today() returned (None, None) — no PCP rows at all.
+        _, lines_en, _, _ = W.build_card_lines(self._summary())
+        self.assertNotIn('Rain expected', [l['label'] for l in lines_en])
+
+    def test_a_genuinely_dry_forecast_also_omits_the_row(self):
+        # Every hour read 강수없음 — (0.0, True) — same convention as
+        # rain_24h's own dry-day omission.
+        _, lines_en, _, _ = W.build_card_lines(
+            self._summary(rain_forecast_mm=0.0, rain_forecast_exact=True))
+        self.assertNotIn('Rain expected', [l['label'] for l in lines_en])
+
+    def test_a_trace_only_forecast_still_shows_the_row(self):
+        # (0.0, False): the only rain forecast was a '1mm 미만' hour, which
+        # is real information and must not read the same as a dry day.
+        _, lines_en, _, lines_ko = W.build_card_lines(
+            self._summary(rain_forecast_mm=0.0, rain_forecast_exact=False))
+        self.assertEqual(next(l for l in lines_en if l['label'] == 'Rain expected')['value'],
+                         'less than 1mm')
+        self.assertEqual(next(l for l in lines_ko if l['label'] == '예상 강수량')['value'],
+                         '1mm 미만')
+
+    def test_forecast_rain_row_when_exact(self):
+        _, lines_en, _, lines_ko = W.build_card_lines(
+            self._summary(rain_forecast_mm=13.0, rain_forecast_exact=True))
+        self.assertEqual(next(l for l in lines_en if l['label'] == 'Rain expected')['value'],
+                         '13.0mm')
+        self.assertEqual(next(l for l in lines_ko if l['label'] == '예상 강수량')['value'],
+                         '13.0mm')
+
+    def test_forecast_rain_row_when_inexact_reads_as_a_floor(self):
+        _, lines_en, _, lines_ko = W.build_card_lines(
+            self._summary(rain_forecast_mm=30.0, rain_forecast_exact=False))
+        self.assertEqual(next(l for l in lines_en if l['label'] == 'Rain expected')['value'],
+                         '30.0mm or more')
+        self.assertEqual(next(l for l in lines_ko if l['label'] == '예상 강수량')['value'],
+                         '30.0mm 이상')
+
+    def test_rain_expected_and_yesterday_rainfall_are_adjacent_separate_rows(self):
+        # Both are simple standalone rows (unlike sunrise/sunset, which
+        # merges) — a merged version of this pair was tried and rejected:
+        # the combined text is too long for one row and wraps badly. They
+        # sit next to each other in the card, "Rain expected" first.
+        _, lines_en, _, lines_ko = W.build_card_lines(self._summary(
+            rain_forecast_mm=35.0, rain_forecast_exact=False, rain_24h=34.8))
+        labels_en = [l['label'] for l in lines_en]
+        self.assertIn('Rain expected', labels_en)
+        self.assertIn("Yesterday's rainfall", labels_en)
+        self.assertLess(labels_en.index('Rain expected'),
+                        labels_en.index("Yesterday's rainfall"))
+        rain_row = next(l for l in lines_en if l['label'] == 'Rain expected')
+        y_row = next(l for l in lines_en if l['label'] == "Yesterday's rainfall")
+        self.assertEqual(rain_row['value'], '35.0mm or more')
+        self.assertEqual(y_row['value'], '34.8mm')
+        self.assertNotIn('value_lead', rain_row)
+        self.assertNotIn('value_lead', y_row)
 
 
 class FetchSunTimes(unittest.TestCase):
@@ -409,6 +549,25 @@ class Footnotes(unittest.TestCase):
         for base_time, want in expected.items():
             note_en, _ = W.footnotes(base_time)
             self.assertIn(want, note_en, base_time)
+
+    def test_default_still_claims_nothing_is_observed(self):
+        # Yesterday's rainfall is the one row on the card that IS an ASOS
+        # observation, not a KMA forecast — a card without that row must
+        # keep the blanket claim, which the bare "not an observed reading"
+        # default form asserts.
+        note_en, note_ko = W.footnotes('0500')
+        self.assertIn('not an observed reading', note_en)
+        self.assertNotIn('except', note_en)
+        self.assertNotIn('다만', note_ko)
+
+    def test_yesterday_rain_present_carves_out_the_one_exception(self):
+        # Otherwise the footnote flatly misdescribes the one reading on the
+        # card that actually is observed.
+        note_en, note_ko = W.footnotes('0500', has_yesterday_rain=True)
+        self.assertIn('not an observed reading', note_en)
+        self.assertIn("except yesterday's rainfall, which is", note_en)
+        self.assertIn('실제 관측값이 아닙니다', note_ko)
+        self.assertIn('어제 강수량은 실제 관측값입니다', note_ko)
 
 
 if __name__ == '__main__':

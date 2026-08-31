@@ -36,6 +36,12 @@ Public API:
                   {"emph": "Gangnam Station"} bolds that run inside the label,
                   for a card whose rows share their wording and differ in one
                   span of it.
+                  {"value_lead": "🌙 Sunset "} prints that text in REGULAR
+                  weight immediately before the (still bold) value — for a row
+                  that packs a second emoji-led reading into the value slot
+                  (sunrise/sunset, a forecast beside an observation) without
+                  its own label/word turning bold along with the figure that
+                  follows it.
         footnote: "Crowds are KT-estimated" or "" for none
         dateline: masthead period under the title ("December 2025") on a single-
                   frame dated card; "" when grouped (the date rides a subhead)
@@ -135,11 +141,13 @@ def _row_html(line):
         run = _esc(line['emph'])
         if run:
             lab = lab.replace(run, f'<b>{run}</b>', 1)
+    val_lead = line.get('value_lead') or ''
+    val_lead_html = f'<span class="valreg">{_esc(val_lead)}</span>' if val_lead else ''
     return (
         '<div class="r">'
         f'<span class="lab">{lead}{lab}</span>'
         '<span class="led"></span>'
-        f'<span class="val">{_esc(line["value"])}</span>'
+        f'<span class="val">{val_lead_html}{_esc(line["value"])}</span>'
         '</div>'
     )
 
@@ -187,6 +195,7 @@ html,body{{margin:0;background:#{SENTINEL}}}
 .r .lab{{line-height:1.3;min-width:0;overflow-wrap:anywhere}}
 .r .led{{flex:1 0 34px;border-bottom:2px dotted {RED};margin:0 9px}}
 .r .val{{font-weight:700;line-height:1;white-space:nowrap}}
+.r .val .valreg{{font-weight:400}}
 .fn{{margin-top:20px;font-size:13px;line-height:1.4;color:{MUTED}}}
 .handle{{margin-top:14px;padding-top:12px;
   font-size:12px;letter-spacing:.04em;color:{MUTED}}}
