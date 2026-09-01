@@ -551,7 +551,7 @@ def won_en(amount):
 
 # Categories that ever post a won_en() value. compose() reads this to decide
 # whether a card needs the "$1 ≈ ₩N" footnote at all.
-WON_CATS = {'price', 'spending', 'avgbill', 'property'}
+WON_CATS = {'price', 'spending', 'avgbill', 'property', 'healthcost'}
 
 # Set once per run by refresh_usd_rate(), read by compose() for the footnote.
 # ⚠️ Deliberately a single rate on the FOOTNOTE, not a per-value "(~$18.3M)"
@@ -3284,6 +3284,136 @@ def hira_facts(key):
     return facts
 
 
+# --- disease cost (3단상병별 시도별) ------------------------------------------
+# A DIFFERENT HIRA dataset from the one hira_facts() reads above: that one is
+# a live query API (diseaseInfoService1) capped at 8 curated conditions and
+# patient COUNTS only. This one is data.go.kr's auto-converted odcloud wrapper
+# around a file dump (dataset 15089587) — 26,750 rows, every 3-char KCD code
+# x every 시도 x one year — and it carries actual WON figures
+# (요양급여비용총액), which the other endpoint never does.
+#
+# ⚠️ Project memory called this "odcloud auto-API, uddi:00aaa3bc-..." and
+# that uddi is real, but the memory was otherwise wrong: it is not a live
+# queryable service with a year param, it is data.go.kr's auto-conversion of
+# a FILE dump (the page is /data/15089587/fileData.do; openapi.do 404s — the
+# "오픈 API" tab is an in-page SPA toggle on that same page, not a separate
+# URL). Confirmed live 2 Sept 2026: api.odcloud.kr accepts the shared gov_key
+# with no separate 활용신청, and `cond[COLUMN::EQ]=value` filters server-side.
+#
+# ⚠️ EACH YEAR IS A SEPARATE, UNGUESSABLE ENDPOINT. Unlike every other
+# data.go.kr vein here, there is no year query param — data.go.kr mints a new
+# opaque uddi per annual file, so HIRA_COST_UDDI below is a hardcoded table,
+# not a formula, and it WILL go stale. When the next year's file lands
+# (업데이트 주기: 연간; 차기 등록 예정일 shown on the page), add its entry by
+# opening https://www.data.go.kr/data/15089587/fileData.do, clicking "오픈
+# API", then "활용명세", and reading the newest GET row's uddi. The year used
+# is read off this table's own max key, so a stale table means a stale
+# footnote year, never a crash or a silent wrong year.
+HIRA_COST_UDDI = {
+    2018: 'beeada27-ea11-4969-a580-d763e05fb8c9',
+    2020: '30d03588-fddc-44c5-81ab-9de6aa4ae0d6',
+    2021: '1a69597e-840e-4f3f-89bc-abbd56392acf',
+    2022: '1dcdd991-1451-4358-b68e-ffa7774d0f72',
+    2023: '37939755-007a-48e1-89d5-dcb2e53841ab',
+    2024: '00aaa3bc-9a0d-45b6-995f-8d65e3437702',
+    2025: 'd443a743-6656-40fa-a753-b508c69209fa',
+}
+HIRA_COST_BASE = 'https://api.odcloud.kr/api/15089587/v1/uddi:{uddi}'
+
+# Ten of the costliest conditions in Seoul (measured live 2 Sept 2026, top of
+# 1,650 Seoul rows for 2025 by 요양급여비용총액) with verified plain-English
+# glosses — same shape as HEALTH_CONDS above, a fixed named set ranked fresh
+# every run, so an unnamed code never reaches a card. Overlap with
+# HEALTH_CONDS (I10) is fine: same condition, a different published number
+# each time (cost here, patient count there), never the same fact.
+HEALTH_COST_CONDS = [   # (3-char KCD, EN gloss, KO gloss)
+    ('C50', 'Breast cancer', '유방암'),
+    ('K05', 'Gum disease', '잇몸병'),
+    ('N18', 'Chronic kidney disease', '만성 콩팥병'),
+    ('C34', 'Lung cancer', '폐암'),
+    ('M17', 'Knee arthritis', '무릎 관절염'),
+    ('M54', 'Back pain', '요통'),
+    ('C22', 'Liver cancer', '간암'),
+    ('I63', 'Stroke', '뇌경색'),
+    ('C16', 'Stomach cancer', '위암'),
+    ('I10', 'High blood pressure', '고혈압'),
+]
+
+# Set by hira_cost_facts() so compose() can put the claims year on the card.
+HEALTH_COST_Y = {'y': None}
+
+
+def hira_cost_facts(key):
+    """Two framings of Seoul treatment cost, one condition per line: the raw
+    total, and the average per patient (총액 ÷ 환자수 — HIRA's own 환자수 is
+    already deduped within the condition, so this is a genuine per-person
+    figure, the same reasoning avgbill's sales ÷ transactions relies on).
+    Added 2 Sept 2026 at the user's request, after the vein shipped
+    cost-only: 환자수 rides in the SAME response row, so this costs no extra
+    calls. Two frames the selector must not mix on one card — same rule as
+    kma_facts()'s yesterday-vs-fifty-years-ago split, because a card pairing
+    a total with a per-patient figure compares two different units under one
+    word, 'cost'. See SELECT_PROMPT."""
+    if not key:
+        return []
+    year = max(HIRA_COST_UDDI)
+    url = HIRA_COST_BASE.format(uddi=HIRA_COST_UDDI[year])
+    got = []
+    for code, en, ko in HEALTH_COST_CONDS:
+        params = {'page': '1', 'perPage': '1',
+                  'cond[시도구분::EQ]': '서울', 'cond[주상병코드::EQ]': code,
+                  'serviceKey': key, 'returnType': 'JSON'}
+        full = url + '?' + urllib.parse.urlencode(params)
+        r = subprocess.run(['curl', '-s', '--max-time', '30', '-A', MOLIT_UA,
+                            full], capture_output=True, text=True)
+        try:
+            row = json.loads(r.stdout)['data'][0]
+            cost = int(row['요양급여비용총액(선별포함)'])
+            patients = int(row['환자수'])
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError):
+            continue
+        if not patients:
+            continue
+        got.append((code, en, ko, cost, patients))
+    if len(got) < 3:
+        return []
+    HEALTH_COST_Y['y'] = year
+
+    def frame(values, id_prefix, pair_name):
+        """values: [(code, en, ko, n)]. One line per condition, plus a dead
+        heat and a gap pair — hira_facts()'s own detector shape, run once
+        per frame so the total and the per-patient figures never compete
+        for the same pair."""
+        lines = [fact(f'{id_prefix}_{code}', 'healthcost', en, won_en(n),
+                      won_ko(n), label_ko=ko) for code, en, ko, n in values]
+        best = None
+        for i in range(len(values)):
+            for j in range(i + 1, len(values)):
+                a, b = values[i][3], values[j][3]
+                gap = abs(a - b) / max(a, b)
+                if gap <= 0.02 and (best is None or gap < best[0]):
+                    best = (gap, values[i], values[j])
+        if best:
+            for code, en, ko, n in (best[1], best[2]):
+                lines.append(fact(f'{id_prefix}heat_{code}', 'healthcost', en,
+                                  won_en(n), won_ko(n), pair=f'{pair_name}_heat',
+                                  label_ko=ko))
+        hi = max(values, key=lambda t: t[3])
+        lo = min(values, key=lambda t: t[3])
+        if hi[3] and lo[3] and hi[3] / max(lo[3], 1) >= 3:
+            for code, en, ko, n in (hi, lo):
+                lines.append(fact(f'{id_prefix}gap_{code}', 'healthcost', en,
+                                  won_en(n), won_ko(n), pair=f'{pair_name}_gap',
+                                  label_ko=ko))
+        return lines
+
+    totals = [(code, en, ko, cost) for code, en, ko, cost, pts in got]
+    per_patient = [(code, en, ko, round(cost / pts))
+                   for code, en, ko, cost, pts in got]
+    return (frame(totals, 'sickcost', 'sickcost')
+            + frame(per_patient, 'sickcostpp', 'sickcostpp'))
+
+
 # --- museums and galleries (문화기반시설총람) --------------------------------
 # 문화체육관광부's annual culture-facility survey, served by 한국문화정보원
 # via data.go.kr (자동승인, approved 22 Jul 2026). Per-facility rows carry
@@ -4178,6 +4308,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += kma_facts(gov_key)
     pool += kac_facts(gov_key)
     pool += hira_facts(gov_key)
+    pool += hira_cost_facts(gov_key)
     pool += culture_facts(gov_key)
     pool += tour_facts(gov_key)
     # KOFIC issues its own key, like HRFCO: not a data.go.kr one.
@@ -4220,7 +4351,7 @@ Rules:
 - "infant" lines count Seoul's children in ONE age band, one line per year across a decade. Labels are BARE YEARS. ⚠️ The card already names the age band on its own line, and YOU ARE NOT TOLD WHICH BAND IT IS — so the opener must NEVER state an age or an age range. Writing "Children aged 0" over the under-six figures is the exact mistake this rule exists to stop. Give a neutral opener that says only that these are Seoul's children over time: "Seoul's children, a decade apart", "Fewer every year in Seoul". Own post, never mixed, and keep the first and last years: the fall between them is the card. State it and stop — never call it a decline, a crisis, or a collapse, and never mention birth rates.
 - "library" lines are the registered members of Seoul Library by decade of life. Labels are BARE AGE BANDS, so the opener MUST name the library and what is counted ("Who holds a card at Seoul Library"). Own post, never mixed. It is ONE library, not the city's 215 — never imply otherwise. ⚠️ The value may carry a trailing "(1 in N)" — that is Python's, and it sets the members of that band against Seoul's registered population of that age. Leave it exactly where it is and NEVER restate it, convert it to a percentage, explain it, or build the opener or a label on it: the card footnote says what it is, and members need not live in Seoul, so the opener must never call it a share of Seoul's teens or of any other age.
 - "complaint" lines are how many faults Seoul's residents reported in a whole year, one line per year. Labels are BARE YEARS, so the opener MUST name what is counted ("Things reported broken in Seoul"). Own post, never mixed, and never characterise a year as better or worse than another.
-- "airport", "health" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split. ⚠️ Do NOT put the month in the opener: on the split frame it rides on the card automatically as its dateline, and on the twenty-year pair each label carries its own year, which is the whole point of that frame. A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. These are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
+- "airport", "health", "healthcost" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split. ⚠️ Do NOT put the month in the opener: on the split frame it rides on the card automatically as its dateline, and on the twenty-year pair each label carries its own year, which is the whole point of that frame. A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. A healthcost post is the SAME shape but treatment COST, not patient counts, and it comes in TWO FRAMES you must not blend on one card: the raw total cost per condition (treat it like "spending"/"property" for tone — a citywide sum, never implied per-person), OR the average cost PER PATIENT (like avgbill: the opener must say "average" plainly, e.g. "What treating each condition costs, per patient", so a reader never mistakes it for the total or for what one patient actually pays out of pocket — insurance covers most of it). Pick one frame, not lines from both. Both health and healthcost: these are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
 - "transport" lines are Seoul's total subway and bus boardings for the most recently published day, plus that day's busiest and quietest subway stations. The subway and bus TOTAL labels already carry the date in the label itself ("Subway boardings on 26 August", "Bus boardings the same day") — there is no separate dateline to lean on here, so do NOT put a date anywhere in the opener, and do NOT write a second, different date of your own: a neutral opener with no date at all is enough, e.g. "Through the turnstiles", "Seoul on the move". Never call a station busy, quiet, packed or empty — the four numbers say it.
@@ -5594,7 +5725,7 @@ def compose(sel, pool):
     # 'books' is deliberately NOT here: since 22 August 2026 the loan counts come
     # from Seoul's own portal (SeoulLibraryBookRentNumInfo), not data4library.
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
-                 'health', 'culture', 'tourism', 'level', 'boxoffice',
+                 'health', 'healthcost', 'culture', 'tourism', 'level', 'boxoffice',
                  'boxhist'}
     uses_seoul = any(c not in non_seoul for c in cats)
     uses_kosis = 'national' in cats
@@ -5611,6 +5742,12 @@ def compose(sel, pool):
     uses_kma = 'weather' in cats or 'river' in cats
     uses_kac = 'airport' in cats
     uses_hira = 'health' in cats
+    # A different HIRA dataset from uses_hira above (cost, not patient
+    # counts — see hira_cost_facts()), but the same providing agency, so it
+    # shares that domain credit rather than pointing at data.go.kr's
+    # auto-conversion plumbing, which is not where a reader would go to
+    # verify a HIRA figure.
+    uses_hira_cost = 'healthcost' in cats
     uses_mcst = 'culture' in cats
     uses_tour = 'tourism' in cats
     uses_books = 'books' in cats
@@ -5621,7 +5758,7 @@ def compose(sel, pool):
            (['rt.molit.go.kr'] if uses_molit else []) + \
            (['data.kma.go.kr'] if uses_kma else []) + \
            (['airport.co.kr'] if uses_kac else []) + \
-           (['opendata.hira.or.kr'] if uses_hira else []) + \
+           (['opendata.hira.or.kr'] if uses_hira or uses_hira_cost else []) + \
            (['mcst.go.kr'] if uses_mcst else []) + \
            (['know.tour.go.kr'] if uses_tour else []) + \
            (['hrfco.go.kr'] if 'level' in cats else []) + \
@@ -5819,6 +5956,17 @@ def compose(sel, pool):
                              f'{HEALTH_Y["y"]}', None))
             scope_ko.append((f'서울 소재 요양기관 건강보험 환자 수, '
                              f'{HEALTH_Y["y"]}년', None))
+    if uses_hira_cost and not uses_hira:
+        # Same two provisos as uses_hira, and the agency credit already rides
+        # the shared opendata.hira.or.kr entry above — HIRA is only named
+        # again here if the sibling vein isn't also on the card.
+        src_en += ' · HIRA'
+        src_ko += ' · 건강보험심사평가원'
+    if uses_hira_cost and HEALTH_COST_Y['y']:
+        scope_en.append((f'Insured treatment cost at Seoul institutions, '
+                         f'{HEALTH_COST_Y["y"]}', None))
+        scope_ko.append((f'서울 소재 요양기관 건강보험 진료비, '
+                         f'{HEALTH_COST_Y["y"]}년', None))
     if uses_mcst:
         src_en += ' · MCST'
         src_ko += ' · 문화체육관광부'
