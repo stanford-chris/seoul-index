@@ -138,11 +138,14 @@ class AStationMustBeNameableInEnglish(unittest.TestCase):
     the rule the box office vein applies to a film KOFIC has no title for."""
 
     def test_an_unmapped_station_is_not_offered(self):
-        rows = fixture() + [row('없는역', 500_000, 1_000)]   # would win the morning end
+        # 없는역's ratio (≈0.996) beats every named station's, including
+        # Jonggak's (≈0.913) — it would win outright if nameable. Excluded
+        # before ranking, so Jonggak wins among what is actually offerable.
+        rows = fixture() + [row('없는역', 500_000, 1_000)]
         with Stub(rows):
             facts = S.rush_facts('k', {})
         self.assertNotIn('없는역', ' '.join(f['label_en'] for f in facts))
-        self.assertIn('Sinjeong, 8 a.m.', values(facts))     # the real morning end
+        self.assertIn('Jonggak, 8 a.m.', values(facts))
 
     def test_every_english_label_is_free_of_hangul(self):
         with Stub(fixture()):
@@ -173,6 +176,16 @@ class TheLabelsAreOwnedByPython(unittest.TestCase):
             self.assertTrue(f['pin'], f'unpinned: {f["label_en"]}')
             self.assertTrue(f['label_ko'], f'no Korean: {f["label_en"]}')
 
+    def test_place_is_set_and_is_a_real_substring_of_both_labels(self):
+        # compose()'s rush override bolds place_en/place_ko unconditionally
+        # (user's call, 1 Sept 2026) — it never checks they occur in the
+        # label, so that must be guaranteed here, not there.
+        with Stub(fixture()):
+            facts = S.rush_facts('k', {})
+        for f in facts:
+            self.assertIn(f['place_en'], f['label_en'])
+            self.assertIn(f['place_ko'], f['label_ko'])
+
     def test_the_two_hours_of_one_station_form_a_pair(self):
         with Stub(fixture()):
             facts = S.rush_facts('k', {})
@@ -183,11 +196,39 @@ class TheLabelsAreOwnedByPython(unittest.TestCase):
         for name, group in pairs.items():
             self.assertEqual(len(group), 2, f'{name} is not a two-hour pair')
 
-    def test_both_ends_of_the_axis_are_offered(self):
+    def test_only_one_end_is_offered(self):
+        # A fresh state has no rush_last_side, which defaults to the pm side
+        # (see test_the_side_alternates_across_months below for why it is
+        # not simply "whichever is more dramatic") — Jonggak, not Sinjeong.
         with Stub(fixture()):
             got = values(S.rush_facts('k', {}))
-        self.assertIn('Jonggak, 6 p.m.', got)      # most evening-boarded
-        self.assertIn('Sinjeong, 8 a.m.', got)     # most morning-boarded
+        self.assertIn('Jonggak, 6 p.m.', got)
+        self.assertIn('Jonggak, 8 a.m.', got)
+        self.assertNotIn('Sinjeong, 8 a.m.', got)
+        self.assertEqual(len(got), 2)
+
+    def test_the_side_alternates_across_months(self):
+        # ⚠️ NOT "whichever swings harder" — measured 1 Sept 2026, the top 12
+        # real stations by |ratio| were all evening-heavy, so that rule would
+        # have shown the same kind of place every time. Side is state-driven
+        # instead: pm, then am, then pm again, regardless of which is bigger.
+        state = {}
+        with Stub(fixture()):
+            first = values(S.rush_facts('k', state))
+        self.assertEqual(state['rush_last_side'], 'pm')
+        self.assertIn('Jonggak, 6 p.m.', first)
+
+        state.pop('rush_cache', None)   # the month rolling over
+        with Stub(fixture()):
+            second = values(S.rush_facts('k', state))
+        self.assertEqual(state['rush_last_side'], 'am')
+        self.assertIn('Sinjeong, 8 a.m.', second)
+
+        state.pop('rush_cache', None)
+        with Stub(fixture()):
+            third = values(S.rush_facts('k', state))
+        self.assertEqual(state['rush_last_side'], 'pm')
+        self.assertIn('Jonggak, 6 p.m.', third)
 
 
 class TheMonthRidesOnTheCard(unittest.TestCase):

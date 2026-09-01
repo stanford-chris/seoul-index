@@ -1177,9 +1177,16 @@ def transport_facts(api_key, state):
 # The card it exists to make is ONE STATION AT TWO HOURS. 종각 took 10,872
 # boardings at 8 in the morning in July 2026 and 227,972 at 6 in the evening,
 # twenty-one times as many: nobody boards at 종각 in the morning because nobody
-# sleeps there. Set against a station of the opposite kind (신정, 77,726 against
-# 15,585, the other way about) the four figures say where Seoul sleeps and where
-# it works with no comment attached, which is the house style exactly.
+# sleeps there. No comment attached, which is the house style exactly.
+#
+# ⚠️ REWORKED 1 September 2026, at the user's request, from two stations (one
+# of each kind, four lines) to one. A second station of the opposite kind
+# (신정, 77,726 against 15,585, the sleeping side of the same axis) was shown
+# alongside it until this date; dropped because the single swing already
+# carries the point on its own, and a reader does not need a second place to
+# read it. Which station is shown is still measured every run, never
+# hardcoded — whichever end of the axis swings harder that month, so the vein
+# does not always surface the same kind of place.
 #
 # ⚠️ CARDSUBWAYTIME SOMETIMES SERVES EVERY ROW TWICE, BYTE-IDENTICAL. July 2026
 # returns 1,242 rows that are 621 real ones: same line, same station, same 48
@@ -1208,13 +1215,14 @@ RUSH_FLOOR = 300_000        # monthly boardings a station must clear to be
                             # offered. Without it the extremes of the ratio are
                             # tiny stations where a few dozen people decide the
                             # whole finding.
-RUSH_STATIONS = 2           # one of each kind, each offered as its two hours
-# ⚠️ HELD OUT OF THE POOL 25 August 2026, at the user's word, the evening it was
-# built. The vein is finished: harvested, tested (test_seoul_index_rush.py, 19
-# tests verified by mutation) and confirmed by a dry run that rendered both
-# cards. It simply has not been cleared to post. Arming it is this one word, and
-# nothing else — see build_pool, which is the only place it is gated.
-RUSH_LIVE = False
+RUSH_STATIONS = 2           # minimum qualifying stations before either end of
+                            # the axis is trusted as a real extreme
+# Held out of the pool from 25 August 2026, the evening it was built, until
+# 1 September 2026. In that window it was reworked from two stations to one
+# (see the block comment above), given a fixed opener and bolded station name,
+# and the side alternates rather than always favouring the more dramatic one
+# — all reviewed against real dry-run cards before this was armed.
+RUSH_LIVE = True
 
 
 def _rush_month(api_key, month):
@@ -1290,10 +1298,19 @@ def rush_facts(api_key, state):
         if len(scored) < RUSH_STATIONS * 2:
             return []
         scored.sort()
-        # The two ends of the same axis: the most evening-boarded station and
-        # the most morning-boarded one. Measured every month, never hardcoded —
-        # a named station would rot the first time the city changed shape.
-        picks = [list(scored[0][1:]), list(scored[-1][1:])]
+        # ⚠️ ALTERNATE the side, do not pick whichever swings harder. Measured
+        # 1 Sept 2026: the top 12 stations by |ratio| were ALL evening-heavy
+        # office stops — not one residential morning station came close — so
+        # "most dramatic wins" would have shown the same KIND of place every
+        # single time. User's call, same day. Which STATION wins within a side
+        # is still measured fresh every month, never hardcoded — only which
+        # side gets a turn is state-driven, the same last-vs-this rule
+        # promote_starved() already uses to stop two of anything running in a
+        # row.
+        side = 'am' if state.get('rush_last_side') == 'pm' else 'pm'
+        extreme = scored[-1] if side == 'am' else scored[0]
+        state['rush_last_side'] = side
+        picks = [list(extreme[1:])]
         state['rush_cache'] = {'month': month, 'picks': picks}
     dt = datetime.strptime(month, '%Y%m')
     RUSH_M['en'] = f'{MONTHS_EN[dt.month - 1]} {dt.year}'
@@ -1309,7 +1326,8 @@ def rush_facts(api_key, state):
                               f'{en}, {_ampm_en(h)}',
                               grouped(v), grouped(v), pair=f'rush_{i}',
                               pin=True, label_ko=f'{st}, {_ampm_ko(h)}',
-                              num=v, unit='people'))
+                              num=v, unit='people',
+                              place_en=en, place_ko=st))
     return facts
 
 
@@ -4330,7 +4348,11 @@ def promote_starved(pool, state):
     now = datetime.now(timezone.utc)
     starved = []
     for cat, n in counts.items():
-        if n < STARVE_MIN_FACTS:
+        # rush is a genuine two-line vein by design (one station, two hours)
+        # and can never clear the general floor; every other vein still needs
+        # STARVE_MIN_FACTS, which is what guards against a card too thin to
+        # be worth a slot.
+        if n < STARVE_MIN_FACTS and cat != 'rush':
             continue
         stamp = seen.get(cat)
         age = None                          # None = never posted at all
@@ -5311,7 +5333,14 @@ def compose(sel, pool):
     by_id = {f['id']: f for f in pool}
     picks = [p for p in sel.get('picks', []) if p.get('id') in by_id]
     picks = complete_boxoffice(picks, pool)
-    if len(picks) < 3:
+    # A rush card can be ONE station's two hours: the whole point of that
+    # shape is a single place's own morning/evening swing, and a third line
+    # from anywhere else would reintroduce the cross-source mixing the
+    # one-station design exists to avoid. Every other vein still needs 3+.
+    is_rush_pair = (len(picks) == 2
+                    and all(by_id[p['id']]['cat'] == 'rush' for p in picks)
+                    and len({by_id[p['id']]['pair'] for p in picks}) == 1)
+    if len(picks) < 3 and not is_rush_pair:
         raise RuntimeError(f'selector returned too few valid picks: {len(picks)}')
     spotlight = any(by_id[p['id']]['cat'] == 'spotlight' for p in picks)
     precats = {by_id[p['id']]['cat'] for p in picks}
@@ -5759,7 +5788,7 @@ def compose(sel, pool):
         # month dateline, which reads as one evening and is out by about
         # thirtyfold. The dateline says WHICH month; only this says that each
         # figure is the whole of it.
-        scope_en.append(('Boardings in that hour, summed over the month',
+        scope_en.append(('The total monthly boardings during the designated hour',
                          RUSH_M['en']))
         scope_ko.append(('해당 시간대 승차 인원, 한 달 합계', RUSH_M['ko']))
     if uses_kac:
@@ -6214,6 +6243,15 @@ def compose(sel, pool):
     _emph('en')
     _emph('ko')
 
+    # rush bolds the station name UNCONDITIONALLY, overriding whatever _emph()
+    # above decided. That heuristic bolds what VARIES between rows and leaves
+    # what they share alone — right for a card naming four different places at
+    # one hour, backwards for rush, where the station is the one constant and
+    # the hour is what changes. User's call, 1 Sept 2026.
+    for l in lines:
+        if l['cat'] == 'rush' and l.get('place_en'):
+            l['emph_en'], l['emph_ko'] = l['place_en'], l['place_ko']
+
     # The ordered elements the card draws, per language. A grouped cross pair puts
     # a date subhead over the dated lines and a "Right now" subhead over the live
     # ones; otherwise just the rows (an ungrouped dated card flies its month as a
@@ -6588,9 +6626,10 @@ def main():
         # posted for STARVE_DAYS).
         if ONLY_CAT:
             only = [f for f in pool if f['cat'] == ONLY_CAT]
-            if len(only) < 3:
+            need = 2 if ONLY_CAT == 'rush' else 3
+            if len(only) < need:
                 sys.exit(f'--only={ONLY_CAT}: {len(only)} fact(s) in that vein, '
-                         f'need at least 3 to build a card. Pool has: '
+                         f'need at least {need} to build a card. Pool has: '
                          f'{", ".join(sorted({f["cat"] for f in pool}))}.')
             pool, promoted = only, ONLY_CAT
         else:
@@ -6607,6 +6646,15 @@ def main():
                     pool = rotated
             print(f'Harvested {len(pool)} candidate facts (rotated away from: {last_cat}).')
         sel = select_fresh(pool, state, strict=not promoted)
+
+    # rush's opener is fixed rather than modelled: with exactly one pair ever
+    # possible, there is nothing left for the selector to choose beyond that
+    # pair itself, so the wording is Python's the same way the two clock-time
+    # labels already are (see rush_facts()). User's own wording, 1 Sept 2026.
+    by_cat = {f['id']: f['cat'] for f in pool}
+    if sel.get('picks') and all(by_cat.get(p.get('id')) == 'rush' for p in sel['picks']):
+        sel['opener_en'], sel['opener_ko'] = 'Boarding the subway', '지하철 승차'
+        sel['opener_emoji'] = '🚇'
 
     c = compose(sel, pool)
     used, primary = c['used'], c['primary']
