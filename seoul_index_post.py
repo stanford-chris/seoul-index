@@ -210,13 +210,35 @@ SELECT_RETRIES = 3
 # not been the primary category for this many days, the pool is narrowed TO that
 # vein for one card and the selector has nothing else to choose. Promotions do
 # not land back to back, so a burst of starved veins airs over alternating posts
-# rather than putting the feed on rails for two days: the one exception is a vein
-# that has never led a card at all, which may run on. See promote_starved.
+# rather than putting the feed on rails for two days: exceptions are a vein that
+# has never led a card at all, and a vein stuck past SEVERE_STARVE_DAYS (see
+# below), both of which may run on. See promote_starved.
 STARVE_DAYS = 5
 # A promoted vein must be able to fill a card on its own. 'air' has only 2 facts
 # and so can never be promoted — it can only ever ride along on someone else's
 # card, which is worth knowing rather than silently working around.
 STARVE_MIN_FACTS = 3
+
+# The back-to-back bar in promote_starved trades a hard per-vein guarantee for
+# an even-looking feed: with the roster now at 30 veins, the floor's own
+# throughput (at most one promotion every two posts, once no debut is waiting)
+# is arithmetically short of what a strict 5-day ceiling for every vein would
+# need, so some veins queue behind others even when the mechanism is working
+# exactly as designed. Measured 2 Sep 2026: price and water both sat at 11 days
+# since their one and only post, more than double STARVE_DAYS, with the guard
+# still refusing to run two promotions in a row because nothing was making its
+# FIRST debut that day. SEVERE_STARVE_DAYS is the second, narrower exception:
+# once the worst-waiting vein has gone this long, the bar lifts for it alone,
+# the same way it already lifts for an undebuted vein. It is deliberately an
+# AGE test on the single most-overdue vein, not a queue-depth test — a depth
+# test ("N veins are currently starved") was tried in reasoning and rejected
+# right above promote_starved's back_to_back check, because with 26+ veins
+# sharing a 5-day floor, most of them sit starved most of the time by simple
+# arithmetic, which would make a depth trigger permanently true and the guard
+# dead code. An age test does not have that failure mode: promoting the worst
+# vein resets its own age to zero, so the trigger is self-correcting rather
+# than standing open once tripped.
+SEVERE_STARVE_DAYS = STARVE_DAYS * 2
 
 # Categories whose lines keep the HARVESTER'S order instead of being sorted by
 # value, like a spotlight card. Sorting a river-level card by size buried "the
@@ -4469,8 +4491,12 @@ def promote_starved(pool, state):
     cross-vein pair cannot outvote it.
 
     Never-posted veins go first, then the longest-neglected. Promotions do not
-    normally land back to back; a vein that has never led a card at all is the
+    normally land back to back; a vein that has never led a card at all is one
     exception, so a debut queue drains at one a post instead of one every two.
+    A vein stuck past SEVERE_STARVE_DAYS is the other: the floor's own
+    throughput cannot give every vein its 5-day slot once the roster is this
+    large (see SEVERE_STARVE_DAYS), so the bar also lifts rather than let a
+    single vein queue indefinitely behind everyone else's turn.
     Returns (pool, promoted_cat), with promoted_cat None when nothing is
     promoted and the pool handed back untouched.
     """
@@ -4520,7 +4546,14 @@ def promote_starved(pool, state):
     back_to_back = (state.get('last_cat')
                     and state.get('last_cat') == state.get('last_promoted_cat'))
     debut_waiting = any(age is None for age, _, _ in starved)
-    if back_to_back and not debut_waiting:
+    # ⚠️ Age, not count: severe is about the SINGLE worst-waiting vein, never
+    # "how many are starved" (see SEVERE_STARVE_DAYS for why a depth test is
+    # the wrong shape here). Promoting that vein below resets its own age to
+    # zero, which is what keeps this self-correcting rather than a standing
+    # bypass once the roster is big enough that it would trip on every call.
+    severe_waiting = any(age is not None and age >= timedelta(days=SEVERE_STARVE_DAYS)
+                         for age, _, _ in starved)
+    if back_to_back and not (debut_waiting or severe_waiting):
         return pool, None
 
     # Never-posted first; then oldest-seen first.
@@ -4529,7 +4562,12 @@ def promote_starved(pool, state):
     age, cat, n = starved[0]
     waited = 'never posted' if age is None else f'{age.days}d since last card'
     others = ', '.join(c for _, c, _ in starved[1:]) or 'none'
-    run_on = ' (back to back: a vein still waiting to debut)' if back_to_back else ''
+    if back_to_back and debut_waiting:
+        run_on = ' (back to back: a vein still waiting to debut)'
+    elif back_to_back and severe_waiting:
+        run_on = f' (back to back: past SEVERE_STARVE_DAYS={SEVERE_STARVE_DAYS}d)'
+    else:
+        run_on = ''
     print(f'Vein floor: promoting {cat} ({waited}){run_on}; this card is built '
           f'from its {n} facts alone. Also starved: {others}.')
     return [f for f in pool if f['cat'] == cat], cat

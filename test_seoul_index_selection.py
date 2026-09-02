@@ -68,7 +68,9 @@ class VeinFloor(unittest.TestCase):
         # and the alternation rule holds. ⚠️ Leave a never-posted vein in this
         # fixture and the test passes for the wrong reason: the debut override
         # below would fire and the guard would never be exercised at all.
-        state = {'cat_last_at': {'crowd': ago(1), 'world': ago(20),
+        # ⚠️ Ages must stay UNDER SEVERE_STARVE_DAYS too, for the same reason:
+        # this tests the ORDINARY alternation rule, not its own override below.
+        state = {'cat_last_at': {'crowd': ago(1), 'world': ago(6),
                                  'culture': ago(9)},
                  'last_cat': 'world', 'last_promoted_cat': 'world'}
         _, cat = S.promote_starved(POOL, state)
@@ -85,11 +87,35 @@ class VeinFloor(unittest.TestCase):
         # The only never-posted vein here is 'air', and 2 facts cannot fill a
         # card. It must not count as a debut waiting: if it did, 'world' would
         # be promoted back to back on a queue that can never actually drain.
+        # ⚠️ world's age must stay under SEVERE_STARVE_DAYS too, or the severe
+        # override (a separate exception, tested below) fires instead and the
+        # test passes without ever exercising the debut-only guard it names.
         small = ([f(f'world{i}', 'world') for i in range(6)]
                  + [f(f'air{i}', 'air') for i in range(2)])
-        state = {'cat_last_at': {'world': ago(20)},
+        state = {'cat_last_at': {'world': ago(6)},
                  'last_cat': 'world', 'last_promoted_cat': 'world'}
         _, cat = S.promote_starved(small, state)
+        self.assertIsNone(cat)
+
+    def test_severely_overdue_vein_overrides_the_alternation_rule(self):
+        # world has posted before (so this is not a debut) and the alternation
+        # rule would ordinarily hold it back one more post — except it has now
+        # gone past SEVERE_STARVE_DAYS, which is the second, narrower exception
+        # (see SEVERE_STARVE_DAYS and promote_starved's back_to_back check).
+        state = {'cat_last_at': {'crowd': ago(1), 'world': ago(S.SEVERE_STARVE_DAYS),
+                                 'culture': ago(9)},
+                 'last_cat': 'world', 'last_promoted_cat': 'world'}
+        _, cat = S.promote_starved(POOL, state)
+        self.assertEqual(cat, 'world')
+
+    def test_just_under_severe_still_respects_the_alternation_rule(self):
+        # One day short of SEVERE_STARVE_DAYS: the ordinary alternation rule
+        # still applies and world must wait its turn like anything else.
+        state = {'cat_last_at': {'crowd': ago(1),
+                                 'world': ago(S.SEVERE_STARVE_DAYS - 1),
+                                 'culture': ago(9)},
+                 'last_cat': 'world', 'last_promoted_cat': 'world'}
+        _, cat = S.promote_starved(POOL, state)
         self.assertIsNone(cat)
 
     def test_promotion_resumes_after_an_ordinary_post(self):
