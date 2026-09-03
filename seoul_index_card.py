@@ -136,7 +136,7 @@ def _row_html(line):
         # replace(count=1) so a place that also appears in the shared wording
         # bolds where it varies rather than everywhere it occurs.
         # No "is it present" guard: str.replace on a run that is not there is
-        # already a no-op, and a condition with no behaviour behind it is a
+        # already a no-op, and a condition with no behavior behind it is a
         # branch no mutation can catch and no test can pin.
         run = _esc(line['emph'])
         if run:

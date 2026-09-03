@@ -12,7 +12,7 @@ file and stays silent — the same safe-by-default pattern as the traffic vein.
 cost more than a URL.** The data4library key was issued 19 July 2026 and returned
 `vitalizationErr` ("API 활성화 상태가아닙니다") on every call for the 34 days that
 followed, so the vein never produced a single card. A bogus key of the same shape
-gets `authErr` and that one does not, so the key IS recognised: what was never
+gets `authErr` and that one does not, so the key IS recognized: what was never
 switched on is the API, which is an account matter (libdata@korea.kr, 02-595-6131)
 and not something code can fix. What the two sources cover is NOT the same thing,
 and the card must not pretend otherwise:
@@ -157,7 +157,7 @@ _KNOWN_ARGS = {'--dry-run'}
 _unknown = [a for a in sys.argv[1:] if a not in _KNOWN_ARGS]
 if _unknown:
     sys.exit(f'Unknown argument(s): {" ".join(_unknown)}. '
-             f'Recognised: {" ".join(sorted(_KNOWN_ARGS))}.')
+             f'Recognized: {" ".join(sorted(_KNOWN_ARGS))}.')
 
 def http_get(url):
     """GET as text via curl, matching the rest of the project (Homebrew py3.13

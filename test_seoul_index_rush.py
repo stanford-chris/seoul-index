@@ -134,7 +134,7 @@ class AShortReadIsSilenceNotAQuieterCity(unittest.TestCase):
 
 
 class AStationMustBeNameableInEnglish(unittest.TestCase):
-    """⚠️ Skipped, never romanised and never left in Korean on the English card:
+    """⚠️ Skipped, never romanized and never left in Korean on the English card:
     the rule the box office vein applies to a film KOFIC has no title for."""
 
     def test_an_unmapped_station_is_not_offered(self):

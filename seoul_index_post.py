@@ -150,7 +150,7 @@ if __name__ == '__main__':
                 and not a.startswith(_ONLY_PREFIX)]
     if _unknown:
         sys.exit(f'Unknown argument(s): {" ".join(_unknown)}. '
-                 f'Recognised: {" ".join(sorted(_KNOWN_ARGS))} [N], '
+                 f'Recognized: {" ".join(sorted(_KNOWN_ARGS))} [N], '
                  f'{_ONLY_PREFIX}<cat>. '
                  f'Refusing to run (a bare run posts live).')
 
@@ -394,7 +394,7 @@ SPOTLIGHT_EVERY = 5
 # 11,100), which is one number with a wobble and reads as flat on the card.
 #
 # A rejected card falls through to a normal index card, which is the existing
-# behaviour when a place answers with too few lines.
+# behavior when a place answers with too few lines.
 SPOTLIGHT_MIN_DISTINCT = 3
 SPOTLIGHT_MIN_SPREAD = 0.25
 
@@ -688,7 +688,7 @@ def en_lookup(korean, kind):
 
 def en_name(korean, kind):
     """English name for a station/district, or the Korean original if unmapped.
-    Official names are not romanisations (홍대입구 is 'Hongik Univ.', 시청 is
+    Official names are not romanizations (홍대입구 is 'Hongik Univ.', 시청 is
     'City Hall'), so an unmapped name has no safe English form — fall back and
     say so rather than invent one."""
     if not korean:
@@ -1242,7 +1242,7 @@ RUSH_STATIONS = 2           # minimum qualifying stations before either end of
 # Held out of the pool from 25 August 2026, the evening it was built, until
 # 1 September 2026. In that window it was reworked from two stations to one
 # (see the block comment above), given a fixed opener and bolded station name,
-# and the side alternates rather than always favouring the more dramatic one
+# and the side alternates rather than always favoring the more dramatic one
 # — all reviewed against real dry-run cards before this was armed.
 RUSH_LIVE = True
 
@@ -1305,7 +1305,7 @@ def rush_facts(api_key, state):
             am, pm = h[RUSH_AM], h[RUSH_PM]
             if sum(h) < RUSH_FLOOR or not am or not pm:
                 continue
-            # ⚠️ A station with no English name is SKIPPED, not romanised and not
+            # ⚠️ A station with no English name is SKIPPED, not romanized and not
             # printed in Korean on the English card — the same rule the box
             # office vein applies to a film KOFIC has no English title for. The
             # skip is logged rather than silent, or a name-table gap looks like a
@@ -1726,7 +1726,7 @@ def river_facts(api_key, gov_key):
 #   · Seoul's 16 HRFCO gauges side by side. WRONG, and confidently so. Every
 #     gauge reads from its own datum, and those run from -0.068 m at 잠수교 to
 #     47.946 m at 신림5교 (checked 21 Aug 2026): two gauges both showing 3 m are
-#     describing water surfaces forty-eight metres apart. A card setting them in
+#     describing water surfaces forty-eight meters apart. A card setting them in
 #     a column presents a comparison that does not exist — the avgbill mistake
 #     with a bigger drop.
 #   · Gauge reading plus datum, to get elevation above sea level. Comparable,
@@ -1866,14 +1866,14 @@ def level_facts(hrfco_key):
 # Jan 2025, refreshed roughly weekly, and it is the best-shaped source the
 # account has taken on: the SAME item priced at named shops across the city, so
 # a card is two published prices and the gap between them, with nothing computed
-# and nothing modelled. The same shape as the property vein's dearest/cheapest.
+# and nothing modeled. The same shape as the property vein's dearest/cheapest.
 #
 # ⚠️ The feed is NEWEST-FIRST. Reading from the end returns January 2025 and
 # looks like a dead archive; row 1 is a few days old. This cost a wrong
 # conclusion during the build, and it is the second time in one evening a Seoul
 # API's ordering did that (see the HRFCO note in level_facts).
 #
-# ⚠️ Shops are labelled by DISTRICT and KIND, never by name. The feed carries
+# ⚠️ Shops are labeled by DISTRICT and KIND, never by name. The feed carries
 # real shop names (뚝도시장, 이마트(미아점)) and the English card has no English
 # for them, so a named line would fall back to Korean exactly as the bike vein's
 # station names would have. District names come from the curated table the
@@ -2102,7 +2102,7 @@ def water_facts(api_key):
 # computing. This table publishes the district totals already, so the card
 # quotes rather than calculates — the distinction the account rests on.
 #
-# ⚠️ 생활인구 is KT-modelled, not counted, exactly like the crowd vein, so these
+# ⚠️ 생활인구 is KT-modeled, not counted, exactly like the crowd vein, so these
 # facts are flagged estimated=True and the card carries that caveat.
 DAYNIGHT_SVC = 'SPOP_DAILYSUM_JACHI_250'
 DAYNIGHT_ROWS = 200
@@ -2257,7 +2257,7 @@ def infant_facts(api_key, state):
 # SeoulLibraryMemberInfo: registered members of 서울도서관 by year of birth,
 # which the vein sums into the decade bands the feed itself declares
 # (AGE_RANGE). Summing published rows is counting, which the account allows;
-# nothing here is modelled or averaged.
+# nothing here is modeled or averaged.
 #
 # ⚠️ The sibling loans service (SeoulLibraryBookRentNumInfo) is deliberately NOT
 # used, though it is live and carries real checkout counts. It publishes NO date
@@ -3231,7 +3231,7 @@ def kac_facts(key):
 # COMPLETE published care year (today - 2): the API answers for later years,
 # but their semantics are unverified and their figures may still be growing.
 #
-# The conditions are curated for recognisability AND for surviving a
+# The conditions are curated for recognizability AND for surviving a
 # playful adjacency: androgenic alopecia was cut because insurance treats
 # so little hair loss that the true figure (9,413 in 2024) reads as wrong
 # to anyone who knows Seoul — the avgbill lesson again.
@@ -3540,9 +3540,9 @@ def culture_facts(key):
 # walks back from last month until rows appear, and the month rides on the
 # card footnote.
 #
-# The rows are curated to a whitelist of recognisable attractions with
+# The rows are curated to a whitelist of recognizable attractions with
 # official English names. That is not just naming: the December feed
-# carried a memorial hall with EIGHT visitors — a closure artefact in all
+# carried a memorial hall with EIGHT visitors — a closure artifact in all
 # likelihood, and a punchline built on it would mislead (the avgbill
 # lesson). An unlisted attraction is simply not offered.
 
@@ -3729,7 +3729,7 @@ _TITLE_MINOR_WORDS = {
 
 
 def _title_case_word(word):
-    """Capitalize one word, honouring an internal hyphen: SPIDER-MAN -> Spider-Man."""
+    """Capitalize one word, honoring an internal hyphen: SPIDER-MAN -> Spider-Man."""
     return '-'.join(p[:1] + p[1:].lower() for p in word.split('-'))
 
 
@@ -3758,7 +3758,7 @@ def _kobis_title_en(key, movie_cd):
     """The English title KOFIC itself publishes for a film, or ''.
 
     The box office rows carry Korean titles only, and the English card carries
-    no Hangul. Romanising mechanically is the exact mistake
+    no Hangul. Romanizing mechanically is the exact mistake
     seoul_index_names_en.json exists to prevent: 오디세이 is "The Odyssey", not
     "Odisei". One extra call per film named; a film with no English title on
     file is dropped rather than guessed at.
@@ -3994,7 +3994,7 @@ def kosis_facts(kosis_key):
 OECD_BASE = 'https://sdmx.oecd.org/public/rest/data/OECD.CFE.EDS'
 OECD_DOMAIN = 'data-explorer.oecd.org'
 
-# Peers chosen to be recognisable to both an English and a Korean reader. Any
+# Peers chosen to be recognizable to both an English and a Korean reader. Any
 # city missing from a given year is simply dropped, so this list is safe to grow.
 WORLD_CITIES = [
     ('KOR01F', 'Seoul'),
@@ -4146,7 +4146,7 @@ NATION_COOLDOWN_DAYS = 3   # like WORLD_COOLDOWN_DAYS: keep nation posts occasio
 NATIONAL_COOLDOWN_DAYS = 3
 SEOUL_AREA_KM2 = 605.21    # Seoul Metropolitan Government official city area
 
-# Peer countries recognisable to an English and a Korean reader; any country
+# Peer countries recognizable to an English and a Korean reader; any country
 # missing a given indicator-year is simply dropped, so this list is safe to
 # grow. Korea stays in: Seoul -> Korea -> the world is the intended reading.
 WB_COUNTRIES = [
@@ -4372,7 +4372,7 @@ Rules:
 - "daynight" lines are HOW MANY PEOPLE ARE PRESENT in each district, either by DAY or by NIGHT, never both in one card. Labels are BARE DISTRICT NAMES, so the opener MUST name BOTH what is counted — people, a population — AND which half of the day: "Seoul's daytime population", "How many people are in Seoul after dark". ⚠️ An opener naming only the time ("Seoul by day") is NOT enough and leaves the reader guessing whether the figures are people, money or anything else. The measure is 생활인구: everyone present at that hour, residents and workers and visitors together — so never call it the district's population in the sense of who LIVES there, and never call it a crowd. Own post, never mixed. The KT-estimate caveat rides on the card already: do not restate it in a line.
 - "infant" lines count Seoul's children in ONE age band, one line per year across a decade. Labels are BARE YEARS. ⚠️ The card already names the age band on its own line, and YOU ARE NOT TOLD WHICH BAND IT IS — so the opener must NEVER state an age or an age range. Writing "Children aged 0" over the under-six figures is the exact mistake this rule exists to stop. Give a neutral opener that says only that these are Seoul's children over time: "Seoul's children, a decade apart", "Fewer every year in Seoul". Own post, never mixed, and keep the first and last years: the fall between them is the card. State it and stop — never call it a decline, a crisis, or a collapse, and never mention birth rates.
 - "library" lines are the registered members of Seoul Library by decade of life. Labels are BARE AGE BANDS, so the opener MUST name the library and what is counted ("Who holds a card at Seoul Library"). Own post, never mixed. It is ONE library, not the city's 215 — never imply otherwise. ⚠️ The value may carry a trailing "(1 in N)" — that is Python's, and it sets the members of that band against Seoul's registered population of that age. Leave it exactly where it is and NEVER restate it, convert it to a percentage, explain it, or build the opener or a label on it: the card footnote says what it is, and members need not live in Seoul, so the opener must never call it a share of Seoul's teens or of any other age.
-- "complaint" lines are how many faults Seoul's residents reported in a whole year, one line per year. Labels are BARE YEARS, so the opener MUST name what is counted ("Things reported broken in Seoul"). Own post, never mixed, and never characterise a year as better or worse than another.
+- "complaint" lines are how many faults Seoul's residents reported in a whole year, one line per year. Labels are BARE YEARS, so the opener MUST name what is counted ("Things reported broken in Seoul"). Own post, never mixed, and never characterize a year as better or worse than another.
 - "airport", "health", "healthcost" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split. ⚠️ Do NOT put the month in the opener: on the split frame it rides on the card automatically as its dateline, and on the twenty-year pair each label carries its own year, which is the whole point of that frame. A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. A healthcost post is the SAME shape but treatment COST, not patient counts, and it comes in TWO FRAMES you must not blend on one card: the raw total cost per condition (treat it like "spending"/"property" for tone — a citywide sum, never implied per-person), OR the average cost PER PATIENT (like avgbill: the opener must say "average" plainly, e.g. "What treating each condition costs, per patient", so a reader never mistakes it for the total or for what one patient actually pays out of pocket — insurance covers most of it). Pick one frame, not lines from both. Both health and healthcost: these are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
@@ -4982,7 +4982,7 @@ def _drop_opener_echo(label, opener, korean):
 # Veins counted live, "right now". When one shares a card with a single dated
 # vein (a month's visitors, a quarter's spending), the card reads two time-
 # frames at once. Rather than fly the dated month as a lone masthead dateline
-# while the live line dates itself inline, the card splits into two labelled
+# while the live line dates itself inline, the card splits into two labeled
 # groups — the dated month over its lines, "Right now" over the live ones. The
 # masthead dateline stays the design for single-frame dated cards. See compose().
 LIVE_CATS = {'crowd', 'air', 'bike', 'traffic'}
@@ -5069,7 +5069,7 @@ def unsaid_metrics(opener, metrics):
 
 # The same model that writes the labels, asked a different question. A separate
 # focused call is the point rather than a stronger model: the selector is
-# optimising for wit and arrangement across a whole card, and a reader asked
+# optimizing for wit and arrangement across a whole card, and a reader asked
 # only "does this label still say what the figure is" catches what that one
 # does not stop to look at.
 CHECK_MODEL = CLAUDE_MODEL
@@ -6380,7 +6380,7 @@ def compose(sel, pool):
     # The trailing Wikipedia links are real links in the posted reply, so they
     # stay out of src_* (which add_tags renders as text) and are spelled out
     # only in the plaintext body that serves as alt text and as the fallback
-    # post. Spotlights set a single (prefix, anchor, url) tuple; normalise to a
+    # post. Spotlights set a single (prefix, anchor, url) tuple; normalize to a
     # list so tourism posts can carry one link per attraction.
     wiki_en, wiki_ko = sel.get('wiki_en'), sel.get('wiki_ko')
     wiki_en = [wiki_en] if isinstance(wiki_en, tuple) else list(wiki_en or [])
@@ -6851,7 +6851,7 @@ def main():
             print(f'Harvested {len(pool)} candidate facts (rotated away from: {last_cat}).')
         sel = select_fresh(pool, state, strict=not promoted)
 
-    # rush's opener is fixed rather than modelled: with exactly one pair ever
+    # rush's opener is fixed rather than modeled: with exactly one pair ever
     # possible, there is nothing left for the selector to choose beyond that
     # pair itself, so the wording is Python's the same way the two clock-time
     # labels already are (see rush_facts()). User's own wording, 1 Sept 2026.

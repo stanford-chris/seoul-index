@@ -140,17 +140,17 @@ class ReplaceRecognisesItsOwnThread(unittest.TestCase):
         the counts paragraph became its own card) --replace posted and pinned
         the new thread and then refused to delete the old one: the comparison
         failed exactly when it was needed. Both a shorter and a longer thread
-        must be recognised.
+        must be recognized.
         """
         for n in (len(M.CARDS) - 2, len(M.CARDS) - 1, len(M.CARDS) + 1):
             self.assertTrue(M.is_methodology_thread(_thread(cards=n)),
-                            f'{n} cards + credits should still be recognised')
+                            f'{n} cards + credits should still be recognized')
 
     def test_a_thread_too_short_or_too_long_is_refused(self):
         """A bound is still wanted: nothing of ours is two records or thirty."""
         for n in (0, 1, M.MAX_THREAD_RECORDS):
             self.assertFalse(M.is_methodology_thread(_thread(cards=n)),
-                             f'{n} cards + credits should not be recognised')
+                             f'{n} cards + credits should not be recognized')
 
     def test_a_card_with_text_is_refused(self):
         """A daily index card is an image WITH a caption of hashtags.

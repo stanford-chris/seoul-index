@@ -61,7 +61,7 @@ _KNOWN_ARGS = {'--dry-run', '--pin', '--replace'}
 _unknown = [a for a in sys.argv[1:] if a not in _KNOWN_ARGS]
 if _unknown:
     sys.exit(f'Unknown argument(s): {" ".join(_unknown)}. '
-             f'Recognised: {" ".join(sorted(_KNOWN_ARGS))}. '
+             f'Recognized: {" ".join(sorted(_KNOWN_ARGS))}. '
              f'Refusing to run (a bare run posts live).')
 
 DRY_RUN = '--dry-run' in sys.argv

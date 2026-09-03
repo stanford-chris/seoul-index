@@ -4,7 +4,7 @@ capital-area subway stations and the Seoul districts.
 
 The Seoul open-data feeds the bot uses (CardSubwayStatsNew,
 ListAirQualityByDistrictService) return Korean names only, so the English card
-needs a lookup. Official English station names are not romanisations
+needs a lookup. Official English station names are not romanizations
 (홍대입구 is "Hongik Univ.", 시청 is "City Hall"), so a table is unavoidable.
 
 Source: OpenStreetMap via Overpass. No API key, ODbL-licensed, and it carries

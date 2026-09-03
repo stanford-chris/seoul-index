@@ -30,7 +30,7 @@ import seoul_index_post as S
 # call (see check_labels). These tests promise no network and no model call, so
 # the CALL is switched off here: what they exercise is selection and composition, and a
 # live checker would make them slow, non-deterministic and quota-hungry. The
-# checker's own behaviour is tested in test_seoul_index_labels.py.
+# checker's own behavior is tested in test_seoul_index_labels.py.
 S.CHECK_LABELS = False
 import seoul_index_books_harvest as H
 

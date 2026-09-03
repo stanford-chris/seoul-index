@@ -21,7 +21,7 @@ import seoul_index_post as S
 # call (see check_labels). These tests promise no network and no model call, so
 # the CALL is switched off here: what they exercise is selection and composition, and a
 # live checker would make them slow, non-deterministic and quota-hungry. The
-# checker's own behaviour is tested in test_seoul_index_labels.py.
+# checker's own behavior is tested in test_seoul_index_labels.py.
 S.CHECK_LABELS = False
 
 
@@ -804,7 +804,7 @@ class BoxOfficeIsSeoulOnly(unittest.TestCase):
         self.assertGreaterEqual(state['n'], 2, 'it gave up on the first empty day')
 
     def test_a_film_without_an_english_title_silences_the_day(self):
-        """The English card carries no Hangul and a romanisation is a guess, so
+        """The English card carries no Hangul and a romanization is a guess, so
         a film KOFIC has no English title for cannot go on the card. Since the
         card is the complete top four, that means no card at all: promoting the
         fifth film would fill the gap and hide it, which is the fault this vein

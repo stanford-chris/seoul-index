@@ -13,7 +13,7 @@ import seoul_index_card as C
 # call (see check_labels). These tests promise no network and no model call, so
 # the CALL is switched off here: what they exercise is selection and composition, and a
 # live checker would make them slow, non-deterministic and quota-hungry. The
-# checker's own behaviour is tested in test_seoul_index_labels.py.
+# checker's own behavior is tested in test_seoul_index_labels.py.
 S.CHECK_LABELS = False
 
 
@@ -396,7 +396,7 @@ class ScopedVeinHeadsItsOwnGroup(unittest.TestCase):
 
     def test_two_scoped_veins_do_not_group(self):
         """No single head is true, so nothing is promoted and every scope stays
-        in the footnote: the old behaviour, which is merely cramped, not wrong."""
+        in the footnote: the old behavior, which is merely cramped, not wrong."""
         rows = (self.LIBRARY[:1] + self.CROWD[:1] +
                 [('complaint_2019', '2019', '2019년', '412,000', 412000),
                  ('complaint_2024', '2024', '2024년', '498,000', 498000)])
@@ -1183,7 +1183,7 @@ class TheKoreanCardMustBeInKorean(unittest.TestCase):
 
     def test_one_hangul_syllable_is_enough(self):
         """⚠️ The false positive to fear. Korean labels legitimately carry Latin
-        — a brand, a station romanisation, a film title — and flagging those
+        — a brand, a station romanization, a film title — and flagging those
         would put a finding in the log on healthy cards, which is how a log
         stops being read. Measured 26 August 2026: across 99 Korean cards in the
         feed the ONLY Latin-only labels were the three above."""

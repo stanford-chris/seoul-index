@@ -26,7 +26,7 @@ away history we cannot re-fetch.
 
 Usage:
     python3 seoul_index_crowd_log.py           # one sampling pass
-    python3 seoul_index_crowd_log.py --stats   # summarise what has accrued
+    python3 seoul_index_crowd_log.py --stats   # summarize what has accrued
 """
 
 import json
