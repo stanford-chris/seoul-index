@@ -157,18 +157,18 @@ KO_CITIES = ('일부 게시물은 서울을 다른 '
 # His call, for completeness and transparency.
 #
 # ⚠️ THE FIRST CLAIM IS THE ONE THAT EARNS THE CARD. A reader seeing a
-# recognisable outline of Seoul assumes a map was used. None was: the data has
-# no coordinates beyond a neighbourhood name, no coastline, no road and no
+# recognizable outline of Seoul assumes a map was used. None was: the data has
+# no coordinates beyond a neighborhood name, no coastline, no road and no
 # river, and the Han and the mountains are visible only because nobody boards a
 # bus in them. Left unsaid, the picture overstates what the account knows.
-# The colour and brightness sentence is second because it is the same
+# The color and brightness sentence is second because it is the same
 # explanation the page and the card footnote already carry.
 EN_ART = ('Twice a week a post here is a picture rather than a figure: one day '
           'in Seoul, an hour a frame, drawn only from the public transport '
-          'boardings in each neighbourhood.')
+          'boardings in each neighborhood.')
 EN_ART2 = ('No map is used. There is no coastline, road or river in the data, so '
            'the Han and the mountains show up only as the places where nobody '
-           'boards. Colour is each neighbourhood\u2019s own balance between the '
+           'boards. Color is each neighborhood\u2019s own balance between the '
            'morning and evening peaks; brightness is the boardings in the hour '
            'shown.')
 KO_ART = ('\uc77c\uc8fc\uc77c\uc5d0 \ub450 \ubc88\uc740 \uc218\uce58\uac00 \uc544\ub2c8\ub77c \uadf8\ub9bc\uc744 \uc62c\ub9bd\ub2c8\ub2e4. '
