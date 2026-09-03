@@ -29,7 +29,7 @@ actually cleared sends the run round the same wait forever.
 A spent quota clears itself; an expired OAuth token never does. scan_filer.py
 spent five days in August 2026 filing documents unclassified because a 401 was
 absorbed by a fallback that could not tell those two apart. Everything this
-does not recognise must keep raising, so that a genuine fault still exits
+does not recognize must keep raising, so that a genuine fault still exits
 non-zero and harden_audit.sh check 5 still reports it.
 
 ⚠️ Exiting 0 when the budget is blown is only safe because something else
