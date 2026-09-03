@@ -1368,11 +1368,11 @@ def count_facts(api_key):
     # already do. Service names all verified live (INFO-000 + a count) 28 Jul 2026.
     specs = [('wifi', 'TbPublicWifiInfo', 'Public Wi-Fi hotspots the city runs', '공공 와이파이 수'),
              ('library', 'SeoulPublicLibraryInfo', 'Public libraries', None),
-             # Seoul Library's catalogue, added 21 Aug 2026 from the portal
+             # Seoul Library's catalog, added 21 Aug 2026 from the portal
              # sweep. It is ONE library's holdings, not the city's, which is
              # why the label names it rather than saying 'Books in Seoul'.
              ('holdings', 'SeoulLibraryBookSearchInfo',
-              'Items in Seoul Library’s catalogue', '서울도서관 소장자료 수'),
+              'Items in Seoul Library’s catalog', '서울도서관 소장자료 수'),
              ('park', 'SearchParkInfoService', 'Major parks', None),
              ('busstop', 'busStopLocationXyInfo', 'Bus stops citywide', None),
              ('events', 'culturalEventInfo', 'Cultural events on the city’s listings', None),
@@ -2025,7 +2025,7 @@ def price_facts(api_key, state):
 # --- waterworks ------------------------------------------------------------
 # WoWcbsDayStatic, found in the 21 Aug 2026 portal sweep. Daily, and genuinely
 # daily: it carried yesterday's figures when built. Two kinds of site report —
-# 정수센터 (purification centres, measuring 취수 intake and 송수 transmission) and
+# 정수센터 (purification centers, measuring 취수 intake and 송수 transmission) and
 # 수도사업소 (district waterworks offices, measuring 공급량 supplied) — and the
 # vein uses ONE measure at a time so the lines are actually comparable. Setting
 # an intake figure beside a supply figure would look like a ranking of places
@@ -2033,7 +2033,7 @@ def price_facts(api_key, state):
 WATER_SVC = 'WoWcbsDayStatic'
 WATER_ROWS = 300
 WATER_MIN_LINES = 3
-# The five purification centres, curated rather than romanised: 뚝도 is not the
+# The five purification centers, curated rather than romanized: 뚝도 is not the
 # 뚝섬 in the station table and would take its name wrongly.
 WATER_SITES = {'암사': 'Amsa', '강북': 'Gangbuk', '뚝도': 'Ttukdo',
                '구의': 'Guui', '영등포': 'Yeongdeungpo'}
@@ -2041,7 +2041,7 @@ WATER_PERIOD = {'en': None, 'ko': None}
 
 
 def water_facts(api_key):
-    """Water drawn at each of Seoul's purification centres, on one day."""
+    """Water drawn at each of Seoul's purification centers, on one day."""
     try:
         d = http_get_json(f'http://openapi.seoul.go.kr:8088/{api_key}/json/'
                           f'{WATER_SVC}/1/{WATER_ROWS}/')
@@ -2073,7 +2073,7 @@ def water_facts(api_key):
         # buried the point in the sort order — and doing the same here ("Most
         # drawn (Amsa)") is the obvious next step for consistency. It was
         # considered on 22 Aug 2026 and DECLINED: this vein's own rule is that
-        # a centre is never called bigger or busier than another, and a leading
+        # a center is never called bigger or busier than another, and a leading
         # superlative is exactly that claim. The card is legible without it,
         # because the dateline names what the places are and the arrangement
         # carries the rest. Do not "finish" de1028e by extending it here.
@@ -2088,7 +2088,7 @@ def water_facts(api_key):
         # The dateline names the KIND of place as well as the day: the lines
         # are bare names (Amsa, Ttukdo) and nothing else on the card said they
         # were waterworks rather than districts or rivers.
-        WATER_PERIOD['en'] = f'Purification centres, {dt.day} {MONTHS_EN[dt.month - 1]}'
+        WATER_PERIOD['en'] = f'Purification centers, {dt.day} {MONTHS_EN[dt.month - 1]}'
         WATER_PERIOD['ko'] = f'정수센터, {dt.month}월 {dt.day}일'
     except ValueError:
         WATER_PERIOD['en'] = WATER_PERIOD['ko'] = newest
@@ -4351,7 +4351,7 @@ Rules:
   · Let the coincidence sit there unremarked, exactly as with any pair — never write a line, opener or note that points out that the two numbers match.
   · Only reach for a CROSS_PAIR when the two SUBJECTS make a genuinely interesting, tasteful pair (one apartment's deposit against a whole industry's quarter; a month's visitors against a crowd right now). If a pair's two subjects are dull or jarring together, ignore it and build a normal single-vein post. Never force it. NEVER build a cross pair that involves illness or patients.
   · ℹ️ A "tourism" + "boxoffice" CROSS_PAIR carries two different SPANS of time (a whole month against one day), and Python draws that itself: it groups the card, a subhead over each vein's lines reading its span ("30 August" / "The entire month of June"), so you do not need to and must not mention either span or the mismatch in a label, opener or note.
-- House style is Harper's Index: let the arrangement carry the joke. NEVER add a line that explains or points out the juxtaposition, and never editorialise. Just the labelled numbers.
+- House style is Harper's Index: let the arrangement carry the joke. NEVER add a line that explains or points out the juxtaposition, and never editorialize. Just the labeled numbers.
 - Punctuation: NEVER write an em dash (—) in anything you produce: not in an opener, not in a label, not in the note. Use a colon or a comma instead. House style has no em dashes anywhere.
 - Do NOT worry about line order: when the lines share a unit (e.g. an all-₩ post) they are automatically sorted by value, largest first. A near-equal "dead heat" still lands because near-equal values end up next to each other. Just choose a coherent set.
 - Each line is a bare "Label: value". Do NOT repeat a shared verb or metric on every line — put it once in the opener. For spending posts (₩ amounts), pick an opener that carries the verb, e.g. "Spent last quarter in Seoul", so lines read "Coffee shops: ₩651.4bn", never "Spent at coffee shops: ...". This matters for live "right now" lines too: the pool labels repeat the whole phrase ("Estimated crowd in Jamsil right now"), and a post that copies them four times reads like a form. Name the metric on ONE line and leave the others bare ("Estimated crowd in Jamsil", then "Hongdae", "Gangnam Station"), and let the opener carry the time frame.
@@ -4368,7 +4368,7 @@ Rules:
 - "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and nothing more, e.g. "Water and air in Seoul" (ℹ️ whatever you write here is REPLACED in compose(): the opener names air or water first to match whichever the sort puts on the top line, which is a fact about the readings rather than a choice of words) — the same case as the world, traffic and books lines. ⚠️ Do NOT put the hour, the time or the words "one hour" in the opener: the reading hour rides on the card automatically as its dateline, and an opener repeating it spends the line saying nothing. Do NOT write "right now" either: that hour can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
 - "level" lines appear ONLY when the Han is running high, and they are one gauge (잠수교) set against its own published flood-warning tiers: the level right now, then the 관심/주의/경계/심각 levels. Build them into their own post, never mixed with any other category, and include the current level plus at least two tiers — the arrangement IS the story, which is how far the river is from each tier. The opener must name the river and the gauge, e.g. "The Han at Jamsu Bridge". ⚠️ NEVER write or imply that the bridge is closed, submerged, flooded or about to be: these are flood-WARNING tiers set by 한강홍수통제소, not the level at which the walkway goes under, and the two are different things. Do not add alarm, urgency or commentary of any kind — state the levels and stop. Never call the situation dangerous.
 - "price" lines are ONE everyday item priced at shops across Seoul on one day. Each label is a bare shop KIND and DISTRICT ("A traditional market in Dongjak-gu", "A supermarket in Nowon-gu"), so the opener MUST name the item and that these are its prices — e.g. "What a watermelon costs in Seoul" — the same case as the world, traffic and books lines. Build them into their own post, never mixed with any other category, and ALWAYS keep the cheapest and dearest lines: the card IS the spread. Never point out that markets are dearer than supermarkets or the reverse — it changes from item to item, and noticing it is the reader's job. Never call a price high, low, cheap or a bargain.
-- "water" lines are the raw water drawn at each of Seoul's purification centres on one day. Labels are BARE PLACE NAMES (Amsa, Ttukdo), and the card's dateline says they are purification centres, so the opener MUST name the METRIC and nothing more ("Water drawn for Seoul"). ⚠️ Do NOT put the day, the date or the words "one day" in the opener: the date rides on the card automatically and an opener that repeats it spends the line saying nothing. Own post, never mixed. Every line is an intake figure at the same measure — never say one centre is bigger or busier than another.
+- "water" lines are the raw water drawn at each of Seoul's purification centers on one day. Labels are BARE PLACE NAMES (Amsa, Ttukdo), and the card's dateline says they are purification centers, so the opener MUST name the METRIC and nothing more ("Water drawn for Seoul"). ⚠️ Do NOT put the day, the date or the words "one day" in the opener: the date rides on the card automatically and an opener that repeats it spends the line saying nothing. Own post, never mixed. Every line is an intake figure at the same measure — never say one center is bigger or busier than another.
 - "daynight" lines are HOW MANY PEOPLE ARE PRESENT in each district, either by DAY or by NIGHT, never both in one card. Labels are BARE DISTRICT NAMES, so the opener MUST name BOTH what is counted — people, a population — AND which half of the day: "Seoul's daytime population", "How many people are in Seoul after dark". ⚠️ An opener naming only the time ("Seoul by day") is NOT enough and leaves the reader guessing whether the figures are people, money or anything else. The measure is 생활인구: everyone present at that hour, residents and workers and visitors together — so never call it the district's population in the sense of who LIVES there, and never call it a crowd. Own post, never mixed. The KT-estimate caveat rides on the card already: do not restate it in a line.
 - "infant" lines count Seoul's children in ONE age band, one line per year across a decade. Labels are BARE YEARS. ⚠️ The card already names the age band on its own line, and YOU ARE NOT TOLD WHICH BAND IT IS — so the opener must NEVER state an age or an age range. Writing "Children aged 0" over the under-six figures is the exact mistake this rule exists to stop. Give a neutral opener that says only that these are Seoul's children over time: "Seoul's children, a decade apart", "Fewer every year in Seoul". Own post, never mixed, and keep the first and last years: the fall between them is the card. State it and stop — never call it a decline, a crisis, or a collapse, and never mention birth rates.
 - "library" lines are the registered members of Seoul Library by decade of life. Labels are BARE AGE BANDS, so the opener MUST name the library and what is counted ("Who holds a card at Seoul Library"). Own post, never mixed. It is ONE library, not the city's 215 — never imply otherwise. ⚠️ The value may carry a trailing "(1 in N)" — that is Python's, and it sets the members of that band against Seoul's registered population of that age. Leave it exactly where it is and NEVER restate it, convert it to a percentage, explain it, or build the opener or a label on it: the card footnote says what it is, and members need not live in Seoul, so the opener must never call it a share of Seoul's teens or of any other age.
