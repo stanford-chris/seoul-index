@@ -226,8 +226,16 @@ def _crop_to_content(raw_path, out_path):
     return out_path, size
 
 
-def _shoot(doc, out_path):
-    """Render an HTML doc to a content-cropped PNG. Returns (out_path, (w, h))."""
+def _shoot(doc, out_path, retry=True):
+    """Render an HTML doc to a content-cropped PNG. Returns (out_path, (w, h)).
+
+    ⚠️ One retry on a Chrome hang, not on a Chrome crash. The 3 September 2026
+    weather run lost its whole post to headless Chrome simply never returning
+    within the 60s timeout, with nothing wrong in the HTML — indistinguishable
+    from data.seoul.go.kr's own transient timeouts elsewhere in this codebase,
+    which get the same one-retry treatment. A crash (Chrome exits but leaves no
+    PNG) is not retried: that is a real fault in the HTML or Chrome itself, and
+    trying again would just mask it."""
     if not Path(CHROME).exists():
         raise CardRenderError(f'Chrome not found at {CHROME}')
     out_path = str(out_path)
@@ -242,7 +250,12 @@ def _shoot(doc, out_path):
             f'--default-background-color={SENTINEL}FF',
             f'--screenshot={raw_png}', f'file://{html_path}',
         ]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        except subprocess.TimeoutExpired:
+            if retry:
+                return _shoot(doc, out_path, retry=False)
+            raise CardRenderError('Chrome hung twice in a row (60s each)')
         if not raw_png.exists():
             raise CardRenderError(
                 f'Chrome produced no image (exit {r.returncode}): '
