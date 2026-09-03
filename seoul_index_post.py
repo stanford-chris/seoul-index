@@ -6046,13 +6046,16 @@ def compose(sel, pool):
             # reason: a bare 1위 does not say what it won.
             scope_en.append(('Screens showing each year’s most-watched film', None))
             scope_ko.append(('각 연도 관객수 1위 영화의 상영 스크린 수', None))
-        elif BOXOFFICE_D['en']:
-            # The card is the day's top four, in order, always. It said "of the
-            # day's five most-watched" for an hour on 23 Aug 2026, while the
-            # selector was free to choose four of five: that was honest about a
-            # card with a hole in its ranking, but a hole in a ranking is a
-            # worse card than a fixed one. What the vein lost is variety
-            # between days, which the chart itself supplies as it moves.
+        elif BOXOFFICE_D['en'] and cats == {'boxoffice'}:
+            # The card is the day's top four, in order, always -- but that is
+            # only true of an OWN-VEIN card (complete_boxoffice's own test for
+            # "top up to four" is this same cats == {'boxoffice'}, and it is
+            # deliberately skipped for a cross-pair: see its docstring). It
+            # said "of the day's five most-watched" for an hour on 23 Aug 2026,
+            # while the selector was free to choose four of five: that was
+            # honest about a card with a hole in its ranking, but a hole in a
+            # ranking is a worse card than a fixed one. What the vein lost is
+            # variety between days, which the chart itself supplies as it moves.
             # Spelled out, as the card spells out months: "the day's 5
             # most-watched" is prose, not a figure, and the only numerals on
             # this card should be the ones being reported.
@@ -6065,6 +6068,21 @@ def compose(sel, pool):
                 (f'서울 지역 상영, 그날 관객수 상위 '
                  f'{SMALL_NUMBERS_KO.get(BOXOFFICE_N, BOXOFFICE_N)} 편',
                  BOXOFFICE_D['ko']))
+            scope_en.append(boxoffice_scope_pair[0])
+            scope_ko.append(boxoffice_scope_pair[1])
+        elif BOXOFFICE_D['en']:
+            # A cross-pair: boxoffice contributed only one or two lines, not
+            # the vein's own complete four (complete_boxoffice deliberately
+            # does not top these up -- "completing the chart there would
+            # wreck the pairing"). A count claim here repeats exactly the bug
+            # the own-vein wording above was written to fix: verified live on
+            # the 31 Aug 2026 tourism+boxoffice post, whose alt text read "the
+            # day's four most-watched" over a card carrying a single film
+            # line. State the scope and the date; the card itself already
+            # shows the reader how many films are on it.
+            boxoffice_scope_pair = (
+                ('Seoul screens', BOXOFFICE_D['en']),
+                ('서울 지역 상영', BOXOFFICE_D['ko']))
             scope_en.append(boxoffice_scope_pair[0])
             scope_ko.append(boxoffice_scope_pair[1])
     if period_grouped:

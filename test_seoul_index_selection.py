@@ -517,6 +517,60 @@ class TourismBoxofficeCrossPairGroupsBySpan(unittest.TestCase):
         self.assertEqual(found, [])
 
 
+class BoxofficeScopeMatchesWhatIsActuallyOnTheCard(unittest.TestCase):
+    """The footnote must never claim "the day's four most-watched" unless
+    all four are actually on this card. TourismBoxofficeCrossPairGroupsBySpan
+    above already covers the tourism+boxoffice combination (period_grouped
+    strips the claim entirely there); this covers the sibling path a
+    LIVE-category cross-pair takes (grouped, not period_grouped), which had
+    the identical wording bug with nothing guarding it."""
+
+    def tearDown(self):
+        for k in list(S.BOXOFFICE_D):
+            S.BOXOFFICE_D[k] = None
+
+    def test_own_vein_card_still_claims_all_four(self):
+        # The ordinary case: boxoffice is the card's only category, all four
+        # of its own facts are present, and the count claim is true.
+        S.BOXOFFICE_D['en'], S.BOXOFFICE_D['ko'] = '27 August', '8월 27일'
+        pool = [S.fact(f'bo_{i}', 'boxoffice', f'"Film {i}"', str(1000 * i),
+                       str(1000 * i), label_ko=f'"영화 {i}"', pin=True)
+                for i in range(1, 5)]
+        picks = [{'id': f['id'], 'emoji': ''} for f in pool]
+        sel = {'opener_en': 'Cinema admissions in Seoul',
+              'opener_ko': '서울 극장가 관객수', 'opener_emoji': '', 'picks': picks}
+        c = S.compose(sel, pool)
+        self.assertIn('four most-watched', c['note_en'])
+        self.assertIn('네 편', c['note_ko'])
+
+    def test_a_live_vein_cross_pair_does_not_claim_four(self):
+        # boxoffice contributes exactly ONE line here, paired with a LIVE
+        # category (crowd) rather than a scoped one, so this takes the
+        # 'grouped' path, not 'period_grouped' -- the path that had no fix.
+        S.BOXOFFICE_D['en'], S.BOXOFFICE_D['ko'] = '30 August', '8월 30일'
+        pool = [
+            S.fact('bo_1', 'boxoffice', '"Small Film"', '4,652', '4,652',
+                  label_ko='"작은 영화"', pin=True, num=4652, unit='people'),
+            S.fact('crowd_1', 'crowd', 'Estimated crowd, Nodeul Island',
+                  '4,500', '4,500', label_ko='노들섬 추정 인구',
+                  pin=True, num=4500, unit='people', estimated=True),
+            S.fact('crowd_2', 'crowd', 'Estimated crowd, Ttukseom',
+                  '4,300', '4,300', label_ko='뚝섬 추정 인구',
+                  pin=True, num=4300, unit='people', estimated=True),
+        ]
+        picks = [{'id': f['id'], 'emoji': ''} for f in pool]
+        sel = {'opener_en': 'Seoul by the numbers',
+              'opener_ko': '숫자로 보는 서울', 'opener_emoji': '', 'picks': picks}
+        c = S.compose(sel, pool)
+        self.assertTrue(c['grouped'])
+        self.assertFalse(c['period_grouped'])
+        self.assertIn('Seoul screens', c['note_en'])
+        self.assertNotIn('most-watched', c['note_en'])
+        self.assertNotIn('four', c['note_en'])
+        self.assertIn('서울 지역 상영', c['note_ko'])
+        self.assertNotIn('관객수 상위', c['note_ko'])
+
+
 class LibraryRatioOnTheCard(unittest.TestCase):
     """The "1 in N" beside a library count is a ratio between two publishers.
 
