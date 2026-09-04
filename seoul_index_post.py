@@ -3222,6 +3222,252 @@ def kac_facts(key):
     return facts
 
 
+# --- the world through Incheon (IIAC) ---------------------------------------
+# 인천국제공항공사's airline/route transport performance, via data.go.kr
+# (자동승인, approved 2 Sep 2026). One row per airline/route/direction/
+# regularity/month: paid/unpaid/transfer passengers, flight counts, and
+# cargo/mail/baggage weight. The API always serves whatever month it most
+# recently published — no year/month parameter — so there is no then/now
+# comparison here, only a snapshot, unlike kac_facts()'s twenty-year pair.
+# ⚠️ A near-identical-looking sibling API, AviationStatsByAirport (also
+# B551177), states in its own description that it stopped updating after
+# October 2024 and was dropped from IIAC's managed dataset list. This vein
+# is operationPerformanceByRoute, the one still current — see
+# [[project_seoul_data_source_candidates]] for how the two were told apart.
+
+IIAC_BASE = ('http://apis.data.go.kr/B551177/operationPerformanceByRoute/'
+             'getOperationPerformanceByRoute'
+             '?serviceKey={key}&pageNo=1&numOfRows=1000&type=json')
+
+# Official English names for the country field the tables are most likely to
+# surface. An unmapped name falls back to Korean with a warning, same as
+# CULTURE_EN above.
+IIAC_COUNTRY_EN = {
+    '일본': 'Japan', '중국': 'China', '베트남': 'Vietnam',
+    '미국': 'the United States', '대만': 'Taiwan', '홍콩': 'Hong Kong',
+    '태국': 'Thailand', '필리핀': 'the Philippines', '싱가포르': 'Singapore',
+    '말레이시아': 'Malaysia', '인도네시아': 'Indonesia', '몽골': 'Mongolia',
+    '독일': 'Germany', '프랑스': 'France', '영국': 'the United Kingdom',
+    '캐나다': 'Canada', '호주': 'Australia', '터키': 'Turkey',
+    '카타르': 'Qatar', '아랍에미리트': 'the United Arab Emirates',
+    '우즈베키스탄': 'Uzbekistan', '캄보디아': 'Cambodia', '인도': 'India',
+}
+
+
+def _iiac_rows(key):
+    """This month's passenger rows (paxCode == '여객'), or []."""
+    url = IIAC_BASE.format(key=key)
+    r = subprocess.run(['curl', '-s', '--max-time', '30', '-A', MOLIT_UA, url],
+                       capture_output=True, text=True)
+    try:
+        items = json.loads(r.stdout)['response']['body']['items']
+    except (ValueError, KeyError, TypeError):
+        return []
+    if not isinstance(items, list):
+        return []
+    return [x for x in items if x.get('paxCode') == '여객']
+
+
+def iiac_facts(key):
+    """Incheon's newest published month: total traffic and the busiest
+    destination country. Counting, not modelling: every figure here is a
+    straight sum of the API's own per-row passenger/flight counts."""
+    if not key:
+        return []
+    rows = _iiac_rows(key)
+    if not rows:
+        return []
+    ym = str(rows[0].get('yearMonth') or '')
+    if len(ym) != 6:
+        return []
+    y, m = int(ym[:4]), int(ym[4:])
+    per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
+
+    total_pax = total_flights = 0
+    by_country = {}
+    for it in rows:
+        try:
+            pax = int(it.get('totalEff') or 0)
+            flights = int(it.get('flightCount') or 0)
+        except (TypeError, ValueError):
+            continue
+        total_pax += pax
+        total_flights += flights
+        nation = (it.get('nationName') or '').strip()
+        if nation:
+            by_country[nation] = by_country.get(nation, 0) + pax
+    if not total_pax:
+        return []
+
+    facts = [fact('iiac_pax_total', 'incheon',
+                  f'Passengers through Incheon, {per_en}',
+                  grouped(total_pax), grouped(total_pax), pin=True,
+                  label_ko=f'인천공항 이용객, {per_ko}',
+                  period_en=per_en, period_ko=per_ko,
+                  num=total_pax, unit='people'),
+             fact('iiac_flights_total', 'incheon',
+                  f'Flights in and out, {per_en}',
+                  grouped(total_flights), grouped(total_flights), pin=True,
+                  label_ko=f'운항 편수, {per_ko}',
+                  period_en=per_en, period_ko=per_ko)]
+
+    top = max(by_country.items(), key=lambda kv: kv[1], default=None)
+    if top:
+        ko_name, n = top
+        en = IIAC_COUNTRY_EN.get(ko_name)
+        if not en:
+            print(f'Warning: no English name for {ko_name!r} — '
+                  f'using Korean on the English card.')
+            en = ko_name
+        facts.append(fact('iiac_top_country', 'incheon',
+                          f'Passengers to {en}, {per_en}',
+                          grouped(n), grouped(n), pin=True,
+                          label_ko=f'{ko_name} 노선 이용객, {per_ko}',
+                          period_en=per_en, period_ko=per_ko,
+                          num=n, unit='people'))
+    return facts
+
+
+# --- Korea by rail (KORAIL) --------------------------------------------------
+# 한국철도공사's ticketing/movement-type statistics via data.go.kr (자동승인,
+# approved 2 Sep 2026): ten operations, covering intercity trains (간선열차:
+# KTX/새마을/무궁화) and commuter rail (광역철도) separately. This vein reads
+# two of the ten — mainLineRoutePer (intercity, by route) and
+# wideRailloadRoutePer (commuter, by line) — and reports the busiest of each,
+# one month.
+#
+# ⚠️ Both operations return roughly a YEAR of history when no month is
+# specified — there is no query parameter to select one — so the newest
+# run_ym present has to be found and filtered to client-side, or "one
+# month's ridership" is actually eleven or twelve months summed together.
+# Measured 4 September 2026 building the sample cards for this vein: an
+# unfiltered sum overstated a single month by roughly 12x.
+
+KORAIL_BASE = 'http://apis.data.go.kr/B551457/issueStatistics/{op}'
+
+# Official English names for the route/line fields most likely to top the
+# tables. An unmapped name falls back to Korean with a warning, same as
+# CULTURE_EN and IIAC_COUNTRY_EN above. Intercity and commuter lines can
+# share a Korean name (e.g. 경부선 names both a KTX trunk line and a separate
+# commuter corridor) — that's fine, each is a distinct fact with its own
+# "intercity"/"commuter" framing in label_en, not a lookup collision.
+KORAIL_LINE_EN = {
+    '경부선': 'the Gyeongbu Line', '호남선': 'the Honam Line',
+    '전라선': 'the Jeolla Line', '동해선': 'the Donghae Line',
+    '경전선': 'the Gyeongjeon Line', '강릉선': 'the Gangneung Line',
+    '장항선': 'the Janghang Line', '중앙선': 'the Jungang Line',
+    '충북선': 'the Chungbuk Line', '분당선': 'the Bundang Line',
+    '경인선': 'the Gyeongin Line', '경원선': 'the Gyeongwon Line',
+    '일산선': 'the Ilsan Line', '경의선': 'the Gyeongui Line',
+    '안산선': 'the Ansan Line', '과천선': 'the Gwacheon Line',
+    '수인선': 'the Suin Line', '경춘선': 'the Gyeongchun Line',
+    '서해선': 'the Seohae Line', '경강선': 'the Gyeonggang Line',
+    '대경선': 'the Daegyeong Line',
+}
+
+
+def _korail_newest_rows(key, op, numofrows):
+    """One operation's rows for its OWN newest run_ym, as (rows, 'YYYYMM'),
+    or ([], None). numofrows must cover the operation's full history, since
+    the API's own row order is not guaranteed newest-first."""
+    url = (KORAIL_BASE.format(op=op) +
+           f'?serviceKey={key}&pageNo=1&numOfRows={numofrows}&type=json')
+    r = subprocess.run(['curl', '-s', '--max-time', '45', '-A', MOLIT_UA, url],
+                       capture_output=True, text=True)
+    try:
+        items = json.loads(r.stdout)['response']['body']['items']['item']
+    except (ValueError, KeyError, TypeError):
+        return [], None
+    if not isinstance(items, list) or not items:
+        return [], None
+    newest = max((x.get('run_ym') for x in items if x.get('run_ym')),
+                default=None)
+    if not newest:
+        return [], None
+    return [x for x in items if x.get('run_ym') == newest], newest
+
+
+def _korail_top_line(rows, name_field, value_field):
+    """The busiest route/line as (korean_name, total), summed across every
+    row sharing that name (e.g. one row per train model on a route)."""
+    totals = {}
+    for x in rows:
+        name = (x.get(name_field) or '').strip()
+        try:
+            v = int(x.get(value_field) or 0)
+        except (TypeError, ValueError):
+            continue
+        if name:
+            totals[name] = totals.get(name, 0) + v
+    return max(totals.items(), key=lambda kv: kv[1], default=None)
+
+
+def _korail_line_en(ko_name):
+    en = KORAIL_LINE_EN.get(ko_name)
+    if not en:
+        print(f'Warning: no English name for {ko_name!r} — '
+              f'using Korean on the English card.')
+        en = ko_name
+    return en
+
+
+def rail_facts(key):
+    """Korea's busiest intercity route and Seoul's busiest commuter line,
+    one month each. Counting, not modelling: each figure is the API's own
+    published ridership total for the busiest named route/line, summed
+    across whichever rows (train models) share that name."""
+    if not key:
+        return []
+    facts = []
+
+    inter_rows, inter_ym = _korail_newest_rows(key, 'mainLineRoutePer', 800)
+    if inter_rows and inter_ym:
+        y, m = int(inter_ym[:4]), int(inter_ym[4:])
+        per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
+        top = _korail_top_line(inter_rows, 'rte_nm', 'utztn_nope')
+        if top:
+            ko_name, n = top
+            en = _korail_line_en(ko_name)
+            facts.append(fact('korail_inter_top', 'rail',
+                              f'Riders on {en}, {per_en}',
+                              grouped(n), grouped(n), pin=True,
+                              label_ko=f'{ko_name} 이용객, {per_ko}',
+                              period_en=per_en, period_ko=per_ko,
+                              num=n, unit='people'))
+
+    comm_rows, comm_ym = _korail_newest_rows(key, 'wideRailloadRoutePer', 300)
+    if comm_rows and comm_ym:
+        y, m = int(comm_ym[:4]), int(comm_ym[4:])
+        per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
+        top = _korail_top_line(comm_rows, 'sbwy_ln_nm', 'ride_nope')
+        if top:
+            ko_name, n = top
+            en = _korail_line_en(ko_name)
+            facts.append(fact('korail_comm_top', 'rail',
+                              f'Boardings on {en}, {per_en}',
+                              grouped(n), grouped(n), pin=True,
+                              label_ko=f'{ko_name} 승차인원, {per_ko}',
+                              period_en=per_en, period_ko=per_ko,
+                              num=n, unit='people'))
+        # A third line, on top of the two "top line" facts above, so the vein
+        # can stand on its own (build_pool()'s solo-card floor is 3 lines) and
+        # not only ever ride along inside a bigger card. A straight sum of
+        # every commuter line's own published boardings — still counting.
+        comm_total = sum(int(x.get('ride_nope') or 0) for x in comm_rows)
+        if comm_total:
+            # ⚠️ '승차인원' here, not '이용객' — matching korail_comm_top's own
+            # word for "boardings". check_labels() caught these disagreeing
+            # (both pinned, so neither is rewritten) on the first live
+            # --dry-run: same English word, two different Korean ones.
+            facts.append(fact('korail_comm_total', 'rail',
+                              f'Commuter rail boardings, {per_en}',
+                              grouped(comm_total), grouped(comm_total),
+                              pin=True, label_ko=f'광역철도 승차인원, {per_ko}',
+                              period_en=per_en, period_ko=per_ko,
+                              num=comm_total, unit='people'))
+    return facts
+
+
 # --- a year in the clinics (HIRA) ------------------------------------------
 # 건강보험심사평가원's per-disease statistics via data.go.kr (자동승인,
 # approved 22 Jul 2026): patients per 3-character KCD code per 시도, from
@@ -4329,6 +4575,8 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += molit_facts(gov_key)
     pool += kma_facts(gov_key)
     pool += kac_facts(gov_key)
+    pool += iiac_facts(gov_key)
+    pool += rail_facts(gov_key)
     pool += hira_facts(gov_key)
     pool += hira_cost_facts(gov_key)
     pool += culture_facts(gov_key)
@@ -4993,7 +5241,7 @@ LIVE_CATS = {'crowd', 'air', 'bike', 'traffic'}
 # months and lifts nothing — so membership here means "may set a dateline", and
 # grouped is confirmed later against whether one actually did.
 DATED_PERIOD_CATS = {'tourism', 'property', 'spending', 'avgbill', 'boxoffice',
-                     'rush', 'airport'}
+                     'rush', 'airport', 'incheon', 'rail'}
 # Veins whose lines are BARE LABELS ("60s", "2019") explained by a DESCRIPTOR
 # rather than by a date. On an own post the opener carries that meaning, so this
 # is only a reminder in the footnote — but a cross pair OVERRIDES "own post,
@@ -5764,7 +6012,7 @@ def compose(sel, pool):
     # from Seoul's own portal (SeoulLibraryBookRentNumInfo), not data4library.
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
                  'health', 'healthcost', 'culture', 'tourism', 'level', 'boxoffice',
-                 'boxhist'}
+                 'boxhist', 'incheon', 'rail'}
     uses_seoul = any(c not in non_seoul for c in cats)
     uses_kosis = 'national' in cats
     # The library "1 in N" divides by KOSIS's registered population, so a card
@@ -5779,6 +6027,8 @@ def compose(sel, pool):
     # (so 'river' stays out of non_seoul above) and the air is KMA.
     uses_kma = 'weather' in cats or 'river' in cats
     uses_kac = 'airport' in cats
+    uses_iiac = 'incheon' in cats
+    uses_korail = 'rail' in cats
     uses_hira = 'health' in cats
     # A different HIRA dataset from uses_hira above (cost, not patient
     # counts — see hira_cost_facts()), but the same providing agency, so it
@@ -5796,6 +6046,8 @@ def compose(sel, pool):
            (['rt.molit.go.kr'] if uses_molit else []) + \
            (['data.kma.go.kr'] if uses_kma else []) + \
            (['airport.co.kr'] if uses_kac else []) + \
+           (['airport.kr'] if uses_iiac else []) + \
+           (['korail.com'] if uses_korail else []) + \
            (['opendata.hira.or.kr'] if uses_hira or uses_hira_cost else []) + \
            (['mcst.go.kr'] if uses_mcst else []) + \
            (['know.tour.go.kr'] if uses_tour else []) + \
@@ -5830,6 +6082,11 @@ def compose(sel, pool):
     # Empty when the card spans two months (the twenty-year frame) or carries no
     # airport line at all.
     kac_period = ('', '')
+    # Same idea for the Incheon and Korail veins, which never span two months
+    # (neither has a then/now pair), so this is empty only when the card
+    # carries no line of that category at all.
+    iiac_period = ('', '')
+    korail_period = ('', '')
     if ('spending' in cats or 'avgbill' in cats) and SALES_Q['en']:
         scope_en.append(('Commercial districts', SALES_Q['en']))
         scope_ko.append(('상권', SALES_Q['ko']))
@@ -5984,6 +6241,27 @@ def compose(sel, pool):
             kac_period = kac_months.pop()
             scope_en.append((None, kac_period[0]))
             scope_ko.append((None, kac_period[1]))
+    if uses_iiac:
+        src_en += ' · Incheon International Airport Corporation'
+        src_ko += ' · 인천국제공항공사'
+        # Same reasoning as uses_kac above: iiac_facts() never spans two
+        # months, but read it off THIS CARD's lines anyway rather than
+        # assume, in case a future edit adds a then/now frame here too.
+        iiac_months = {(l['period_en'], l['period_ko']) for l in lines
+                       if l['cat'] == 'incheon'}
+        if len(iiac_months) == 1 and all(next(iter(iiac_months))):
+            iiac_period = iiac_months.pop()
+            scope_en.append((None, iiac_period[0]))
+            scope_ko.append((None, iiac_period[1]))
+    if uses_korail:
+        src_en += ' · Korea Railroad Corporation'
+        src_ko += ' · 한국철도공사'
+        korail_months = {(l['period_en'], l['period_ko']) for l in lines
+                         if l['cat'] == 'rail'}
+        if len(korail_months) == 1 and all(next(iter(korail_months))):
+            korail_period = korail_months.pop()
+            scope_en.append((None, korail_period[0]))
+            scope_ko.append((None, korail_period[1]))
     if uses_hira:
         # Both provisos are keys to the figures: the region is where the
         # institution is, and the counts are insurance claims.
@@ -6306,6 +6584,16 @@ def compose(sel, pool):
             if l['cat'] == 'airport':
                 l['label_en'] = l['label_en'].removesuffix(f', {kac_period[0]}')
                 l['label_ko'] = l['label_ko'].removesuffix(f', {kac_period[1]}')
+    if iiac_period[0] and (group_en or dateline_en) == iiac_period[0]:
+        for l in lines:
+            if l['cat'] == 'incheon':
+                l['label_en'] = l['label_en'].removesuffix(f', {iiac_period[0]}')
+                l['label_ko'] = l['label_ko'].removesuffix(f', {iiac_period[1]}')
+    if korail_period[0] and (group_en or dateline_en) == korail_period[0]:
+        for l in lines:
+            if l['cat'] == 'rail':
+                l['label_en'] = l['label_en'].removesuffix(f', {korail_period[0]}')
+                l['label_ko'] = l['label_ko'].removesuffix(f', {korail_period[1]}')
     # Is a date sitting on every row and nowhere above them? Asked HERE, after
     # the strip above and after grouped/dateline settled, so it sees the card as
     # it will actually be drawn rather than a draft of it — the same reason
