@@ -395,9 +395,11 @@ class BuildCardLines(unittest.TestCase):
         self.assertEqual(row_en['value_lead'], '🌙 Sunset ')
         self.assertEqual(row_en['value'], '6:56 p.m.')
         self.assertEqual(row_en['alt'], 'Sunrise 5:33 a.m., Sunset 6:56 p.m.')
+        self.assertTrue(row_en['no_leader'])  # no dotted line between the two readings
         self.assertEqual(row_ko['label'], '일출 오전 5시 33분')
         self.assertEqual(row_ko['value_lead'], '🌙 일몰 ')
         self.assertEqual(row_ko['value'], '오후 6시 56분')
+        self.assertTrue(row_ko['no_leader'])
 
     def test_no_rain_24h_omits_the_row(self):
         _, lines_en, _, _ = W.build_card_lines(self._summary())

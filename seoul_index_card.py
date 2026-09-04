@@ -42,6 +42,13 @@ Public API:
                   (sunrise/sunset, a forecast beside an observation) without
                   its own label/word turning bold along with the figure that
                   follows it.
+                  {"no_leader": True} drops the dotted leader between label
+                  and value for that one row — for a row like sunrise/sunset
+                  that already reads as two short readings side by side; a
+                  dotted line implies "here's the value for this label" the
+                  way every other row means it, which misdescribes a row
+                  whose right-hand side is a second, unrelated label+value
+                  pair rather than the left-hand label's own figure.
         footnote: "Crowds are KT-estimated" or "" for none
         dateline: masthead period under the title ("December 2025") on a single-
                   frame dated card; "" when grouped (the date rides a subhead)
@@ -152,10 +159,11 @@ def _row_html(line):
             lab = lab.replace(run, f'<b>{run}</b>', 1)
     val_lead = line.get('value_lead') or ''
     val_lead_html = f'<span class="valreg">{_esc(val_lead)}</span>' if val_lead else ''
+    led_class = 'led plain' if line.get('no_leader') else 'led'
     return (
         '<div class="r">'
         f'<span class="lab">{lead}{lab}</span>'
-        '<span class="led"></span>'
+        f'<span class="{led_class}"></span>'
         f'<span class="val">{val_lead_html}{_esc(line["value"])}</span>'
         '</div>'
     )
@@ -203,6 +211,7 @@ html,body{{margin:0;background:#{SENTINEL}}}
 .r{{display:flex;align-items:flex-end;margin:13px 0;font-size:16px}}
 .r .lab{{line-height:1.3;min-width:0;overflow-wrap:anywhere}}
 .r .led{{flex:1 0 34px;border-bottom:2px dotted {RED};margin:0 9px}}
+.r .led.plain{{border-bottom:none}}
 .r .val{{font-weight:700;line-height:1;white-space:nowrap}}
 .r .val .valreg{{font-weight:400}}
 .fn{{margin-top:20px;font-size:13px;line-height:1.4;color:{MUTED}}}

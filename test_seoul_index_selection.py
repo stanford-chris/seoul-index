@@ -805,6 +805,22 @@ class BoldPeriodRow(unittest.TestCase):
         self.assertNotIn('<b>2026: The Odyssey</b>', html)
 
 
+class NoLeaderRow(unittest.TestCase):
+    """The renderer half of the sunrise/sunset row's dropped dotted leader —
+    see seoul_weather_post.py's build_card_lines(). Pure string work, same
+    shape as BoldPeriodRow above."""
+
+    def test_a_flagged_row_gets_the_plain_led_class(self):
+        html = C._row_html({'emoji': '', 'label': 'Sunrise 5:33 a.m.',
+                            'value': '6:56 p.m.', 'no_leader': True})
+        self.assertIn('class="led plain"', html)
+
+    def test_an_unflagged_row_keeps_the_dotted_leader(self):
+        html = C._row_html({'emoji': '', 'label': 'High', 'value': '29°C'})
+        self.assertIn('class="led"', html)
+        self.assertNotIn('led plain', html)
+
+
 class WeatherCreditNamesTheStation(unittest.TestCase):
     """"(108)" became words, and the span joined it, on the card footnote
     (26 August 2026)."""

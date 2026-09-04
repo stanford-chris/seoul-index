@@ -426,10 +426,10 @@ def build_card_lines(summary):
         sr_en, ss_en = fmt_hhmm_ampm(sunrise), fmt_hhmm_ampm(sunset)
         sr_ko, ss_ko = fmt_hhmm_ampm_ko(sunrise), fmt_hhmm_ampm_ko(sunset)
         lines_en.append({'emoji': '☀️', 'label': f'Sunrise {sr_en}', 'emph': sr_en,
-                         'value_lead': '🌙 Sunset ', 'value': ss_en,
+                         'value_lead': '🌙 Sunset ', 'value': ss_en, 'no_leader': True,
                          'alt': f'Sunrise {sr_en}, Sunset {ss_en}'})
         lines_ko.append({'emoji': '☀️', 'label': f'일출 {sr_ko}', 'emph': sr_ko,
-                         'value_lead': '🌙 일몰 ', 'value': ss_ko,
+                         'value_lead': '🌙 일몰 ', 'value': ss_ko, 'no_leader': True,
                          'alt': f'일출 {sr_ko}, 일몰 {ss_ko}'})
 
     if pty:
