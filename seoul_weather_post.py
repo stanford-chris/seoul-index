@@ -479,6 +479,25 @@ def build_alt_bodies(opener, lines, footnote):
     return '\n'.join(parts)
 
 
+def already_posted(target_date):
+    """True if WEATHER_LOG already holds a successful post for target_date.
+
+    This is what makes the 06:30 safety-net launchd fire (see the plist)
+    safe to add alongside the regular 05:25 one: if 05:25 already posted,
+    06:30 sees today's target_date logged and exits quietly instead of
+    posting a second thread for the same day."""
+    if not WEATHER_LOG.exists():
+        return False
+    with open(WEATHER_LOG) as f:
+        for line in f:
+            try:
+                if json.loads(line).get('target_date') == target_date:
+                    return True
+            except json.JSONDecodeError:
+                continue
+    return False
+
+
 def main():
     lock = open(HERE / '.weather.lock', 'w')
     try:
@@ -488,6 +507,14 @@ def main():
 
     now = datetime.now(SEOUL_TZ)
     print(f'--- run at {now:%Y-%m-%d %H:%M:%S} KST ---')
+
+    # Checked before net_guard/config/anything else, so a safety-net rerun
+    # after a successful earlier post costs nothing but this.
+    target_date = now.strftime('%Y%m%d')
+    if not DRY_RUN and already_posted(target_date):
+        print(f'Already posted for {target_date}; nothing to do '
+              f'(safety-net rerun after an earlier success).')
+        return
 
     # A daily card has no tight window to hit; give the machine up to an hour
     # to find a path out before giving up, matching seoul_index_post.py's
@@ -504,7 +531,6 @@ def main():
     if items is None:
         sys.exit(f'KMA getVilageFcst call failed (base {base_date} {base_time}).')
 
-    target_date = now.strftime('%Y%m%d')
     summary = today_summary(items, target_date)
     if summary is None:
         sys.exit(f'No hourly temperature data for {target_date} in the '

@@ -60,6 +60,15 @@ SENTINEL = 'FF00FF'          # page background; cropped away. Never appears in a
 SENTINEL_RGB = (255, 0, 255)
 CARD_WIDTH = 600             # CSS px; device-scale 2 renders at 1200 px.
 RENDER_HEIGHT = 1000         # generous CSS height; cropped to content after.
+# Escalating per-attempt budgets, not one fixed timeout repeated. A single
+# 60s retry (added 3 September 2026) was itself hung twice in a row on 4
+# September, losing the whole post again: whatever was starving the machine
+# that morning (nas_backup.sh was still stuck materialising iCloud files at
+# 05:25, unfinished when the Mac rebooted at 08:47) outlasted two 60s
+# attempts back to back. Growing the budget on each retry assumes that if
+# the first attempt was starved, the contention is more likely ongoing than
+# a one-off blip.
+RENDER_TIMEOUTS = (60, 90, 120)
 CREAM = '#f5f0e6'
 RED = '#d70000'
 INK = '#20242c'
@@ -226,16 +235,14 @@ def _crop_to_content(raw_path, out_path):
     return out_path, size
 
 
-def _shoot(doc, out_path, retry=True):
+def _shoot(doc, out_path, attempt=0):
     """Render an HTML doc to a content-cropped PNG. Returns (out_path, (w, h)).
 
-    ⚠️ One retry on a Chrome hang, not on a Chrome crash. The 3 September 2026
-    weather run lost its whole post to headless Chrome simply never returning
-    within the 60s timeout, with nothing wrong in the HTML — indistinguishable
-    from data.seoul.go.kr's own transient timeouts elsewhere in this codebase,
-    which get the same one-retry treatment. A crash (Chrome exits but leaves no
-    PNG) is not retried: that is a real fault in the HTML or Chrome itself, and
-    trying again would just mask it."""
+    ⚠️ Escalating retries on a Chrome hang (RENDER_TIMEOUTS), not on a Chrome
+    crash. A crash (Chrome exits but leaves no PNG) is not retried: that is a
+    real fault in the HTML or Chrome itself, and trying again would just mask
+    it. A hang, by contrast, has repeatedly meant nothing wrong with the HTML
+    at all — see RENDER_TIMEOUTS' own comment."""
     if not Path(CHROME).exists():
         raise CardRenderError(f'Chrome not found at {CHROME}')
     out_path = str(out_path)
@@ -251,11 +258,14 @@ def _shoot(doc, out_path, retry=True):
             f'--screenshot={raw_png}', f'file://{html_path}',
         ]
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            r = subprocess.run(cmd, capture_output=True, text=True,
+                               timeout=RENDER_TIMEOUTS[attempt])
         except subprocess.TimeoutExpired:
-            if retry:
-                return _shoot(doc, out_path, retry=False)
-            raise CardRenderError('Chrome hung twice in a row (60s each)')
+            if attempt + 1 < len(RENDER_TIMEOUTS):
+                return _shoot(doc, out_path, attempt=attempt + 1)
+            budgets = ', '.join(f'{t}s' for t in RENDER_TIMEOUTS)
+            raise CardRenderError(
+                f'Chrome hung on all {len(RENDER_TIMEOUTS)} attempts ({budgets})')
         if not raw_png.exists():
             raise CardRenderError(
                 f'Chrome produced no image (exit {r.returncode}): '

@@ -12,7 +12,9 @@ against a live dry run.
 No network, no Chrome, no posting: nothing here touches http_get_json,
 render_card or atproto.
 """
+import json
 import sys
+import tempfile
 import unittest
 from datetime import date, datetime
 from pathlib import Path
@@ -574,6 +576,44 @@ class Footnotes(unittest.TestCase):
         self.assertIn("except yesterday's rainfall, which is", note_en)
         self.assertIn('실제 관측값이 아닙니다', note_ko)
         self.assertIn('어제 강수량은 실제 관측값입니다', note_ko)
+
+
+class AlreadyPosted(unittest.TestCase):
+    """already_posted() is what makes the 06:30 safety-net launchd fire (see
+    com.chrisstanford.seoulweather.plist) safe: it must not repost when
+    05:25 already succeeded, and it must not stay silent forever if 05:25
+    genuinely failed."""
+
+    def _with_log(self, lines):
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        log_path = Path(td.name) / 'weather_history.jsonl'
+        if lines is not None:
+            log_path.write_text('\n'.join(lines) + ('\n' if lines else ''))
+        return patch.object(W, 'WEATHER_LOG', log_path)
+
+    def test_no_log_file_at_all_is_not_posted(self):
+        with self._with_log(None):
+            self.assertFalse(W.already_posted('20260904'))
+
+    def test_empty_log_is_not_posted(self):
+        with self._with_log([]):
+            self.assertFalse(W.already_posted('20260904'))
+
+    def test_a_different_date_in_the_log_is_not_posted(self):
+        with self._with_log([json.dumps({'target_date': '20260903'})]):
+            self.assertFalse(W.already_posted('20260904'))
+
+    def test_todays_date_in_the_log_is_posted(self):
+        with self._with_log([json.dumps({'target_date': '20260903'}),
+                              json.dumps({'target_date': '20260904'})]):
+            self.assertTrue(W.already_posted('20260904'))
+
+    def test_a_corrupt_line_is_skipped_not_fatal(self):
+        # A torn write (process killed mid-append) must not make every
+        # later re-run of this check blow up rather than answer the question.
+        with self._with_log(['{not valid json', json.dumps({'target_date': '20260904'})]):
+            self.assertTrue(W.already_posted('20260904'))
 
 
 if __name__ == '__main__':
