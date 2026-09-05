@@ -7312,4 +7312,12 @@ def main():
 
 
 if __name__ == '__main__':
+    # Gated on __name__, not installed at module level — this file is
+    # imported by test suites, and mutating subprocess.run at import time
+    # would leak into every other test sharing the process. Same shape as
+    # the reporting() guard above: a --dry-run flag reads sys.argv, but a
+    # test process's argv says nothing about it, so import-time is the
+    # only safe gate. See api_call_log.py's own docstring.
+    import api_call_log
+    api_call_log.install('seoul_index_post.py')
     main()
