@@ -254,7 +254,11 @@ SEVERE_STARVE_DAYS = STARVE_DAYS * 2
 # 'boxhist' is three years of one date, newest first: a sequence, like the
 # complaint and infant year lines, and value-sorting it would scramble the
 # years the moment a middle one came out highest.
-ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist'}
+# 'busroutes' is busiest/2nd-busiest/quietest THEN the total — a ranking with
+# its sum tacked on the end, not four comparable magnitudes. Value-sorted, the
+# total (in the millions) would jump to the top of a card whose whole point is
+# the top-to-bottom rank of the three routes above it.
+ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist', 'busroutes'}
 
 # Every vein's lines are all-or-nothing on emoji, not just a chosen few: a
 # partial set reads as an oversight rather than a judgement, whatever the
@@ -445,6 +449,13 @@ TRANSPORT_COOLDOWN_DAYS = 3
 # 1 August and 9 September 2026 (bot-scout, 9 Sep) — a real near-tie in the
 # data, reported as a fresh surprise on every run that reached for it.
 TOURISM_COOLDOWN_DAYS = 3
+
+# Same reasoning again: the busiest bus route is Route 143 on every one of
+# the 10 days measured 9 Sep 2026 (never close, usually 15-30% ahead of
+# whoever's second), so busroutes() hands back the same top line almost
+# every time it is offered. The two- and three-line ranks below it are the
+# part that actually varies day to day.
+BUSROUTES_COOLDOWN_DAYS = 3
 
 # Rotating openers offered to the selector (it may also write its own). Kept
 # deliberately neutral — time/place framings, never a punchline. The house style
@@ -1110,6 +1121,46 @@ def _latest_daily(api_key, service, day_field_ok):
     return None, 0
 
 
+# Read by compose() to lift the day onto the 'busroutes' card's own masthead
+# dateline, and to fold the streak into its footnote — the same
+# harvest-time-global pattern RUSH_M already uses for the rush vein's month.
+# None until transport_facts() actually builds a 'busroutes' card this run.
+BUS_ROUTE_DAY = {'en': None, 'ko': None}
+BUS_ROUTE_STREAK = {'en': None, 'ko': None}
+# A 1- or 2-day streak is not yet a pattern — every route has a quiet run
+# sometimes. Below this, BUS_ROUTE_STREAK stays None and the footnote says
+# nothing about it, same reasoning as KBO_ORDER_SINCE and SEVERE_STARVE_DAYS
+# elsewhere in this codebase: a report noisy with marginal findings is a
+# report nobody reads.
+BUS_ROUTE_STREAK_MIN = 3
+
+
+def _bus_route_streak(state, day, top_no):
+    """Consecutive PUBLISHED days `top_no` has been the busiest bus route,
+    ending at `day`. Stored in state so a single day's win never reads as a
+    trend and a genuine run survives between runs.
+
+    ⚠️ Callers must call this at most once per real day's fresh fetch — a
+    second call the same day would compare `day` against itself (a 0-day
+    gap, not 1), which is not "contiguous" and would wrongly reset a real
+    streak to 1. transport_facts() only reaches this inside its cache-miss
+    branch for exactly that reason.
+
+    ⚠️ A gap — a day the feed never published, or the bot never ran — resets
+    the count rather than bridging it: a silently wrong streak is worse than
+    a short one, the same call this file makes everywhere else a run could
+    go stale (SEVERE_STARVE_DAYS, the KBO order gate, the data-source probe).
+    """
+    prev = state.get('bus_route_streak') or {}
+    prev_day, prev_route = prev.get('date'), prev.get('route')
+    contiguous = (prev_day and prev_route == top_no
+                  and (datetime.strptime(day, '%Y%m%d')
+                       - datetime.strptime(prev_day, '%Y%m%d')).days == 1)
+    days = prev.get('days', 0) + 1 if contiguous else 1
+    state['bus_route_streak'] = {'route': top_no, 'days': days, 'date': day}
+    return days
+
+
 def transport_facts(api_key, state):
     """Subway + bus daily totals for the latest available date. Cached per-day in
     state so the second post of the day doesn't re-sum ~42 bus pages."""
@@ -1141,20 +1192,33 @@ def transport_facts(api_key, state):
             for x in bd.get('CardBusStatisticsServiceNew', {}).get('row', []):
                 v = int(x.get('GTON_TNOPE', '0') or 0)
                 bus_total += v
-                route[x.get('RTE_NM', '?')] = route.get(x.get('RTE_NM', '?'), 0) + v
-        top_route = max(route.items(), key=lambda kv: kv[1]) if route else ('?', 0)
+                # Keyed on RTE_NO, not RTE_NM: a night ("N") route is split
+                # across two RTE_IDs, one per direction, sharing one RTE_NO
+                # (verified 9 Sep 2026, e.g. N13 = ids 11110363/11110364) — a
+                # rider means both directions by "Route N13", so summing on
+                # the number they'd recognise is the more honest total, not
+                # a coincidence to guard against.
+                no = x.get('RTE_NO', '?')
+                route[no] = route.get(no, 0) + v
+        ranked = sorted(route.items(), key=lambda kv: -kv[1])
+        bottom = min(route.items(), key=lambda kv: kv[1]) if route else None
+        # Streak only advances HERE, in the once-per-real-day fresh fetch —
+        # never on a same-day cache hit, or a second post the same day would
+        # compare today's winner against itself and read as a broken streak.
+        streak_days = _bus_route_streak(state, day, ranked[0][0]) if ranked else 0
         c = {'date': day, 'sub_total': sub_total, 'bus_total': bus_total,
              'busiest_st': busiest['SBWY_STNS_NM'], 'busiest_v': int(busiest['GTON_TNOPE']),
              'quietest_st': quietest['SBWY_STNS_NM'], 'quietest_v': int(quietest['GTON_TNOPE']),
-             'top_route': top_route[0], 'top_route_v': top_route[1]}
+             'bus_ranked': ranked[:2], 'bus_bottom': bottom,
+             'bus_streak_days': streak_days}
         state['transport_cache'] = c
 
     dt = datetime.strptime(c['date'], '%Y%m%d')
     d = dt.strftime('%-d %B')
     d_ko = f'{dt.month}월 {dt.day}일'
-    # All four are pinned: the date says which day the count belongs to, and the
-    # station names are the ones looked up from the English name table, so
-    # neither is the selector's to reword away.
+    # All of these are pinned: the date says which day the count belongs to, and the
+    # station/route identifiers are either looked up from the English name table or
+    # need no lookup at all, so none of it is the selector's to reword away.
     facts = [
         fact('sub_total', 'transport', f'Subway boardings on {d}',
              grouped(c['sub_total']), grouped(c['sub_total']), pair='modes',
@@ -1196,6 +1260,55 @@ def transport_facts(api_key, state):
              label_ko=f'가장 한산한 지하철역, {c["quietest_st"]} ({d_ko})',
              num=c['quietest_v'], unit='people'),
     ]
+    # 'busroutes' is a SEPARATE category from 'transport' above, own post,
+    # never mixed — a distinct card shape (three ranked bus routes + their
+    # total, no subway line at all), not another transport fact for the
+    # selector to mix in. See SELECT_PROMPT's "busroutes" rule.
+    #
+    # The route NUMBER only, never RTE_NM's full "143번(정릉~개포동)" form: a
+    # village-bus route number carries its 자치구 in Hangul with no "구" suffix
+    # ("마포01"), which the existing districts table can't resolve and which
+    # has no safe English form to invent. Route numbers need no translation
+    # either way — that IS the label riders and signage use, in both
+    # languages — but only once EVERY one of the three is verified ASCII: a
+    # village bus becoming one of the day's three extremes (never observed
+    # across the full days checked as of 9 Sep 2026, but not provably
+    # impossible, and far likelier at the quiet end than the busy one) would
+    # otherwise ship raw Hangul on the English card unremarked. All-or-
+    # nothing on purpose — a card missing just its quietest line would be a
+    # visibly broken version of a shape the reader has seen complete before.
+    def _ascii_route(pair):
+        return pair is not None and pair[0] != '?' and re.match(r'^[A-Za-z0-9-]+$', str(pair[0]))
+
+    top = c['bus_ranked'][0] if c['bus_ranked'] else None
+    second = c['bus_ranked'][1] if len(c['bus_ranked']) >= 2 else None
+    bottom = c['bus_bottom']
+    if _ascii_route(top) and _ascii_route(second) and _ascii_route(bottom):
+        BUS_ROUTE_DAY['en'], BUS_ROUTE_DAY['ko'] = d, d_ko
+        streak_days = c['bus_streak_days']
+        if streak_days >= BUS_ROUTE_STREAK_MIN:
+            BUS_ROUTE_STREAK['en'] = (f'Route {top[0]} has led for the past '
+                                       f'{streak_days} days')
+            BUS_ROUTE_STREAK['ko'] = f'{top[0]}번은 최근 {streak_days}일간 매일 1위였음'
+        else:
+            BUS_ROUTE_STREAK['en'] = BUS_ROUTE_STREAK['ko'] = None
+        facts += [
+            fact('bus_busiest_route', 'busroutes', f'Busiest: Route {top[0]}',
+                 grouped(top[1]), grouped(top[1]), pin=True,
+                 label_ko=f'가장 붐빔: {top[0]}번', place_en='Busiest',
+                 place_ko='가장 붐빔', num=top[1], unit='people'),
+            fact('bus_second_route', 'busroutes', f'2nd-busiest: Route {second[0]}',
+                 grouped(second[1]), grouped(second[1]), pin=True,
+                 label_ko=f'두 번째로 붐빔: {second[0]}번', place_en='2nd-busiest',
+                 place_ko='두 번째로 붐빔', num=second[1], unit='people'),
+            fact('bus_quietest_route', 'busroutes', f'Quietest: Route {bottom[0]}',
+                 grouped(bottom[1]), grouped(bottom[1]), pin=True,
+                 label_ko=f'가장 한산함: {bottom[0]}번', place_en='Quietest',
+                 place_ko='가장 한산함', num=bottom[1], unit='people'),
+            fact('bus_route_total', 'busroutes', 'Total bus boardings',
+                 grouped(c['bus_total']), grouped(c['bus_total']), pin=True,
+                 label_ko='전체 버스 승차 인원', num=c['bus_total'], unit='people'),
+        ]
     return facts
 
 
@@ -4634,6 +4747,7 @@ Rules:
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
 - "transport" lines are Seoul's total subway and bus boardings for the most recently published day, plus that day's busiest and quietest subway stations. The subway and bus TOTAL labels already carry the date in the label itself ("Subway boardings on 26 August", "Bus boardings the same day") — there is no separate dateline to lean on here, so do NOT put a date anywhere in the opener, and do NOT write a second, different date of your own: a neutral opener with no date at all is enough, e.g. "Through the turnstiles", "Seoul on the move". Never call a station busy, quiet, packed or empty — the four numbers say it.
+- "busroutes" lines are that day's busiest, second-busiest and quietest Seoul bus routes by plain route number ("Busiest: Route 143"), plus the day's total bus boardings — own post, never mixed with any other category, including "transport" above (that vein's own bus/subway totals are a different card). All FOUR lines are compulsory and must be used together, in that order: this is a complete small ranking, not a selection from it, the same rule "boxoffice" uses for its top four films. The dateline carries the date, so do NOT put a date anywhere in the opener and do NOT write a second one of your own — a neutral opener naming buses is enough, e.g. "Seoul's buses", "On the buses today", and it MUST NOT settle on one wording, so write a fresh one each time. Never call a route busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines: the numbers say it. If the footnote already names a route's winning streak, do not repeat or rephrase that fact in the opener — it would say the same thing twice on one card.
 - "books" lines are checkouts at SEOUL LIBRARY over the last 60 days, counted by SUBJECT: literature, philosophy, 어학 and the rest, in the library's own classification. Labels are BARE SUBJECT NAMES, so the opener MUST name the library and say these are loans, exactly as the "library" membership lines do — and MUST NOT settle on one wording: "What Seoul Library lent, by subject", "Seoul Library's loans, by subject", "Borrowing at Seoul Library, by subject" and "What went out of Seoul Library" are four of many, so write a fresh one rather than reusing the last. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries — never imply otherwise. ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post, never mixed with any other category. ⚠️ The value may carry a trailing "(1 in N)" — that is Python's, and it is the subject's share of every checkout counted, which is why four lines can still say what the other six weigh. Leave it exactly where it is and NEVER restate it, convert it to a percentage, explain it, or build the opener or a label on it; the card footnote gives the total it divides by. ⚠️ TEN subjects are offered and a card takes four, so there is no one right card and THE EXTREMES ARE NOT COMPULSORY. Do not reach for the biggest subject at the top and the smallest at the bottom every time: four subjects from the middle of the list is a card, the four smallest is a card, and a set leaving out the largest number altogether is a card. The two pairs are two arrangements among many rather than the default — a "book_heat" pair is two subjects that came out level, a "book_gap" pair is the least- and most-borrowed of the ten; use at most ONE of them on a card, and prefer neither if the plain four you have chosen already say something. Deliberately vary which subjects appear from post to post and lean hard on AVOID_IDS here: with only ten subjects this vein repeats itself faster than any other. Never say which way the gap runs, never call a subject popular or neglected, and never draw a conclusion about what Seoul reads — set the numbers down and let the reader do it.
 - "rush" lines are SUBWAY BOARDINGS at one named station in ONE HOUR of the day. Labels are a station and a clock time ("City Hall, 6 p.m."), so the opener MUST say IN WORDS that these are subway boardings, e.g. "Boarding the Seoul subway", "Through the turnstiles, by the hour" — the same case as the world, traffic, price and books lines — and MUST NOT settle on one wording, so write a fresh one rather than reusing the last. ⚠️ EVERY figure is a WHOLE MONTH of that hour: never write or imply that one is a single day's, a single evening's, an average, or "in an hour". ⚠️ Do NOT put the month in the opener: it rides on the card as its dateline. The PAIR offered is the SAME station at its morning hour and its evening hour, and that contrast IS the joke: use both halves and let it sit there unremarked. Never point out that one is larger, never call a station busy, quiet, dead or booming, and never label a place residential, commercial, a business district or a dormitory suburb: the four numbers say all of it, and saying it as well is the one thing this account never does. Own post, never mixed with any other category.
 - "boxoffice" lines are cinema ADMISSIONS on SEOUL screens for ONE day, film by film, from the Korean Film Council's ticketing network. Labels are BARE FILM TITLES, so the opener MUST say IN WORDS that the figures are admissions or tickets, and that they are Seoul's: a title and a bare number leave the reader to guess whether it is people, screens or won. "Seoul at the cinema" is NOT enough on its own and neither is "What Seoul watched" — write e.g. "Cinema admissions in Seoul", "Tickets sold in Seoul's cinemas", "Seats filled in Seoul's cinemas" (관객수 / 티켓 in the Korean), the same case as the world, traffic, price and books lines — and MUST NOT settle on one wording, so write a fresh one rather than reusing the last. ⚠️ These are SEOUL's admissions, NOT the country's: never write "nationwide", "across Korea" or any national framing, and never imply the figures are a film's total. ⚠️ Do NOT put the date in the opener: the day rides on the card automatically as its dateline. ⚠️ Titles are printed exactly as they come, in each language: never translate, shorten or reword a film title. ⚠️ EVERY film on this card gets an "emoji", with no exceptions: the general rule above lets you leave one blank where nothing obvious fits, and that is right for an abstract line but wrong here, since a film is always ABOUT something. Take it from the subject, the genre or the title itself: 🕷 for a Spider-Man film, 👻 for a horror, 🕵 for a detective story, 🐋 for a whale, 🏛 or ⛵ for an ancient epic, 🎞 or 🍿 as a last resort. If a card would go out with one film tagged and another bare, every emoji on it is stripped instead, so a lazy blank costs the whole card its emoji rather than just that line. Own post, never mixed with any other category. ⚠️ The four films offered are the day's FOUR most-watched in Seoul, and you must use ALL FOUR, every time: this card is the complete top four in order, not a selection from a longer list, and dropping one leaves a hole in a ranking that a reader will take for the ranking. Do not number the lines (they are already sorted by value) and do not write an opener that ranks them ("the day's winners", "Seoul's biggest"): the footnote says what the set is, and the arrangement does the rest. Never call a film a hit, a flop or a winner, never say which is beating which, and never remark on the gap between them.
@@ -5027,6 +5141,19 @@ def complete_boxoffice(picks, pool):
     have = {p['id'] for p in picks}
     return picks + [{'id': f['id'], 'emoji': ''} for f in pool
                     if f['cat'] == 'boxoffice' and f['id'] not in have]
+
+
+def complete_busroutes(picks, pool):
+    """A busroutes card carries all four of busiest/2nd-busiest/quietest/total,
+    or it is not one — the same hole-in-the-ranking problem complete_boxoffice()
+    exists to prevent, on a ranking a quarter the length. Own-vein cards only,
+    for the same cross-pair reason as boxoffice."""
+    by_id = {f['id']: f for f in pool}
+    if not picks or any(by_id[p['id']]['cat'] != 'busroutes' for p in picks):
+        return picks
+    have = {p['id'] for p in picks}
+    return picks + [{'id': f['id'], 'emoji': ''} for f in pool
+                    if f['cat'] == 'busroutes' and f['id'] not in have]
 
 
 def even_out_emoji(lines, cats):
@@ -5759,6 +5886,7 @@ def compose(sel, pool):
     by_id = {f['id']: f for f in pool}
     picks = [p for p in sel.get('picks', []) if p.get('id') in by_id]
     picks = complete_boxoffice(picks, pool)
+    picks = complete_busroutes(picks, pool)
     # A rush card can be ONE station's two hours: the whole point of that
     # shape is a single place's own morning/evening swing, and a third line
     # from anywhere else would reintroduce the cross-source mixing the
@@ -5930,7 +6058,7 @@ def compose(sel, pool):
     # trusting the selector: subway, bus, or a generic car as the catch-all.
     # picks[0] is the first line (lines are built from picks in order below).
     first_fact = by_id[picks[0]['id']]
-    if first_fact['cat'] == 'transport':
+    if first_fact['cat'] in ('transport', 'busroutes'):
         fid = first_fact['id']
         if fid.startswith('sub'):
             opener_emoji = '🚇'
@@ -6232,6 +6360,16 @@ def compose(sel, pool):
         scope_en.append(('The total monthly boardings during the designated hour',
                          RUSH_M['en']))
         scope_ko.append(('해당 시간대 승차 인원, 한 달 합계', RUSH_M['ko']))
+    if 'busroutes' in cats and BUS_ROUTE_DAY['en']:
+        # No descriptor, matching the KAC/IIAC/Korail/infant/daynight/river
+        # period entries above and below: per_pairs reads only the PERIOD
+        # half for the lifted dateline, and on the ordinary own-post card
+        # (the only way this vein is normally chosen) that lift always
+        # succeeds, so the bare `desc` that _scope_strs falls back to when
+        # NOT lifted (None here) never actually prints — the same accepted
+        # shape those other categories already carry rather than a new risk.
+        scope_en.append((None, BUS_ROUTE_DAY['en']))
+        scope_ko.append((None, BUS_ROUTE_DAY['ko']))
     if uses_kac:
         src_en += ' · Korea Airports Corporation'
         src_ko += ' · 한국공항공사'
@@ -6634,6 +6772,12 @@ def compose(sel, pool):
         # wording said the wrong thing about the figures.
         note_en = 'Population present, KT-estimated' if estimated else ''
         note_ko = '생활인구는 KT 추정' if estimated else ''
+    elif 'busroutes' in cats:
+        # A streak under BUS_ROUTE_STREAK_MIN reads as None here (see
+        # transport_facts()), so a fresh or broken streak says nothing
+        # rather than "led for the past 1 days".
+        note_en = BUS_ROUTE_STREAK['en'] or ''
+        note_ko = BUS_ROUTE_STREAK['ko'] or ''
     else:
         note_en = 'Crowds are KT-estimated' if estimated else ''
         note_ko = '인구는 KT 추정' if estimated else ''
@@ -6753,6 +6897,36 @@ def compose(sel, pool):
         if l['cat'] == 'rush' and l.get('place_en'):
             l['emph_en'], l['emph_ko'] = l['place_en'], l['place_ko']
 
+    # busroutes bolds its RANK word ("Busiest", "Quietest") the same
+    # unconditional way rush bolds its station — for the identical reason.
+    # _emph()'s heuristic wants a run shared by every OTHER row and varying
+    # in just one; here every row's rank word AND route number both vary, so
+    # the "rest of the label must match" check never passes and nothing
+    # would bold at all. The total line carries no place_en and is handled
+    # below by bolding the whole label instead, not a run inside it.
+    for l in lines:
+        if l['cat'] != 'busroutes':
+            continue
+        if l.get('place_en'):
+            l['emph_en'], l['emph_ko'] = l['place_en'], l['place_ko']
+        else:
+            # 'lines' entries carry no fact id to key off (see the
+            # lines.append() dict above), so "no place_en" is what
+            # identifies the total line among the four — it is the only
+            # busroutes fact built without one.
+            l['bold'] = True
+
+    # No per-line emoji on a busroutes line: three routes and a total read as
+    # a small table, and a bus glyph repeated four times in a row added
+    # nothing four times over. The opener keeps one, set below. Scoped to
+    # busroutes lines only — a cross-pair card can legitimately put one
+    # busroutes line beside an emoji-carrying line from another vein, and
+    # even_out_emoji() below already handles within-vein consistency on its
+    # own; this only needs to zero out busroutes specifically.
+    for l in lines:
+        if l['cat'] == 'busroutes':
+            l['emoji'] = ''
+
     # The ordered elements the card draws, per language. A grouped cross pair puts
     # a date subhead over the dated lines and a "Right now" subhead over the live
     # ones; otherwise just the rows (an ungrouped dated card flies its month as a
@@ -6761,7 +6935,8 @@ def compose(sel, pool):
     def _items(lang):
         rows = [{'emoji': l['emoji'], 'label': l[f'label_{lang}'],
                  'value': l[f'value_{lang}'],
-                 **({'emph': l[f'emph_{lang}']} if l.get(f'emph_{lang}') else {})}
+                 **({'emph': l[f'emph_{lang}']} if l.get(f'emph_{lang}') else {}),
+                 **({'bold': True} if l.get('bold') else {})}
                 for l in lines]
         if metric_grouped:
             # Metric as the subhead, period as the row, bolded because under the
@@ -7122,6 +7297,8 @@ def main():
                               NATIONAL_COOLDOWN_DAYS, 'National')
         pool = apply_cooldown(pool, state, 'last_tourism_at', 'tourism',
                               TOURISM_COOLDOWN_DAYS, 'Tourism')
+        pool = apply_cooldown(pool, state, 'last_busroutes_at', 'busroutes',
+                              BUSROUTES_COOLDOWN_DAYS, 'Bus routes')
 
         # The floor under the veins the selector never reaches for. Applied
         # after the cooldowns so a promoted vein is never one the cooldown has
@@ -7321,6 +7498,8 @@ def main():
         state['last_national_at'] = state['last_success_at']
     if primary == 'tourism':
         state['last_tourism_at'] = state['last_success_at']
+    if primary == 'busroutes':
+        state['last_busroutes_at'] = state['last_success_at']
     write_json_atomic(STATE, state, ensure_ascii=False, indent=2)
 
     log_card(c, sel, primary, posted_uri, handle, fallback=cards is None)

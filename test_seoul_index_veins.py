@@ -1688,5 +1688,239 @@ class OpenersAreNotCutMidPhrase(unittest.TestCase):
                          'Seoul by the numbers')
 
 
+class BusRoutesVein(unittest.TestCase):
+    """Added 9 Sep 2026, expanded into its own 'busroutes' category the same
+    day once the single busiest-route line grew into a four-line ranked card
+    (busiest, 2nd-busiest, quietest, total) with a day-over-day streak note,
+    at the user's own direction. transport_facts() sums
+    CardBusStatisticsServiceNew's per-stop boardings into a per-route total —
+    these tests cover what would ship the ranking wrong or incomplete rather
+    than not at all: a night route split across two RTE_IDs double-counted or
+    halved, a village-bus route number (Hangul, no safe English form)
+    reaching the English card unremarked, and a streak that starts trusting
+    itself before it has actually recurred.
+    """
+
+    SUB_ROWS = [{'SBWY_STNS_NM': '홍대입구', 'GTON_TNOPE': '71953'},
+                {'SBWY_STNS_NM': '임진강', 'GTON_TNOPE': '57'}]
+
+    def _facts(self, bus_rows, state=None):
+        with Stub({'CardSubwayStatsNew': ok('CardSubwayStatsNew', self.SUB_ROWS),
+                   'CardBusStatisticsServiceNew': ok('CardBusStatisticsServiceNew', bus_rows)}):
+            return S.transport_facts('unused-key', state if state is not None else {})
+
+    def by_id(self, facts, fid):
+        return next((f for f in facts if f['id'] == fid), None)
+
+    # Five distinct routes: enough for a real busiest/2nd/quietest spread,
+    # with the N13 split kept in to prove RTE_NO grouping still holds at
+    # the ranking's edges, not just for a lone pair.
+    FIVE_ROUTES = [
+        {'RTE_ID': '11110001', 'RTE_NO': '100', 'RTE_NM': '100번(A~B)', 'GTON_TNOPE': 200},
+        {'RTE_ID': '11110001', 'RTE_NO': '100', 'RTE_NM': '100번(A~B)', 'GTON_TNOPE': 100},
+        {'RTE_ID': '11110363', 'RTE_NO': 'N13', 'RTE_NM': 'N13번(A방향)', 'GTON_TNOPE': 120},
+        {'RTE_ID': '11110364', 'RTE_NO': 'N13', 'RTE_NM': 'N13번(B방향)', 'GTON_TNOPE': 130},
+        {'RTE_ID': '2', 'RTE_NO': '272', 'RTE_NM': '272번(A~B)', 'GTON_TNOPE': 90},
+        {'RTE_ID': '3', 'RTE_NO': '9', 'RTE_NM': '9번(A~B)', 'GTON_TNOPE': 5},
+    ]
+
+    def test_a_route_split_across_two_directions_sums_not_doubles(self):
+        # N13 runs as two RTE_IDs (one per direction) sharing one RTE_NO — a
+        # rider means both when they say "Route N13". Grouping by RTE_ID
+        # instead would report only one direction's half; grouping by the
+        # old RTE_NM (route name + endpoints) would also have worked here,
+        # but not for the case below.
+        facts = self._facts(self.FIVE_ROUTES)
+        top = self.by_id(facts, 'bus_busiest_route')
+        self.assertIsNotNone(top, 'busiest-route fact missing')
+        self.assertIn('Route 100', top['label_en'])
+        self.assertEqual(top['value_en'], '300')
+        self.assertEqual(top['num'], 300)
+        self.assertEqual(top['unit'], 'people')
+        self.assertTrue(top['pin'])
+        self.assertEqual(top['cat'], 'busroutes')
+
+    def test_second_and_quietest_are_ranked_correctly(self):
+        facts = self._facts(self.FIVE_ROUTES)
+        second = self.by_id(facts, 'bus_second_route')
+        quietest = self.by_id(facts, 'bus_quietest_route')
+        self.assertIn('Route N13', second['label_en'])
+        self.assertEqual(second['value_en'], '250')
+        self.assertIn('Route 9', quietest['label_en'])
+        self.assertEqual(quietest['value_en'], '5')
+        total = self.by_id(facts, 'bus_route_total')
+        self.assertEqual(total['label_en'], 'Total bus boardings')
+        self.assertEqual(total['value_en'], S.grouped(sum(
+            int(r['GTON_TNOPE']) for r in self.FIVE_ROUTES)))
+
+    def test_a_village_bus_route_number_withholds_the_whole_card_not_one_line(self):
+        # 마포01 (Mapo 01) is a real, correctly-formed RTE_NO — it just has no
+        # safe English rendering, the same problem en_name() exists to solve
+        # for station names. There is no lookup table for it, so the WHOLE
+        # ranked set is withheld rather than shipping a card with one line
+        # missing (a visibly broken version of a shape readers have seen
+        # complete before) or raw Hangul on the English card.
+        rows = self.FIVE_ROUTES + [
+            {'RTE_ID': '4', 'RTE_NO': '마포01', 'RTE_NM': '마포01(A~B)', 'GTON_TNOPE': 1}]
+        facts = self._facts(rows)
+        for fid in ('bus_busiest_route', 'bus_second_route',
+                    'bus_quietest_route', 'bus_route_total'):
+            self.assertIsNone(self.by_id(facts, fid), fid)
+        # The rest of the vein must still post — busroutes is a separate
+        # category from transport, so withholding it must not touch these.
+        self.assertIsNotNone(self.by_id(facts, 'sub_total'))
+        self.assertIsNotNone(self.by_id(facts, 'bus_total'))
+
+    def test_no_bus_data_at_all_withholds_the_whole_ranking(self):
+        facts = self._facts([])
+        for fid in ('bus_busiest_route', 'bus_second_route',
+                    'bus_quietest_route', 'bus_route_total'):
+            self.assertIsNone(self.by_id(facts, fid))
+
+    def test_fewer_than_three_distinct_routes_withholds_rather_than_crashes(self):
+        # Guards len(ranked) >= 2 for a second line and a bottom distinct
+        # from it — a degenerate day should never IndexError.
+        rows = [{'RTE_ID': '1', 'RTE_NO': '100', 'RTE_NM': '100번(A~B)', 'GTON_TNOPE': 50}]
+        facts = self._facts(rows)
+        self.assertIsNone(self.by_id(facts, 'bus_busiest_route'))
+
+
+class BusRouteStreak(unittest.TestCase):
+    """`_bus_route_streak()` is the one piece of this vein with real memory:
+    the footnote's "Route 143 has led for the past N days" is only as honest
+    as this count. Verified here rather than trusted, because the failure
+    mode is not a crash — it is a plausible, wrong number of days.
+    """
+
+    def test_a_fresh_state_starts_the_streak_at_one(self):
+        state = {}
+        self.assertEqual(S._bus_route_streak(state, '20260906', '143'), 1)
+        self.assertEqual(state['bus_route_streak'],
+                         {'route': '143', 'days': 1, 'date': '20260906'})
+
+    def test_the_same_route_on_the_next_calendar_day_increments(self):
+        state = {'bus_route_streak': {'route': '143', 'days': 5, 'date': '20260905'}}
+        self.assertEqual(S._bus_route_streak(state, '20260906', '143'), 6)
+
+    def test_a_different_route_resets_to_one(self):
+        state = {'bus_route_streak': {'route': '143', 'days': 9, 'date': '20260905'}}
+        self.assertEqual(S._bus_route_streak(state, '20260906', '272'), 1)
+        self.assertEqual(state['bus_route_streak']['route'], '272')
+
+    def test_a_gap_in_published_days_resets_the_streak(self):
+        # 20260904 -> 20260906 is a 2-day jump, not a 1-day one: the feed
+        # (or the bot) missed a day, and bridging the gap would silently
+        # claim a streak that was never actually observed end to end.
+        state = {'bus_route_streak': {'route': '143', 'days': 9, 'date': '20260904'}}
+        self.assertEqual(S._bus_route_streak(state, '20260906', '143'), 1)
+
+    def test_calling_it_twice_for_the_same_day_does_not_double_count(self):
+        # Documents WHY transport_facts() only calls this inside its
+        # cache-miss branch: a second call for a day already recorded is a
+        # 0-day gap, not a 1-day one, so calling it again here (simulating a
+        # caller that forgot the cache-miss guard) would wrongly reset a
+        # real streak to 1. This test exists so that bug, if ever
+        # reintroduced, fails here rather than silently on a live card.
+        state = {}
+        S._bus_route_streak(state, '20260906', '143')
+        self.assertEqual(S._bus_route_streak(state, '20260906', '143'), 1)
+
+
+class BusRoutesCard(unittest.TestCase):
+    """compose()-level checks for the busroutes card shape: no per-line
+    emoji, the rank word bold rather than the route number, the total's
+    whole label bold, harvester order preserved rather than value-sorted
+    (the total would otherwise jump to the top, being the largest number on
+    the card), and the day lifted onto the dateline with the streak — when
+    long enough to say anything — riding the footnote instead.
+    """
+
+    def _pool(self):
+        return [
+            S.fact('bus_busiest_route', 'busroutes', 'Busiest: Route 143',
+                   '27,516', '27,516', pin=True, label_ko='가장 붐빔: 143번',
+                   place_en='Busiest', place_ko='가장 붐빔', num=27516, unit='people'),
+            S.fact('bus_second_route', 'busroutes', '2nd-busiest: Route 272',
+                   '26,091', '26,091', pin=True, label_ko='두 번째로 붐빔: 272번',
+                   place_en='2nd-busiest', place_ko='두 번째로 붐빔', num=26091, unit='people'),
+            S.fact('bus_quietest_route', 'busroutes', 'Quietest: Route 8641',
+                   '13', '13', pin=True, label_ko='가장 한산함: 8641번',
+                   place_en='Quietest', place_ko='가장 한산함', num=13, unit='people'),
+            S.fact('bus_route_total', 'busroutes', 'Total bus boardings',
+                   '3,428,830', '3,428,830', pin=True, label_ko='전체 버스 승차 인원',
+                   num=3428830, unit='people'),
+        ]
+
+    def _card(self, ids=None):
+        pool = self._pool()
+        ids = ids or [f['id'] for f in pool]
+        sel = {'opener_en': "Seoul's buses", 'opener_ko': '버스로 보는 서울',
+               'picks': [{'id': i} for i in ids]}
+        return S.compose(sel, pool)
+
+    def setUp(self):
+        S.BUS_ROUTE_DAY['en'] = S.BUS_ROUTE_DAY['ko'] = None
+        S.BUS_ROUTE_STREAK['en'] = S.BUS_ROUTE_STREAK['ko'] = None
+
+    def test_no_line_carries_an_emoji(self):
+        c = self._card()
+        self.assertTrue(all(l['emoji'] == '' for l in c['lines']))
+
+    def test_the_rank_word_bolds_not_the_route_number(self):
+        c = self._card()
+        busiest = next(l for l in c['items_en'] if 'Busiest:' in l['label'])
+        self.assertEqual(busiest.get('emph'), 'Busiest')
+
+    def test_the_total_line_bolds_whole(self):
+        c = self._card()
+        total = next(l for l in c['items_en'] if 'Total' in l['label'])
+        self.assertTrue(total.get('bold'))
+        # Not also given an emph run — it has no place_en to bold a run from.
+        self.assertNotIn('emph', total)
+
+    def test_order_is_the_ranking_not_sorted_by_value(self):
+        # The total (in the millions) is the largest number on the card; a
+        # plain value sort would put it first and scramble the ranking.
+        c = self._card()
+        labels = [l['label'] for l in c['items_en']]
+        self.assertEqual([l.split(':')[0] for l in labels],
+                         ['Busiest', '2nd-busiest', 'Quietest', 'Total bus boardings'])
+
+    def test_the_opener_emoji_is_the_bus_regardless_of_the_selector(self):
+        pool = self._pool()
+        sel = {'opener_en': "Seoul's buses", 'opener_ko': '버스로 보는 서울',
+               'opener_emoji': '🚇',  # a wrong selector pick, must be overridden
+               'picks': [{'id': f['id']} for f in pool]}
+        c = S.compose(sel, pool)
+        self.assertEqual(c['opener']['emoji'], '🚌')
+
+    def test_picking_only_two_of_four_completes_the_ranking(self):
+        # SELECT_PROMPT says all four are compulsory; complete_busroutes()
+        # enforces it the same way complete_boxoffice() enforces all four
+        # films, so a selector that under-picks still ships a whole ranking.
+        c = self._card(ids=['bus_busiest_route', 'bus_quietest_route'])
+        self.assertEqual(len(c['items_en']), 4)
+
+    def test_the_day_lifts_to_the_dateline_and_the_footnote_stays_clean(self):
+        S.BUS_ROUTE_DAY['en'], S.BUS_ROUTE_DAY['ko'] = '6 September', '9월 6일'
+        c = self._card()
+        self.assertEqual(c['dateline_en'], '6 September')
+        self.assertEqual(c['note_en'], '')
+
+    def test_a_long_enough_streak_rides_the_footnote(self):
+        S.BUS_ROUTE_DAY['en'], S.BUS_ROUTE_DAY['ko'] = '6 September', '9월 6일'
+        S.BUS_ROUTE_STREAK['en'] = 'Route 143 has led for the past 10 days'
+        S.BUS_ROUTE_STREAK['ko'] = '143번은 최근 10일간 매일 1위였음'
+        c = self._card()
+        self.assertEqual(c['note_en'], 'Route 143 has led for the past 10 days')
+        self.assertEqual(c['dateline_en'], '6 September')
+
+    def test_no_streak_note_means_no_footnote_at_all(self):
+        S.BUS_ROUTE_DAY['en'], S.BUS_ROUTE_DAY['ko'] = '6 September', '9월 6일'
+        S.BUS_ROUTE_STREAK['en'] = S.BUS_ROUTE_STREAK['ko'] = None
+        c = self._card()
+        self.assertEqual(c['note_en'], '')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)
