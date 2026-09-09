@@ -205,7 +205,7 @@ CARDS = [
 # itself cannot drift apart.
 SOURCE_PREFIX = 'Sources · 출처: '
 SOURCE_LINE = (SOURCE_PREFIX + 'data.seoul.go.kr, kosis.kr, data-explorer.oecd.org, '
-               'rt.molit.go.kr, data.kma.go.kr, airport.co.kr, '
+               'rt.molit.go.kr, data.kma.go.kr, airport.co.kr, airport.kr, korail.com, '
                'opendata.hira.or.kr, mcst.go.kr, know.tour.go.kr, '
                'hrfco.go.kr, kobis.or.kr, data.worldbank.org')
 SOURCE_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
@@ -214,6 +214,8 @@ SOURCE_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                   ('rt.molit.go.kr', 'https://rt.molit.go.kr'),
                   ('data.kma.go.kr', 'https://data.kma.go.kr'),
                   ('airport.co.kr', 'https://www.airport.co.kr'),
+                  ('airport.kr', 'https://www.airport.kr'),
+                  ('korail.com', 'https://www.korail.com'),
                   ('opendata.hira.or.kr', 'https://opendata.hira.or.kr'),
                   ('mcst.go.kr', 'https://www.mcst.go.kr'),
                   ('know.tour.go.kr', 'https://know.tour.go.kr'),

@@ -437,6 +437,15 @@ BIKE_COOLDOWN_DAYS = 3
 TRAFFIC_COOLDOWN_DAYS = 3
 TRANSPORT_COOLDOWN_DAYS = 3
 
+# Tourism gets the same cooldown for the same frozen-pair reason as
+# bike/traffic/transport above: tour_facts() pre-detects the closest-matched
+# pair of attractions each month, and against a small, fixed roster of
+# paid-admission venues that closest pair does not move around much. The
+# aquarium-against-Lotte-World-Tower "dead heat" shipped seven times between
+# 1 August and 9 September 2026 (bot-scout, 9 Sep) — a real near-tie in the
+# data, reported as a fresh surprise on every run that reached for it.
+TOURISM_COOLDOWN_DAYS = 3
+
 # Rotating openers offered to the selector (it may also write its own). Kept
 # deliberately neutral — time/place framings, never a punchline. The house style
 # is Harper's: the arrangement carries the joke, the opener never gives it away.
@@ -4697,10 +4706,10 @@ def cross_vein_pairs(pool):
 def apply_cooldown(pool, state, stamp_key, cat, days, label):
     """Drop `cat` from the pool if its last post is younger than `days`.
 
-    Shared by the world, spending, bike, traffic, transport and national
-    veins, each reached for far more often — relative to how much genuinely
-    different content it can produce — than its share of the pool warrants.
-    Two deliberate refusals to
+    Shared by the world, spending, bike, traffic, transport, national and
+    tourism veins, each reached for far more often — relative to how much
+    genuinely different content it can produce — than its share of the pool
+    warrants. Two deliberate refusals to
     fire: an unrecoverable or missing stamp means no cooldown, and the filter is
     abandoned if it would leave fewer than 5 facts. A guard should never be the
     thing that empties the pool and skips a post.
@@ -6835,6 +6844,8 @@ LINK_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                 ('rt.molit.go.kr', 'https://rt.molit.go.kr'),
                 ('data.kma.go.kr', 'https://data.kma.go.kr'),
                 ('airport.co.kr', 'https://www.airport.co.kr'),
+                ('airport.kr', 'https://www.airport.kr'),
+                ('korail.com', 'https://www.korail.com'),
                 ('opendata.hira.or.kr', 'https://opendata.hira.or.kr'),
                 ('mcst.go.kr', 'https://www.mcst.go.kr'),
                 ('know.tour.go.kr', 'https://know.tour.go.kr'),
@@ -7092,11 +7103,11 @@ def main():
         if len(pool) < 5:
             sys.exit(f'Pool too small ({len(pool)} facts) — data sources may be down.')
 
-        # Vein cooldowns (see WORLD_COOLDOWN_DAYS, SPENDING_COOLDOWN_DAYS, and
-        # the bike/traffic/transport trio added 31 Aug 2026 for the same
-        # frozen-pair reason as spending). Applied before the rotation below,
-        # so that a post held back here is dropped from the running rather
-        # than merely deferred to the next post.
+        # Vein cooldowns (see WORLD_COOLDOWN_DAYS, SPENDING_COOLDOWN_DAYS, the
+        # bike/traffic/transport trio added 31 Aug 2026, and tourism added
+        # 9 Sep 2026 for the same frozen-pair reason as spending). Applied
+        # before the rotation below, so that a post held back here is dropped
+        # from the running rather than merely deferred to the next post.
         pool = apply_cooldown(pool, state, 'last_world_at', 'world',
                               WORLD_COOLDOWN_DAYS, 'World')
         pool = apply_cooldown(pool, state, 'last_spending_at', 'spending',
@@ -7109,6 +7120,8 @@ def main():
                               TRANSPORT_COOLDOWN_DAYS, 'Transport')
         pool = apply_cooldown(pool, state, 'last_national_at', 'national',
                               NATIONAL_COOLDOWN_DAYS, 'National')
+        pool = apply_cooldown(pool, state, 'last_tourism_at', 'tourism',
+                              TOURISM_COOLDOWN_DAYS, 'Tourism')
 
         # The floor under the veins the selector never reaches for. Applied
         # after the cooldowns so a promoted vein is never one the cooldown has
@@ -7306,6 +7319,8 @@ def main():
         state['last_transport_at'] = state['last_success_at']
     if primary == 'national':
         state['last_national_at'] = state['last_success_at']
+    if primary == 'tourism':
+        state['last_tourism_at'] = state['last_success_at']
     write_json_atomic(STATE, state, ensure_ascii=False, indent=2)
 
     log_card(c, sel, primary, posted_uri, handle, fallback=cards is None)
