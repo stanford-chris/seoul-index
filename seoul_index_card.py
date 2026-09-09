@@ -126,7 +126,11 @@ _YEAR_LEAD = re.compile(r'^((?:19|20)\d\d):')
 
 def _row_html(line):
     emoji = line.get('emoji') or ''
-    lead = f'{_esc(emoji)} ' if emoji else ''
+    # The emoji+space sits in its own removable span, not glued as plain text
+    # into .lab: see the wrap-detection script in _build_html, which strips
+    # this span (rather than leaving the emoji to fend for itself) whenever
+    # the row would otherwise wrap and orphan it alone on its own line.
+    lead = f'<span class="ico">{_esc(emoji)} </span>' if emoji else ''
     lab = _esc(line['label'])
     m = _YEAR_LEAD.match(lab)
     if m:
@@ -224,7 +228,28 @@ html,body{{margin:0;background:#{SENTINEL}}}
 {rows}
 {foot}
 <div class="handle">{_esc(HANDLE_WATERMARK)}</div>
-</div></body></html>"""
+</div>
+<script>
+// A row's emoji is glued directly before its label with only a space between
+// them, so when the label barely doesn't fit (usually because .val is
+// white-space:nowrap and has already claimed most of the row), the browser's
+// only break opportunity is that space — stranding the emoji alone on its
+// own line above the label it belongs to. Real Chrome layout, not a guessed
+// character width, is what decides whether that happened, so this runs here,
+// synchronously, before the screenshot: any .ico whose row's .lab grew past
+// one line loses its icon, which is what the row is measured a second time
+// (in the same pass) to allow for.
+(function() {{
+  document.querySelectorAll('.r').forEach(function(row) {{
+    var lab = row.querySelector('.lab');
+    var ico = row.querySelector('.ico');
+    if (!lab || !ico) return;
+    var oneLine = parseFloat(getComputedStyle(lab).lineHeight);
+    if (lab.offsetHeight > oneLine * 1.5) ico.remove();
+  }});
+}})();
+</script>
+</body></html>"""
 
 
 def _crop_to_content(raw_path, out_path):

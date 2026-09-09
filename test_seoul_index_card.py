@@ -106,5 +106,43 @@ class ShootRetry(unittest.TestCase):
         self.assertEqual(calls['n'], 1)
 
 
+class RowEmojiWrapGuard(unittest.TestCase):
+    """9 September 2026: a weather card's Conditions row ("Partly cloudy with
+    a 30% chance of rain") pushed .lab (min-width:0, overflow-wrap:anywhere)
+    so tight against the nowrap .val that the only break opportunity left was
+    the space between the row's emoji and its label — stranding the emoji
+    alone on its own line above "Conditions". https://bsky.app/profile/
+    seoul-index.bsky.social/post/3muzu66kuic2c
+
+    Real Chrome layout is what actually decides whether a row wraps (see the
+    script in _build_html, verified by hand against that exact row: the
+    emoji dropped and Conditions rendered on one line, while short rows like
+    High/Low kept theirs) — these tests don't invoke Chrome (this file's own
+    convention, see the module docstring) and instead pin the two things a
+    future edit could silently break: the emoji sits in a REMOVABLE `.ico`
+    span rather than as plain text glued into `.lab` (or the wrap-detection
+    script has nothing to select), and that script is wired into every
+    rendered card exactly once (twice would double-remove harmlessly but
+    signals the template grew a duplicate <body> section)."""
+
+    def test_row_emoji_is_a_removable_ico_span_not_bare_text(self):
+        html = C._row_html({'emoji': '☁️', 'label': 'Conditions',
+                            'value': 'Partly cloudy with a 30% chance of rain'})
+        self.assertIn('<span class="ico">', html)
+        self.assertNotIn('>☁️ Conditions', html)  # would be bare-text glue
+
+    def test_row_with_no_emoji_has_no_ico_span(self):
+        html = C._row_html({'label': 'Coffee shops', 'value': '₩651.4bn'})
+        self.assertNotIn('class="ico"', html)
+
+    def test_build_html_wires_the_wrap_detection_script_exactly_once(self):
+        html = C._build_html(
+            {'emoji': '☁️', 'text': "Seoul's forecast for today"},
+            [{'emoji': '☁️', 'label': 'Conditions',
+              'value': 'Partly cloudy with a 30% chance of rain'}])
+        self.assertEqual(html.count("querySelectorAll('.r')"), 1)
+        self.assertIn('ico.remove()', html)
+
+
 if __name__ == '__main__':
     unittest.main()
