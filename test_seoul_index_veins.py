@@ -1740,7 +1740,7 @@ class BusRoutesVein(unittest.TestCase):
         facts = self._facts(self.FIVE_ROUTES)
         top = self.by_id(facts, 'bus_busiest_route')
         self.assertIsNotNone(top, 'busiest-route fact missing')
-        self.assertIn('Route 100', top['label_en'])
+        self.assertEqual(top['label_en'], 'Busiest: 100')
         self.assertEqual(top['value_en'], '300')
         self.assertEqual(top['num'], 300)
         self.assertEqual(top['unit'], 'people')
@@ -1751,9 +1751,9 @@ class BusRoutesVein(unittest.TestCase):
         facts = self._facts(self.FIVE_ROUTES)
         second = self.by_id(facts, 'bus_second_route')
         quietest = self.by_id(facts, 'bus_quietest_route')
-        self.assertIn('Route 1129', second['label_en'])
+        self.assertEqual(second['label_en'], '2nd-busiest: 1129')
         self.assertEqual(second['value_en'], '250')
-        self.assertIn('Route 7719', quietest['label_en'])
+        self.assertEqual(quietest['label_en'], 'Quietest: 7719')
         self.assertEqual(quietest['value_en'], '5')
         total = self.by_id(facts, 'bus_route_total')
         self.assertEqual(total['label_en'], 'Total bus boardings')
@@ -1773,7 +1773,7 @@ class BusRoutesVein(unittest.TestCase):
         facts = self._facts(rows)
         quiet = self.by_id(facts, 'bus_quietest_route')
         self.assertIsNotNone(quiet, 'ranking withheld')
-        self.assertIn('Route 7719', quiet['label_en'])
+        self.assertEqual(quiet['label_en'], 'Quietest: 7719')
         for f in facts:
             self.assertNotIn('마포', f['label_en'])
             self.assertNotIn('퇴근', f['label_en'])
@@ -1794,7 +1794,7 @@ class BusRoutesVein(unittest.TestCase):
             {'RTE_ID': '9', 'RTE_NO': '110A', 'RTE_NM': '110A(A~B)', 'GTON_TNOPE': 1}]
         facts = self._facts(rows)
         quiet = self.by_id(facts, 'bus_quietest_route')
-        self.assertIn('Route 7719', quiet['label_en'])
+        self.assertEqual(quiet['label_en'], 'Quietest: 7719')
         self.assertEqual(self.by_id(facts, 'bus_route_total')['value_en'], '649')
         for no, ok in (('143', True), ('1226', True), ('7719', True), ('799', True),
                        ('N13', False), ('8333A', False), ('8641', False), ('9409', False),
@@ -1817,7 +1817,7 @@ class BusRoutesVein(unittest.TestCase):
         facts = self._facts(self.FIVE_ROUTES, state=stale)
         quiet = self.by_id(facts, 'bus_quietest_route')
         self.assertIsNotNone(quiet, 'stale cache was served')
-        self.assertIn('Route 7719', quiet['label_en'])
+        self.assertEqual(quiet['label_en'], 'Quietest: 7719')
         self.assertEqual(stale['transport_cache'].get('bus_rank_rule'), S.BUS_RANK_RULE)
 
     def test_no_bus_data_at_all_withholds_the_whole_ranking(self):
@@ -2147,7 +2147,7 @@ class BusHistoryCards(unittest.TestCase):
         facts = S.history_bus_facts(h, '20260907', '7 September', '9월 7일')
         ids = [f['id'] for f in facts]
         self.assertEqual(ids[:4], ['busmv_up1', 'busmv_up2', 'busmv_down1', 'busmv_down2'])
-        self.assertEqual(facts[0]['label_en'], 'Up: Route 200, 20,000 boardings')
+        self.assertEqual(facts[0]['label_en'], 'Up: 200, 20,000 boardings')
         self.assertEqual(facts[0]['value_en'], '+100%')
         self.assertEqual(facts[2]['label_ko'], '감소: 300번, 5,000명 승차')
         self.assertIn('busnight_total', ids); self.assertIn('buswk_top1', ids)
@@ -2283,13 +2283,13 @@ class BusRoutesCard(unittest.TestCase):
 
     def _pool(self):
         return [
-            S.fact('bus_busiest_route', 'busroutes', 'Busiest: Route 143',
+            S.fact('bus_busiest_route', 'busroutes', 'Busiest: 143',
                    '27,516', '27,516', pin=True, label_ko='가장 붐빔: 143번',
                    place_en='Busiest', place_ko='가장 붐빔', num=27516, unit='people'),
-            S.fact('bus_second_route', 'busroutes', '2nd-busiest: Route 272',
+            S.fact('bus_second_route', 'busroutes', '2nd-busiest: 272',
                    '26,091', '26,091', pin=True, label_ko='두 번째로 붐빔: 272번',
                    place_en='2nd-busiest', place_ko='두 번째로 붐빔', num=26091, unit='people'),
-            S.fact('bus_quietest_route', 'busroutes', 'Quietest: Route 8641',
+            S.fact('bus_quietest_route', 'busroutes', 'Quietest: 8641',
                    '13', '13', pin=True, label_ko='가장 한산함: 8641번',
                    place_en='Quietest', place_ko='가장 한산함', num=13, unit='people'),
             S.fact('bus_route_total', 'busroutes', 'Total bus boardings',
