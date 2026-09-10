@@ -59,3 +59,6 @@ bike_history.jsonl.bak-*
 feeds_history.jsonl
 feeds_history.jsonl.bak-*
 *.bak-predupe
+
+# Per-route daily bus totals, regenerable by bus_route_history_backfill.py
+bus_route_history.json

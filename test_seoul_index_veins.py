@@ -16,6 +16,10 @@ from pathlib import Path
 sys.argv = ['test']
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import seoul_index_post as S
+import tempfile as _tempfile
+from pathlib import Path as _Path
+# transport_facts() writes the per-route history file; never the real one from a test.
+S.BUS_HISTORY = _Path(_tempfile.mkdtemp()) / 'bus_route_history.json'
 
 # ⚠️ compose() ends by checking its labels against the pool's own with a model
 # call (see check_labels). These tests promise no network and no model call, so
@@ -2033,6 +2037,130 @@ class StationsCard(unittest.TestCase):
         # would withhold every day.
         self.assertEqual(S.en_lookup('서울역', 'stations'), 'Seoul Station')
 
+
+class BusHistoryCards(unittest.TestCase):
+    """The three cards read from bus_route_history.json (10 Sep 2026): the
+    day's movers against each route's own same-weekday median, the weekend
+    swing over a complete week, and the night-bus ranking. Pure functions,
+    synthetic history. The withholds are the point: a holiday compared with
+    ordinary weekdays, a baseline too short to mean anything, a route under
+    the floor swinging 40 percent on a school trip — each is a plausible
+    wrong card, not a crash.
+    """
+
+    def _hist(self, days):
+        # Four Mondays of 25 Aug..15 Sep 2026 plus the surrounding week, with
+        # route 100 steady at 10,000, 200 doubling on the last Monday, 300
+        # halving, 400 tiny (under the floor), N13 a night route, 8641 tailored.
+        from datetime import date, timedelta
+        h = {'days': {}, 'holidays': {'2026': ['20260907']}}
+        d0 = date(2026, 8, 10)
+        for i in range(days):
+            d = d0 + timedelta(days=i); key = d.strftime('%Y%m%d')
+            last = (i == days - 1)
+            we = d.weekday() >= 5
+            h['days'][key] = {
+                '100': 10000, '200': 20000 if last else 10000, '300': 5000 if last else 10000,
+                '150': 11000 if last else 10000, '250': 9000 if last else 10000,
+                '400': 900 if not last else 300,
+                '500': 4000 if we else 10000,     # weekend loser
+                '600': 8000 if we else 4000,      # weekend gainer
+                '700': 2000 if we else 5000, '750': 3000 if we else 2000,   # ('800' is not a trunk number)
+                'N13': 1500, 'N26': 900, 'N30': 50, '8641': 200, '마포01': 100}
+        return h
+
+    def test_movers_compare_against_the_same_weekday_only(self):
+        h = self._hist(29)   # 10 Aug .. 7 Sep, last day Monday 7 Sep
+        h['holidays'] = {'2026': []}
+        mv, why = S.bus_movers(h, '20260907', set())
+        self.assertIsNone(why)
+        self.assertEqual([r[0] for r in mv['ups']], ['200', '150'])
+        self.assertEqual([r[0] for r in mv['downs']], ['300', '250'])
+        self.assertEqual(mv['n_prior'], 4)     # 10, 17, 24, 31 Aug
+        self.assertEqual(mv['wd'], 0)
+        self.assertNotIn('400', [r[0] for r in mv['ups'] + mv['downs']])   # under the floor
+
+    def test_a_holiday_is_neither_compared_nor_in_a_baseline(self):
+        h = self._hist(29)
+        mv, why = S.bus_movers(h, '20260907', {'20260907'})
+        self.assertIsNone(mv); self.assertIn('holiday', why)
+        h2 = self._hist(36)   # to Monday 14 Sep; 7 Sep is a holiday
+        mv, why = S.bus_movers(h2, '20260914', {'20260907'})
+        self.assertIsNone(why)
+        self.assertEqual(mv['n_prior'], 4)     # 10, 17, 24, 31 Aug — not 7 Sep
+
+    def test_no_holiday_table_withholds_rather_than_compares(self):
+        h = self._hist(29)
+        self.assertEqual(S.bus_movers(h, '20260907', None)[0], None)
+        self.assertEqual(S.weekend_swing(h, '20260907', None)[0], None)
+
+    def test_too_short_a_baseline_withholds(self):
+        h = self._hist(15)   # 10..24 Aug: only two prior Mondays for 24 Aug
+        mv, why = S.bus_movers(h, '20260824', set())
+        self.assertIsNone(mv); self.assertIn('need 3', why)
+
+    def test_night_bus_ranks_n_routes_only(self):
+        h = self._hist(3)
+        nb, why = S.night_bus_rank(h, '20260812')
+        self.assertIsNone(why)
+        self.assertEqual([r[0] for r in nb['ranked']], ['N13', 'N26', 'N30'])
+        self.assertEqual(nb['total'], 2450)
+
+    def test_weekend_swing_uses_the_latest_complete_holiday_free_week(self):
+        h = self._hist(29)
+        ws, why = S.weekend_swing(h, '20260907', {'20260907'})
+        self.assertIsNone(why)
+        self.assertEqual(ws['week'][0], '20260831'); self.assertEqual(ws['week'][6], '20260906')
+        self.assertEqual(ws['ups'][0][0], '600'); self.assertEqual(ws['ups'][1][0], '750')
+        self.assertEqual({r[0] for r in ws['downs']}, {'500', '700'})
+        # A holiday inside the newest week pushes it back a week.
+        ws2, _ = S.weekend_swing(h, '20260907', {'20260903'})
+        self.assertEqual(ws2['week'][6], '20260830')
+
+    def test_pct_formats_with_a_real_minus_sign(self):
+        self.assertEqual(S._pct(1.4), '+40%'); self.assertEqual(S._pct(0.93), '−7%')
+        self.assertEqual(S._pct(1.0), '+0%')
+
+    def test_history_add_is_idempotent_and_ascii_only(self):
+        h = {'days': {}, 'holidays': {}}
+        self.assertTrue(S.bus_history_add(h, '20260907', {'143': 1, '마포01': 2, 'N13': 3}))
+        self.assertEqual(h['days']['20260907'], {'143': 1, 'N13': 3})
+        self.assertFalse(S.bus_history_add(h, '20260907', {'143': 999}))
+        self.assertEqual(h['days']['20260907']['143'], 1)
+
+    def test_history_facts_fill_the_registry_and_keep_harvester_order(self):
+        h = self._hist(29); h['holidays'] = {'2026': [], '2025': []}
+        facts = S.history_bus_facts(h, '20260907', '7 September', '9월 7일')
+        ids = [f['id'] for f in facts]
+        self.assertEqual(ids[:4], ['busmv_up1', 'busmv_up2', 'busmv_down1', 'busmv_down2'])
+        self.assertEqual(facts[0]['label_en'], 'Up: Route 200, 20,000 boardings')
+        self.assertEqual(facts[0]['value_en'], '+100%')
+        self.assertEqual(facts[2]['label_ko'], '감소: 300번, 5,000명 승차')
+        self.assertIn('busnight_total', ids); self.assertIn('buswk_top1', ids)
+        info = S.RANKED_CARD_INFO
+        self.assertEqual(info['busmovers']['day_en'], '7 September')
+        self.assertIn('previous 4 Mondays', info['busmovers']['note_en'])
+        self.assertEqual([no for _, _, no in info['busmovers']['map_routes']][:1], ['200'])
+        self.assertEqual(info['busweekend']['day_en'], '31 August to 6 September')
+        self.assertEqual(info['busweekend']['map_day'], '20260905')
+        self.assertEqual(info['nightbus']['note_en'], 'Night (N) routes only')
+
+    def test_the_cards_compose_like_busroutes(self):
+        h = self._hist(29); h['holidays'] = {'2026': [], '2025': []}
+        pool = S.history_bus_facts(h, '20260907', '7 September', '9월 7일')
+        for cat, opener, first_place in (('busmovers', 'Where the buses moved', 'Up'),
+                                          ('nightbus', 'The night buses', 'Busiest'),
+                                          ('busweekend', 'Weekends on the buses', 'Holds up best')):
+            sub = [f for f in pool if f['cat'] == cat]
+            sel = {'opener_en': opener, 'opener_ko': '버스', 'picks': [{'id': sub[0]['id']}]}
+            c = S.compose(sel, pool)
+            self.assertEqual(len(c['items_en']), 4, cat)          # completed from one pick
+            self.assertTrue(all(l['emoji'] == '' for l in c['lines']), cat)
+            self.assertEqual(c['lines'][0]['emph_en'], first_place, cat)
+            self.assertEqual(c['dateline_en'], S.RANKED_CARD_INFO[cat]['day_en'], cat)
+            self.assertEqual(c['note_en'], S.RANKED_CARD_INFO[cat]['note_en'], cat)
+            self.assertEqual(c['opener']['emoji'], '🚌', cat)
+
 class BusRouteStreak(unittest.TestCase):
     """`_bus_route_streak()` is the one piece of this vein with real memory:
     the footnote's "Route 143 has led for the past N days" is only as honest
@@ -2205,10 +2333,16 @@ class BusRouteMapStops(unittest.TestCase):
     # Deliberately out of published order, to prove the sort is real and not
     # an accident of row order in the feed.
     BUS_ROWS = [
-        {'RTE_NO': '143', 'STOPS_ID': '101000060', 'SBWY_STNS_NM': 'C(00003)'},
-        {'RTE_NO': '143', 'STOPS_ID': '100000003', 'SBWY_STNS_NM': 'A(00001)'},
-        {'RTE_NO': '143', 'STOPS_ID': '101000057', 'SBWY_STNS_NM': 'B(00002)'},
-        {'RTE_NO': '272', 'STOPS_ID': '200000001', 'SBWY_STNS_NM': 'D(00001)'},
+        {'RTE_ID': '1', 'RTE_NO': '143', 'STOPS_ID': '101000060', 'SBWY_STNS_NM': 'C(00003)'},
+        {'RTE_ID': '1', 'RTE_NO': '143', 'STOPS_ID': '100000003', 'SBWY_STNS_NM': 'A(00001)'},
+        {'RTE_ID': '1', 'RTE_NO': '143', 'STOPS_ID': '101000057', 'SBWY_STNS_NM': 'B(00002)'},
+        {'RTE_ID': '2', 'RTE_NO': '272', 'STOPS_ID': '200000001', 'SBWY_STNS_NM': 'D(00001)'},
+        # A night route: two RTE_IDs, one per direction, each numbered from 1.
+        {'RTE_ID': '363', 'RTE_NO': 'N13', 'STOPS_ID': '100000003', 'SBWY_STNS_NM': 'A(00001)'},
+        {'RTE_ID': '363', 'RTE_NO': 'N13', 'STOPS_ID': '101000057', 'SBWY_STNS_NM': 'B(00002)'},
+        {'RTE_ID': '363', 'RTE_NO': 'N13', 'STOPS_ID': '101000060', 'SBWY_STNS_NM': 'C(00003)'},
+        {'RTE_ID': '364', 'RTE_NO': 'N13', 'STOPS_ID': '101000060', 'SBWY_STNS_NM': 'C(00001)'},
+        {'RTE_ID': '364', 'RTE_NO': 'N13', 'STOPS_ID': '100000003', 'SBWY_STNS_NM': 'A(00002)'},
     ]
 
     def _stub(self):
@@ -2219,6 +2353,15 @@ class BusRouteMapStops(unittest.TestCase):
         with self._stub():
             routes, _ = S.bus_route_map_stops('key', '20260906', ['143'])
         self.assertEqual(routes['143'],
+                         [(127.00, 37.50), (127.01, 37.51), (127.02, 37.52)])
+
+    def test_a_route_split_by_direction_draws_one_direction_not_a_zigzag(self):
+        # Sorting both directions' sequence numbers together would give
+        # A, C, B, A, C (1, 1, 2, 2, 3): the scribble the first night-bus
+        # map drew on 10 Sep 2026. The longer direction alone is A, B, C.
+        with self._stub():
+            routes, _ = S.bus_route_map_stops('key', '20260906', ['N13'])
+        self.assertEqual(routes['N13'],
                          [(127.00, 37.50), (127.01, 37.51), (127.02, 37.52)])
 
     def test_a_route_with_only_out_of_seoul_stops_returns_empty_not_a_crash(self):

@@ -385,7 +385,10 @@ def render_bus_route_map(routes, seoul_stops, out_path, title='', caption=''):
     body.append(f'<g fill="{INK}" opacity="0.16">{"".join(crisp)}</g>')
 
     legend = []
-    ly = size - 84
+    # The legend grows upward with its row count so the caption under it
+    # stays on the canvas: three rows start at size-84, four at size-103.
+    # (A four-route map clipped its caption on 10 September 2026.)
+    ly = size - 84 - 19 * (len(routes) - 3)
     legend_top = ly - 20
     for label, colour, pts in routes:
         line_pts = [xy(lon, lat) for lon, lat in pts]
@@ -467,7 +470,7 @@ def render_station_map(stations, seoul_stops, out_path, title='', caption=''):
     body.append(f'<g fill="{INK}" opacity="0.16">{"".join(crisp)}</g>')
 
     legend = []
-    ly = size - 84
+    ly = size - 84 - 19 * (len(stations) - 3)   # see render_bus_route_map
     legend_top = ly - 20
     for label, colour, (lon, lat) in stations:
         x, y = xy(lon, lat)
