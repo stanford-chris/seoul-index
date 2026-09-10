@@ -1394,8 +1394,9 @@ WEEKDAY_KO = ['월요일', '화요일', '수요일', '목요일', '금요일', '
 #   busmovers  — the day's biggest rise and biggest fall against each
 #                route's own median of the same weekday in prior weeks (two
 #                of each until 11 September 2026).
-#   busweekend — the latest complete week's biggest weekend gainers and
-#                losers, Saturday+Sunday per day against Monday-Friday per day.
+#   busweekend — the latest complete week's route that holds up best at the
+#                weekend and the one that falls most, Saturday+Sunday per day
+#                against Monday-Friday per day (two of each until 11 Sept 2026).
 #   nightbus   — busiest, second and quietest N route plus the night total:
 #                the one class the trunk-and-branch rule leaves out, ranked
 #                within itself where it IS like for like.
@@ -1414,10 +1415,11 @@ BUSWEEKEND_COOLDOWN_DAYS = 7
 RANKED_CARD_INFO = {}
 RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend')
 # The veins whose card is TWO lines by design: rush (one station at two
-# hours) and, since 11 September 2026, busmovers (one rise, one fall). Every
-# other vein needs three facts to be a card, and the starvation floor and
-# --only both read this set rather than naming rush alone.
-TWO_LINE_CATS = frozenset({'rush', 'busmovers'})
+# hours) and, since 11 September 2026, busmovers (one rise, one fall) and
+# busweekend (one holds up best, one falls most). Every other vein needs
+# three facts to be a card, and the starvation floor and --only both read
+# this set rather than naming rush alone.
+TWO_LINE_CATS = frozenset({'rush', 'busmovers', 'busweekend'})
 MAP_COLOURS = ('#d70000', '#e08a1e', '#000000', '#7a7a7a')
 
 
@@ -1514,9 +1516,12 @@ def weekend_swing(h, day, holidays):
     # losers" but the two that hold up best and the two that fall most —
     # the two ends of the same ranking, whatever the sign at the top.
     rows.sort(key=lambda r: -r[3])
-    if len(rows) < 4:
+    # One that holds up best and one that falls most, his call on
+    # 11 September 2026 (two of each until then, and the second of each
+    # said little the first did not).
+    if len(rows) < 2:
         return None, f'only {len(rows)} routes with a weekday baseline'
-    return {'ups': rows[:2], 'downs': sorted(rows[-2:], key=lambda r: r[3]), 'week': week}, None
+    return {'ups': rows[:1], 'downs': rows[-1:], 'week': week}, None
 
 
 def _span_en(a, b):
@@ -1640,11 +1645,15 @@ def history_bus_facts(h, day, d, d_ko):
                            for i, (no, we, wk, r) in enumerate(ws['ups'])]
                           + [(f'Falls most: Route {no} ({_pct(r)})', MAP_COLOURS[2 + i], no)
                              for i, (no, we, wk, r) in enumerate(ws['downs'])]}
+        # "Route" on these lines, unlike the other bus cards, his call on
+        # 11 September 2026: the opener here is about weekends rather than
+        # routes, so the line has to say what the number is. The Korean
+        # carries 번 already.
         for i, (no, we, wk, r) in enumerate(ws['ups'] + ws['downs']):
-            top = i < 2
+            top = i < 1
             facts.append(fact(
-                f'buswk_{"top" if top else "bottom"}{i % 2 + 1}', 'busweekend',
-                f'{"Holds up best" if top else "Falls most"}: {no}, {grouped(round(we))} a day',
+                f'buswk_{"top" if top else "bottom"}1', 'busweekend',
+                f'{"Holds up best" if top else "Falls most"}: Route {no}, {grouped(round(we))} a day',
                 _pct(r), _pct(r), pin=True,
                 label_ko=f'{"주말 강세" if top else "주말 약세"}: {no}번, 하루 {grouped(round(we))}명',
                 place_en='Holds up best' if top else 'Falls most',
@@ -5487,7 +5496,7 @@ Rules:
 - "stations" lines are that day's busiest, second-busiest and quietest Seoul SUBWAY stations by official English name ("Busiest: Seoul Station"), plus the day's total subway boardings — own post, never mixed with any other category, including "transport" and "busroutes" above. Exactly the same rules as "busroutes": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the opener MUST name the subway or its stations, because the lines carry BARE STATION NAMES with no "station" word ("Busiest: Seoul Station", "Quietest: Dorimcheon"), e.g. "Seoul's subway, station by station", "Through the turnstiles", and it MUST NOT settle on one wording; never call a station busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines.
 - "busmovers" lines are the day's biggest RISE and biggest FALL in bus boardings, route by route, each against that route's own typical figure for the same weekday ("Up the most: 5511, 16,571 boardings" with a value of "+40%"). Own post, never mixed with any other category. BOTH lines are compulsory, in that order (up, then down): this is a two-line card by design, like "rush". Like "rush", its opener is FIXED and written by Python ("Seoul's bus routes, against their usual Monday"), so whatever opener you write for this card is replaced; the dateline carries the date and the footnote the comparison. Never guess WHY a route rose or fell.
 - "nightbus" lines are the day's busiest, second-busiest and quietest NIGHT bus routes (Seoul's N routes, which run through the small hours) plus the night total — own post, exactly the "busroutes" rules: all FOUR lines, in order, no date in the opener, the opener MUST name night buses, since the lines carry BARE ROUTE NUMBERS ("Seoul after midnight, by bus", "The night buses"), never "busy" or "quiet" as adjectives.
-- "busweekend" lines are the routes whose boardings changed MOST between weekdays and the weekend over one week: two that hold up best at the weekend, two that fall most ("Holds up best: 271, 9,880 a day" with a value of "+3%" or "−12%"). Own post, all FOUR lines in that order; the dateline carries the week and the footnote the comparison, so the opener names neither; the opener MUST name buses or bus routes, since the lines carry BARE ROUTE NUMBERS; a fresh opener about weekends on the buses each time. Never guess why.
+- "busweekend" lines are the two routes whose boardings changed MOST between weekdays and the weekend over one week: the one that holds up best at the weekend and the one that falls most ("Holds up best: Route 271, 9,880 a day" with a value of "+3%" or "−12%"). Own post, BOTH lines in that order: a two-line card by design, like "rush"; the dateline carries the week and the footnote the comparison, so the opener names neither; the opener MUST name buses; a fresh opener about weekends on the buses each time. Never guess why.
 - "books" lines are checkouts at SEOUL LIBRARY over the last 60 days, counted by SUBJECT: literature, philosophy, 어학 and the rest, in the library's own classification. Labels are BARE SUBJECT NAMES, so the opener MUST name the library and say these are loans, exactly as the "library" membership lines do — and MUST NOT settle on one wording: "What Seoul Library lent, by subject", "Seoul Library's loans, by subject", "Borrowing at Seoul Library, by subject" and "What went out of Seoul Library" are four of many, so write a fresh one rather than reusing the last. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries — never imply otherwise. ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post, never mixed with any other category. ⚠️ The value may carry a trailing "(1 in N)" — that is Python's, and it is the subject's share of every checkout counted, which is why four lines can still say what the other six weigh. Leave it exactly where it is and NEVER restate it, convert it to a percentage, explain it, or build the opener or a label on it; the card footnote gives the total it divides by. ⚠️ TEN subjects are offered and a card takes four, so there is no one right card and THE EXTREMES ARE NOT COMPULSORY. Do not reach for the biggest subject at the top and the smallest at the bottom every time: four subjects from the middle of the list is a card, the four smallest is a card, and a set leaving out the largest number altogether is a card. The two pairs are two arrangements among many rather than the default — a "book_heat" pair is two subjects that came out level, a "book_gap" pair is the least- and most-borrowed of the ten; use at most ONE of them on a card, and prefer neither if the plain four you have chosen already say something. Deliberately vary which subjects appear from post to post and lean hard on AVOID_IDS here: with only ten subjects this vein repeats itself faster than any other. Never say which way the gap runs, never call a subject popular or neglected, and never draw a conclusion about what Seoul reads — set the numbers down and let the reader do it.
 - "rush" lines are SUBWAY BOARDINGS at one named station in ONE HOUR of the day. Labels are a station and a clock time ("City Hall, 6 p.m."), so the opener MUST say IN WORDS that these are subway boardings, e.g. "Boarding the Seoul subway", "Through the turnstiles, by the hour" — the same case as the world, traffic, price and books lines — and MUST NOT settle on one wording, so write a fresh one rather than reusing the last. ⚠️ EVERY figure is a WHOLE MONTH of that hour: never write or imply that one is a single day's, a single evening's, an average, or "in an hour". ⚠️ Do NOT put the month in the opener: it rides on the card as its dateline. The PAIR offered is the SAME station at its morning hour and its evening hour, and that contrast IS the joke: use both halves and let it sit there unremarked. Never point out that one is larger, never call a station busy, quiet, dead or booming, and never label a place residential, commercial, a business district or a dormitory suburb: the four numbers say all of it, and saying it as well is the one thing this account never does. Own post, never mixed with any other category.
 - "boxoffice" lines are cinema ADMISSIONS on SEOUL screens for ONE day, film by film, from the Korean Film Council's ticketing network. Labels are BARE FILM TITLES, so the opener MUST say IN WORDS that the figures are admissions or tickets, and that they are Seoul's: a title and a bare number leave the reader to guess whether it is people, screens or won. "Seoul at the cinema" is NOT enough on its own and neither is "What Seoul watched" — write e.g. "Cinema admissions in Seoul", "Tickets sold in Seoul's cinemas", "Seats filled in Seoul's cinemas" (관객수 / 티켓 in the Korean), the same case as the world, traffic, price and books lines — and MUST NOT settle on one wording, so write a fresh one rather than reusing the last. ⚠️ These are SEOUL's admissions, NOT the country's: never write "nationwide", "across Korea" or any national framing, and never imply the figures are a film's total. ⚠️ Do NOT put the date in the opener: the day rides on the card automatically as its dateline. ⚠️ Titles are printed exactly as they come, in each language: never translate, shorten or reword a film title. ⚠️ EVERY film on this card gets an "emoji", with no exceptions: the general rule above lets you leave one blank where nothing obvious fits, and that is right for an abstract line but wrong here, since a film is always ABOUT something. Take it from the subject, the genre or the title itself: 🕷 for a Spider-Man film, 👻 for a horror, 🕵 for a detective story, 🐋 for a whale, 🏛 or ⛵ for an ancient epic, 🎞 or 🍿 as a last resort. If a card would go out with one film tagged and another bare, every emoji on it is stripped instead, so a lazy blank costs the whole card its emoji rather than just that line. Own post, never mixed with any other category. ⚠️ The four films offered are the day's FOUR most-watched in Seoul, and you must use ALL FOUR, every time: this card is the complete top four in order, not a selection from a longer list, and dropping one leaves a hole in a ranking that a reader will take for the ranking. Do not number the lines (they are already sorted by value) and do not write an opener that ranks them ("the day's winners", "Seoul's biggest"): the footnote says what the set is, and the arrangement does the rest. Never call a film a hit, a flop or a winner, never say which is beating which, and never remark on the gap between them.
@@ -6663,12 +6672,13 @@ def compose(sel, pool):
     is_rush_pair = (len(picks) == 2
                     and all(by_id[p['id']]['cat'] == 'rush' for p in picks)
                     and len({by_id[p['id']]['pair'] for p in picks}) == 1)
-    # busmovers is the other two-line card: one rise and one fall, his call
-    # on 11 September 2026, and complete_busroutes() has already made sure
-    # both are here.
-    is_movers_pair = (len(picks) == 2
-                      and all(by_id[p['id']]['cat'] == 'busmovers' for p in picks))
-    if len(picks) < 3 and not (is_rush_pair or is_movers_pair):
+    # The other two-line cards (TWO_LINE_CATS less rush): one vein, both of
+    # its lines, his call on 11 September 2026, and complete_busroutes() has
+    # already made sure both are here.
+    pick_cats = {by_id[p['id']]['cat'] for p in picks}
+    is_two_line_pair = (len(picks) == 2 and len(pick_cats) == 1
+                        and pick_cats <= TWO_LINE_CATS - {'rush'})
+    if len(picks) < 3 and not (is_rush_pair or is_two_line_pair):
         raise RuntimeError(f'selector returned too few valid picks: {len(picks)}')
     spotlight = any(by_id[p['id']]['cat'] == 'spotlight' for p in picks)
     precats = {by_id[p['id']]['cat'] for p in picks}

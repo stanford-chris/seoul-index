@@ -2109,8 +2109,11 @@ class BusHistoryCards(unittest.TestCase):
         ws, why = S.weekend_swing(h, '20260907', {'20260907'})
         self.assertIsNone(why)
         self.assertEqual(ws['week'][0], '20260831'); self.assertEqual(ws['week'][6], '20260906')
-        self.assertEqual(ws['ups'][0][0], '600'); self.assertEqual(ws['ups'][1][0], '750')
-        self.assertEqual({r[0] for r in ws['downs']}, {'500', '700'})
+        # One of each since 11 September 2026: 600 holds up best; 500 and
+        # 700 tie for the biggest fall (both 0.4), so either may be the one.
+        self.assertEqual([r[0] for r in ws['ups']], ['600'])
+        self.assertEqual(len(ws['downs']), 1)
+        self.assertIn(ws['downs'][0][0], {'500', '700'})
         # A holiday inside the newest week pushes it back a week.
         ws2, _ = S.weekend_swing(h, '20260907', {'20260903'})
         self.assertEqual(ws2['week'][6], '20260830')
@@ -2137,6 +2140,11 @@ class BusHistoryCards(unittest.TestCase):
         self.assertEqual(facts[0]['value_en'], '+100%')
         self.assertEqual(facts[1]['label_ko'], '가장 많이 감소: 300번, 5,000명 승차')
         self.assertIn('busnight_total', ids); self.assertIn('buswk_top1', ids)
+        self.assertEqual([i for i in ids if i.startswith('buswk_')], ['buswk_top1', 'buswk_bottom1'])
+        # "Route" rides on this card's lines, his call, 11 September 2026.
+        wk = [f for f in facts if f['cat'] == 'busweekend']
+        self.assertTrue(wk[0]['label_en'].startswith('Holds up best: Route 600, '), wk[0]['label_en'])
+        self.assertTrue(wk[1]['label_en'].startswith('Falls most: Route '), wk[1]['label_en'])
         info = S.RANKED_CARD_INFO
         self.assertEqual(info['busmovers']['day_en'], '7 September')
         # Opener and dateline are Python's, his wording, 11 September 2026;
@@ -2168,8 +2176,8 @@ class BusHistoryCards(unittest.TestCase):
             sub = [f for f in pool if f['cat'] == cat]
             sel = {'opener_en': opener, 'opener_ko': '버스', 'picks': [{'id': sub[0]['id']}]}
             c = S.compose(sel, pool)
-            # completed from one pick: two lines for busmovers, four otherwise
-            self.assertEqual(len(c['items_en']), 2 if cat == 'busmovers' else 4, cat)
+            # completed from one pick: two lines for the two-line cards, four otherwise
+            self.assertEqual(len(c['items_en']), 2 if cat in S.TWO_LINE_CATS else 4, cat)
             self.assertTrue(all(l['emoji'] == '' for l in c['lines']), cat)
             self.assertEqual(c['lines'][0]['emph_en'], first_place, cat)
             info = S.RANKED_CARD_INFO[cat]
