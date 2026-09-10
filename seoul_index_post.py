@@ -1391,8 +1391,9 @@ WEEKDAY_KO = ['월요일', '화요일', '수요일', '목요일', '금요일', '
 # His call, 10 September 2026, after 28 days showed the busroutes ranking
 # fixed at both ends (143 busiest and 1226 quietest on all 28): a card whose
 # answer changes. Three of them, all read from bus_route_history.json:
-#   busmovers  — the day's two biggest rises and two biggest falls against
-#                each route's own median of the same weekday in prior weeks.
+#   busmovers  — the day's biggest rise and biggest fall against each
+#                route's own median of the same weekday in prior weeks (two
+#                of each until 11 September 2026).
 #   busweekend — the latest complete week's biggest weekend gainers and
 #                losers, Saturday+Sunday per day against Monday-Friday per day.
 #   nightbus   — busiest, second and quietest N route plus the night total:
@@ -1412,6 +1413,11 @@ BUSWEEKEND_COOLDOWN_DAYS = 7
 # 'map_routes': [(label, colour, route_no)], 'map_caption'}}. Reset every run.
 RANKED_CARD_INFO = {}
 RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend')
+# The veins whose card is TWO lines by design: rush (one station at two
+# hours) and, since 11 September 2026, busmovers (one rise, one fall). Every
+# other vein needs three facts to be a card, and the starvation floor and
+# --only both read this set rather than naming rush alone.
+TWO_LINE_CATS = frozenset({'rush', 'busmovers'})
 MAP_COLOURS = ('#d70000', '#e08a1e', '#000000', '#7a7a7a')
 
 
@@ -1426,8 +1432,9 @@ def _day_dt(day):
 
 
 def bus_movers(h, day, holidays):
-    """(result, reason): result is {'ups': [(no, v, med, ratio)]×2,
-    'downs': [...]×2, 'n_prior': n, 'wd': weekday} or None with the reason."""
+    """(result, reason): result is {'ups': [(no, v, med, ratio)],
+    'downs': [...], 'n_prior': n, 'wd': weekday} or None with the reason.
+    One of each since 11 September 2026."""
     if holidays is None:
         return None, 'holiday table unavailable'
     if day in holidays:
@@ -1454,9 +1461,11 @@ def bus_movers(h, day, holidays):
     # day when the whole city fell, all four can be falls, and the card says
     # so line by line rather than withholding.
     rows.sort(key=lambda r: -r[3])
-    if len(rows) < 4:
+    # One up and one down, his call on 11 September 2026 (two of each until
+    # then): the second rise and second fall said little the first did not.
+    if len(rows) < 2:
         return None, f'only {len(rows)} routes with a baseline'
-    return {'ups': rows[:2], 'downs': sorted(rows[-2:], key=lambda r: r[3]),
+    return {'ups': rows[:1], 'downs': rows[-1:],
             'n_prior': len(prior), 'wd': wd}, None
 
 
@@ -1556,10 +1565,10 @@ def history_bus_facts(h, day, d, d_ko):
             'map_day': day, 'map_caption': caption,
             'map_routes': [(f'{"Up" if r > 1 else "Down"}: Route {no} ({_pct(r)})', MAP_COLOURS[i], no)
                            for i, (no, v, m, r) in enumerate(mv['ups'] + mv['downs'])]}
-        for i, (no, v, m, r) in enumerate(mv['ups'] + mv['downs']):
+        for no, v, m, r in mv['ups'] + mv['downs']:
             up = r > 1
             facts.append(fact(
-                f'busmv_{"up" if up else "down"}{i % 2 + 1}', 'busmovers',
+                f'busmv_{"up" if up else "down"}1', 'busmovers',
                 f'{"Up" if up else "Down"}: {no}, {grouped(v)} boardings',
                 _pct(r), _pct(r), pin=True,
                 label_ko=f'{"증가" if up else "감소"}: {no}번, {grouped(v)}명 승차',
@@ -5461,7 +5470,7 @@ Rules:
 - "transport" lines are Seoul's total subway and bus boardings for the most recently published day, plus that day's busiest and quietest subway stations. The subway and bus TOTAL labels already carry the date in the label itself ("Subway boardings on 26 August", "Bus boardings the same day") — there is no separate dateline to lean on here, so do NOT put a date anywhere in the opener, and do NOT write a second, different date of your own: a neutral opener with no date at all is enough, e.g. "Through the turnstiles", "Seoul on the move". Never call a station busy, quiet, packed or empty — the four numbers say it.
 - "busroutes" lines are that day's busiest, second-busiest and quietest Seoul bus routes by plain route number ("Busiest: 143"), plus the day's total bus boardings — own post, never mixed with any other category, including "transport" above (that vein's own bus/subway totals are a different card). All FOUR lines are compulsory and must be used together, in that order: this is a complete small ranking, not a selection from it, the same rule "boxoffice" uses for its top four films. The dateline carries the date, so do NOT put a date anywhere in the opener and do NOT write a second one of your own — the opener MUST name buses or bus routes, because the lines carry BARE ROUTE NUMBERS with no "Route" word ("Busiest: 143"), e.g. "Seoul's buses", "On the buses today", and it MUST NOT settle on one wording, so write a fresh one each time. Never call a route busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines: the numbers say it. If the footnote already names a route's winning streak, do not repeat or rephrase that fact in the opener — it would say the same thing twice on one card.
 - "stations" lines are that day's busiest, second-busiest and quietest Seoul SUBWAY stations by official English name ("Busiest: Seoul Station"), plus the day's total subway boardings — own post, never mixed with any other category, including "transport" and "busroutes" above. Exactly the same rules as "busroutes": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the opener MUST name the subway or its stations, because the lines carry BARE STATION NAMES with no "station" word ("Busiest: Seoul Station", "Quietest: Dorimcheon"), e.g. "Seoul's subway, station by station", "Through the turnstiles", and it MUST NOT settle on one wording; never call a station busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines.
-- "busmovers" lines are the day's two biggest RISES and two biggest FALLS in bus boardings, route by route, each against that route's own typical figure for the same weekday ("Up: 5511, 16,571 boardings" with a value of "+40%"). Own post, never mixed with any other category. All FOUR lines are compulsory, in that order (two up, then two down). The dateline carries the date and the footnote explains the comparison, so do NOT put a date or a percentage in the opener; the opener MUST name buses or bus routes (the lines carry BARE ROUTE NUMBERS), and a neutral opener about the routes that moved most is enough, e.g. "Where Seoul's buses moved", "The routes that swung", and it MUST NOT settle on one wording. Never guess WHY a route rose or fell.
+- "busmovers" lines are the day's biggest RISE and biggest FALL in bus boardings, route by route, each against that route's own typical figure for the same weekday ("Up: 5511, 16,571 boardings" with a value of "+40%"). Own post, never mixed with any other category. BOTH lines are compulsory, in that order (up, then down): this is a two-line card by design, like "rush". The dateline carries the date and the footnote explains the comparison, so do NOT put a date or a percentage in the opener, and NEVER write "today" or "yesterday" (the feed runs days behind, so the day on the dateline is neither); the opener MUST name buses or bus routes (the lines carry BARE ROUTE NUMBERS), and a neutral opener about the routes that moved most is enough, e.g. "Where Seoul's buses moved", "The routes that swung", and it MUST NOT settle on one wording. Never guess WHY a route rose or fell.
 - "nightbus" lines are the day's busiest, second-busiest and quietest NIGHT bus routes (Seoul's N routes, which run through the small hours) plus the night total — own post, exactly the "busroutes" rules: all FOUR lines, in order, no date in the opener, the opener MUST name night buses, since the lines carry BARE ROUTE NUMBERS ("Seoul after midnight, by bus", "The night buses"), never "busy" or "quiet" as adjectives.
 - "busweekend" lines are the routes whose boardings changed MOST between weekdays and the weekend over one week: two that hold up best at the weekend, two that fall most ("Holds up best: 271, 9,880 a day" with a value of "+3%" or "−12%"). Own post, all FOUR lines in that order; the dateline carries the week and the footnote the comparison, so the opener names neither; the opener MUST name buses or bus routes, since the lines carry BARE ROUTE NUMBERS; a fresh opener about weekends on the buses each time. Never guess why.
 - "books" lines are checkouts at SEOUL LIBRARY over the last 60 days, counted by SUBJECT: literature, philosophy, 어학 and the rest, in the library's own classification. Labels are BARE SUBJECT NAMES, so the opener MUST name the library and say these are loans, exactly as the "library" membership lines do — and MUST NOT settle on one wording: "What Seoul Library lent, by subject", "Seoul Library's loans, by subject", "Borrowing at Seoul Library, by subject" and "What went out of Seoul Library" are four of many, so write a fresh one rather than reusing the last. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries — never imply otherwise. ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post, never mixed with any other category. ⚠️ The value may carry a trailing "(1 in N)" — that is Python's, and it is the subject's share of every checkout counted, which is why four lines can still say what the other six weigh. Leave it exactly where it is and NEVER restate it, convert it to a percentage, explain it, or build the opener or a label on it; the card footnote gives the total it divides by. ⚠️ TEN subjects are offered and a card takes four, so there is no one right card and THE EXTREMES ARE NOT COMPULSORY. Do not reach for the biggest subject at the top and the smallest at the bottom every time: four subjects from the middle of the list is a card, the four smallest is a card, and a set leaving out the largest number altogether is a card. The two pairs are two arrangements among many rather than the default — a "book_heat" pair is two subjects that came out level, a "book_gap" pair is the least- and most-borrowed of the ten; use at most ONE of them on a card, and prefer neither if the plain four you have chosen already say something. Deliberately vary which subjects appear from post to post and lean hard on AVOID_IDS here: with only ten subjects this vein repeats itself faster than any other. Never say which way the gap runs, never call a subject popular or neglected, and never draw a conclusion about what Seoul reads — set the numbers down and let the reader do it.
@@ -5624,7 +5633,7 @@ def promote_starved(pool, state):
         # and can never clear the general floor; every other vein still needs
         # STARVE_MIN_FACTS, which is what guards against a card too thin to
         # be worth a slot.
-        if n < STARVE_MIN_FACTS and cat != 'rush':
+        if n < STARVE_MIN_FACTS and cat not in TWO_LINE_CATS:
             continue
         stamp = seen.get(cat)
         age = None                          # None = never posted at all
@@ -6639,7 +6648,12 @@ def compose(sel, pool):
     is_rush_pair = (len(picks) == 2
                     and all(by_id[p['id']]['cat'] == 'rush' for p in picks)
                     and len({by_id[p['id']]['pair'] for p in picks}) == 1)
-    if len(picks) < 3 and not is_rush_pair:
+    # busmovers is the other two-line card: one rise and one fall, his call
+    # on 11 September 2026, and complete_busroutes() has already made sure
+    # both are here.
+    is_movers_pair = (len(picks) == 2
+                      and all(by_id[p['id']]['cat'] == 'busmovers' for p in picks))
+    if len(picks) < 3 and not (is_rush_pair or is_movers_pair):
         raise RuntimeError(f'selector returned too few valid picks: {len(picks)}')
     spotlight = any(by_id[p['id']]['cat'] == 'spotlight' for p in picks)
     precats = {by_id[p['id']]['cat'] for p in picks}
@@ -8062,7 +8076,7 @@ def main():
         # posted for STARVE_DAYS).
         if ONLY_CAT:
             only = [f for f in pool if f['cat'] == ONLY_CAT]
-            need = 2 if ONLY_CAT == 'rush' else 3
+            need = 2 if ONLY_CAT in TWO_LINE_CATS else 3
             if len(only) < need:
                 sys.exit(f'--only={ONLY_CAT}: {len(only)} fact(s) in that vein, '
                          f'need at least {need} to build a card. Pool has: '

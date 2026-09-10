@@ -2070,8 +2070,10 @@ class BusHistoryCards(unittest.TestCase):
         h['holidays'] = {'2026': []}
         mv, why = S.bus_movers(h, '20260907', set())
         self.assertIsNone(why)
-        self.assertEqual([r[0] for r in mv['ups']], ['200', '150'])
-        self.assertEqual([r[0] for r in mv['downs']], ['300', '250'])
+        # One of each since 11 September 2026: the largest rise and the
+        # largest fall, so 150 (second rise) and 250 (second fall) drop out.
+        self.assertEqual([r[0] for r in mv['ups']], ['200'])
+        self.assertEqual([r[0] for r in mv['downs']], ['300'])
         self.assertEqual(mv['n_prior'], 4)     # 10, 17, 24, 31 Aug
         self.assertEqual(mv['wd'], 0)
         self.assertNotIn('400', [r[0] for r in mv['ups'] + mv['downs']])   # under the floor
@@ -2128,10 +2130,12 @@ class BusHistoryCards(unittest.TestCase):
         h = self._hist(29); h['holidays'] = {'2026': [], '2025': []}
         facts = S.history_bus_facts(h, '20260907', '7 September', '9월 7일')
         ids = [f['id'] for f in facts]
-        self.assertEqual(ids[:4], ['busmv_up1', 'busmv_up2', 'busmv_down1', 'busmv_down2'])
+        # One up, one down since 11 September 2026 (two of each before).
+        self.assertEqual(ids[:2], ['busmv_up1', 'busmv_down1'])
+        self.assertEqual(len([i for i in ids if i.startswith('busmv_')]), 2)
         self.assertEqual(facts[0]['label_en'], 'Up: 200, 20,000 boardings')
         self.assertEqual(facts[0]['value_en'], '+100%')
-        self.assertEqual(facts[2]['label_ko'], '감소: 300번, 5,000명 승차')
+        self.assertEqual(facts[1]['label_ko'], '감소: 300번, 5,000명 승차')
         self.assertIn('busnight_total', ids); self.assertIn('buswk_top1', ids)
         info = S.RANKED_CARD_INFO
         self.assertEqual(info['busmovers']['day_en'], '7 September')
@@ -2156,7 +2160,8 @@ class BusHistoryCards(unittest.TestCase):
             sub = [f for f in pool if f['cat'] == cat]
             sel = {'opener_en': opener, 'opener_ko': '버스', 'picks': [{'id': sub[0]['id']}]}
             c = S.compose(sel, pool)
-            self.assertEqual(len(c['items_en']), 4, cat)          # completed from one pick
+            # completed from one pick: two lines for busmovers, four otherwise
+            self.assertEqual(len(c['items_en']), 2 if cat == 'busmovers' else 4, cat)
             self.assertTrue(all(l['emoji'] == '' for l in c['lines']), cat)
             self.assertEqual(c['lines'][0]['emph_en'], first_place, cat)
             info = S.RANKED_CARD_INFO[cat]
