@@ -1289,7 +1289,15 @@ def transport_facts(api_key, state):
     top = c['bus_ranked'][0] if c['bus_ranked'] else None
     second = c['bus_ranked'][1] if len(c['bus_ranked']) >= 2 else None
     bottom = c['bus_bottom']
-    if _ascii_route(top) and _ascii_route(second) and _ascii_route(bottom):
+    unsafe = [p[0] if p else '(missing)' for p in (top, second, bottom) if not _ascii_route(p)]
+    if unsafe:
+        # Say so. On 10 September 2026 this withheld silently on '8442퇴근'
+        # (a rush-hour-only variant, not a village bus) and --only=busroutes
+        # reported "0 fact(s) in that vein", which reads as a broken
+        # harvester rather than this guard doing its job.
+        print(f'Bus routes withheld for {d}: no safe English form for '
+              f'{", ".join(repr(u) for u in unsafe)}.')
+    else:
         BUS_ROUTE_DAY['en'], BUS_ROUTE_DAY['ko'] = d, d_ko
         BUS_ROUTE_MAP_INFO['day'] = c['date']
         BUS_ROUTE_MAP_INFO['routes'] = [top[0], second[0], bottom[0]]
@@ -4901,6 +4909,13 @@ def apply_cooldown(pool, state, stamp_key, cat, days, label):
     mid-run and skip the post. main() writes aware stamps, so this is the
     unhappy path only.
     """
+    if ONLY_CAT == cat:
+        # --only=<cat> asks for THIS vein now, by hand. Withholding it on its
+        # own cooldown made `--only=busroutes` exit "0 fact(s) in that vein"
+        # the day after it posted (10 September 2026), which reads as a
+        # broken harvester rather than a guard doing its job. The scheduled
+        # path never sets ONLY_CAT, so the cooldown is untouched there.
+        return pool
     stamp = state.get(stamp_key)
     if not stamp:
         return pool
