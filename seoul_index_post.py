@@ -7544,8 +7544,19 @@ def main():
                                     reply_to=_reply(p4_ref, root_ref),
                                     image_aspect_ratio=map_ar)
                     print('Posted a 5th reply: the route map.')
-                except (CardRenderError, RuntimeError, KeyError) as e:
-                    print(f'\nRoute map failed ({e}); thread already posted without it.')
+                except Exception as e:  # noqa: BLE001 — deliberately broad, see below
+                    # Broad on purpose. The four-post thread above is already
+                    # public, and the state write (last_cat, cat_last_at, the
+                    # cooldown stamps, recent_ids, the streak) happens AFTER
+                    # this block. Anything escaping here — a TypeError from a
+                    # malformed API envelope, an OSError on the temp file, an
+                    # atproto error at send time — would abort the run with
+                    # the post out and the state unsaved, and the next run
+                    # could then pick busroutes again and repost the same
+                    # card. A lost map is a lost reply; a lost state write is
+                    # a duplicate thread.
+                    print(f'\nRoute map failed ({type(e).__name__}: {e}); '
+                          f'thread already posted without it.')
     else:
         # Plaintext fallback (card render failed): there are no card posts here,
         # so these full-text posts must carry the hashtags themselves — the tags
