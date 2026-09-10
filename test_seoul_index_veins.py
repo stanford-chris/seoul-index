@@ -1922,5 +1922,60 @@ class BusRoutesCard(unittest.TestCase):
         self.assertEqual(c['note_en'], '')
 
 
+class BusRouteMapStops(unittest.TestCase):
+    """bus_route_map_stops() added 10 Sep 2026 for the route-map thread reply
+    — a second full-day pass over the same feed transport_facts() already
+    reads, paid only on the rare run that actually posts a busroutes card.
+    Reuses the same stop-order trick already verified for route_paths() in
+    seoul-transit-art/harvest.py: each row's own stop-name field ends in a
+    bracketed sequence number.
+    """
+
+    STOP_ROWS = [
+        {'STOPS_NO': '100000003', 'STOPS_NM': 'A', 'XCRD': '127.00', 'YCRD': '37.50'},
+        {'STOPS_NO': '101000057', 'STOPS_NM': 'B', 'XCRD': '127.01', 'YCRD': '37.51'},
+        {'STOPS_NO': '101000060', 'STOPS_NM': 'C', 'XCRD': '127.02', 'YCRD': '37.52'},
+        # A Gyeonggi-run continuation of a Seoul route: id begins '2', not
+        # in any Seoul coordinate table by convention (see SEOUL_STOP in
+        # seoul-transit-art/harvest.py) — must be excluded from both the
+        # route path and the background silhouette.
+        {'STOPS_NO': '200000001', 'STOPS_NM': 'D', 'XCRD': '126.90', 'YCRD': '37.40'},
+    ]
+    # Deliberately out of published order, to prove the sort is real and not
+    # an accident of row order in the feed.
+    BUS_ROWS = [
+        {'RTE_NO': '143', 'STOPS_ID': '101000060', 'SBWY_STNS_NM': 'C(00003)'},
+        {'RTE_NO': '143', 'STOPS_ID': '100000003', 'SBWY_STNS_NM': 'A(00001)'},
+        {'RTE_NO': '143', 'STOPS_ID': '101000057', 'SBWY_STNS_NM': 'B(00002)'},
+        {'RTE_NO': '272', 'STOPS_ID': '200000001', 'SBWY_STNS_NM': 'D(00001)'},
+    ]
+
+    def _stub(self):
+        return Stub({'busStopLocationXyInfo': ok('busStopLocationXyInfo', self.STOP_ROWS),
+                     'CardBusStatisticsServiceNew': ok('CardBusStatisticsServiceNew', self.BUS_ROWS)})
+
+    def test_a_routes_stops_come_back_in_published_order_not_feed_order(self):
+        with self._stub():
+            routes, _ = S.bus_route_map_stops('key', '20260906', ['143'])
+        self.assertEqual(routes['143'],
+                         [(127.00, 37.50), (127.01, 37.51), (127.02, 37.52)])
+
+    def test_a_route_with_only_out_of_seoul_stops_returns_empty_not_a_crash(self):
+        with self._stub():
+            routes, _ = S.bus_route_map_stops('key', '20260906', ['272'])
+        self.assertEqual(routes['272'], [])
+
+    def test_the_background_excludes_stops_outside_seoul(self):
+        with self._stub():
+            _, seoul_stops = S.bus_route_map_stops('key', '20260906', ['143'])
+        self.assertEqual(len(seoul_stops), 3)
+        self.assertNotIn((126.90, 37.40), seoul_stops)
+
+    def test_a_route_not_present_that_day_returns_an_empty_list_not_a_key_error(self):
+        with self._stub():
+            routes, _ = S.bus_route_map_stops('key', '20260906', ['9999'])
+        self.assertEqual(routes['9999'], [])
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

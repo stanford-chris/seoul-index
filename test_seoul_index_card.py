@@ -144,5 +144,59 @@ class RowEmojiWrapGuard(unittest.TestCase):
         self.assertIn('ico.remove()', html)
 
 
+class BusRouteMap(unittest.TestCase):
+    """render_bus_route_map() added 10 Sep 2026 when the route-map thread
+    reply — designed and approved over several rounds, then never actually
+    wired into main() — was finally posted for real. _shoot() itself is
+    mocked here exactly as ShootRetry mocks it above; these tests are about
+    what render_bus_route_map() builds before handing off to it, not about
+    Chrome.
+    """
+
+    def test_no_data_raises_rather_than_rendering_a_blank_image(self):
+        with self.assertRaises(C.CardRenderError):
+            C.render_bus_route_map([], [(127.0, 37.5)], 'out.png')
+        with self.assertRaises(C.CardRenderError):
+            C.render_bus_route_map([('Busiest: Route 143', '#d70000', [(127.0, 37.5)])],
+                                   [], 'out.png')
+
+    @patch.object(C, '_shoot')
+    def test_shoots_a_square_window_not_the_cards_own_size(self, mock_shoot):
+        mock_shoot.return_value = ('out.png', (1200, 1200))
+        C.render_bus_route_map(
+            [('Busiest: Route 143', '#d70000', [(127.0, 37.5), (127.01, 37.51)])],
+            [(127.0, 37.5), (127.02, 37.52)], 'out.png', title='6 September')
+        (doc, out_path), kwargs = mock_shoot.call_args
+        self.assertEqual(kwargs['size'], (C.MAP_SIZE, C.MAP_SIZE))
+        self.assertIn('<svg', doc)
+        self.assertIn('6 September', doc)
+
+    @patch.object(C, '_shoot')
+    def test_each_route_gets_its_own_stroke_colour_and_legend_line(self, mock_shoot):
+        mock_shoot.return_value = ('out.png', (1200, 1200))
+        C.render_bus_route_map(
+            [('Busiest: Route 143', '#d70000', [(127.0, 37.5), (127.01, 37.51)]),
+             ('Quietest: Route 8641', '#000000', [(127.0, 37.5), (127.02, 37.52)])],
+            [(127.0, 37.5), (127.02, 37.52)], 'out.png')
+        doc = mock_shoot.call_args[0][0]
+        self.assertIn('stroke="#d70000"', doc)
+        self.assertIn('stroke="#000000"', doc)
+        self.assertIn('Busiest: Route 143', doc)
+        self.assertIn('Quietest: Route 8641', doc)
+
+    @patch.object(C, '_shoot')
+    def test_a_route_with_no_stops_draws_no_path_but_does_not_crash(self, mock_shoot):
+        # A cross-language edge case that should never actually reach here
+        # (main() only calls this once bus_route_map_stops() has answered
+        # for all three routes) but a route resolving to an empty stop list
+        # must not raise partway through drawing the other two.
+        mock_shoot.return_value = ('out.png', (1200, 1200))
+        C.render_bus_route_map(
+            [('Busiest: Route 143', '#d70000', [(127.0, 37.5), (127.01, 37.51)]),
+             ('Quietest: Route 8641', '#000000', [])],
+            [(127.0, 37.5), (127.02, 37.52)], 'out.png')
+        self.assertTrue(mock_shoot.called)
+
+
 if __name__ == '__main__':
     unittest.main()

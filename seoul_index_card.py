@@ -57,6 +57,7 @@ Raises CardRenderError on any failure so the poster can fall back to plaintext.
 """
 
 import html
+import math
 import re
 import subprocess
 import tempfile
@@ -269,8 +270,12 @@ def _crop_to_content(raw_path, out_path):
     return out_path, size
 
 
-def _shoot(doc, out_path, attempt=0):
+def _shoot(doc, out_path, attempt=0, size=None):
     """Render an HTML doc to a content-cropped PNG. Returns (out_path, (w, h)).
+
+    `size` overrides the (width, height) CSS window Chrome renders at — the
+    card's own (CARD_WIDTH, RENDER_HEIGHT) by default, but the bus-route map
+    is a fixed square unrelated to a card's row-driven height.
 
     ⚠️ Escalating retries on a Chrome hang (RENDER_TIMEOUTS), not on a Chrome
     crash. A crash (Chrome exits but leaves no PNG) is not retried: that is a
@@ -280,6 +285,7 @@ def _shoot(doc, out_path, attempt=0):
     if not Path(CHROME).exists():
         raise CardRenderError(f'Chrome not found at {CHROME}')
     out_path = str(out_path)
+    win_w, win_h = size or (CARD_WIDTH, RENDER_HEIGHT)
     with tempfile.TemporaryDirectory() as td:
         html_path = Path(td) / 'card.html'
         raw_png = Path(td) / 'raw.png'
@@ -287,7 +293,7 @@ def _shoot(doc, out_path, attempt=0):
         cmd = [
             CHROME, '--headless=new', '--disable-gpu', '--hide-scrollbars',
             '--force-device-scale-factor=2',
-            f'--window-size={CARD_WIDTH},{RENDER_HEIGHT}',
+            f'--window-size={win_w},{win_h}',
             f'--default-background-color={SENTINEL}FF',
             f'--screenshot={raw_png}', f'file://{html_path}',
         ]
@@ -296,7 +302,7 @@ def _shoot(doc, out_path, attempt=0):
                                timeout=RENDER_TIMEOUTS[attempt])
         except subprocess.TimeoutExpired:
             if attempt + 1 < len(RENDER_TIMEOUTS):
-                return _shoot(doc, out_path, attempt=attempt + 1)
+                return _shoot(doc, out_path, attempt=attempt + 1, size=size)
             budgets = ', '.join(f'{t}s' for t in RENDER_TIMEOUTS)
             raise CardRenderError(
                 f'Chrome hung on all {len(RENDER_TIMEOUTS)} attempts ({budgets})')
@@ -304,8 +310,8 @@ def _shoot(doc, out_path, attempt=0):
             raise CardRenderError(
                 f'Chrome produced no image (exit {r.returncode}): '
                 f'{(r.stderr or r.stdout or "").strip()[:200]}')
-        _, size = _crop_to_content(raw_png, out_path)
-    return out_path, size
+        _, size_out = _crop_to_content(raw_png, out_path)
+    return out_path, size_out
 
 
 def render_card(opener, lines, out_path, korean=False, footnote='', dateline=''):
@@ -314,6 +320,103 @@ def render_card(opener, lines, out_path, korean=False, footnote='', dateline='')
     if not lines:
         raise CardRenderError('no lines to render')
     return _shoot(_build_html(opener, lines, footnote, dateline), out_path)
+
+
+MAP_SIZE = 600  # CSS px; device-scale 2 renders at 1200 px, same width as a card.
+
+
+def render_bus_route_map(routes, seoul_stops, out_path, title='', caption=''):
+    """Draw named bus routes over a faint backdrop of every Seoul bus stop —
+    the threaded reply for the busroutes card, built entirely from data
+    already in hand (no external map, no fabricated URL; see the busroutes
+    SELECT_PROMPT rule and the design discussion that produced this).
+
+    `routes`: [(label, colour, [(lon, lat), ...]), ...] — one entry per
+    route, already ordered stop-to-stop (transport_facts()' ranking order,
+    so the legend reads Busiest/2nd-busiest/Quietest top to bottom).
+    `seoul_stops`: [(lon, lat), ...] for every Seoul-prefixed stop, drawn as
+    the background silhouette. `title` is the bold red masthead line;
+    `caption` is the small muted line under the legend — this account's
+    house style requires it read as a measurement, not the route's official
+    path (a quiet route's stops are only the ones that saw a boarding that
+    day, see the caption text busroutes_map_caption() builds).
+
+    Returns (path, (w, h)), or raises CardRenderError — the caller (main())
+    treats a failed map the same way a failed card render is already
+    treated: the rest of the thread still posts, just without this reply.
+    """
+    if not routes or not seoul_stops:
+        raise CardRenderError('no route or stop data to draw')
+    size = MAP_SIZE
+    pad = size * 0.05
+    lo0 = min(p[0] for p in seoul_stops)
+    lo1 = max(p[0] for p in seoul_stops)
+    la0 = min(p[1] for p in seoul_stops)
+    la1 = max(p[1] for p in seoul_stops)
+    k = math.cos(math.radians((la0 + la1) / 2))
+    scale = min((size - 2 * pad) / ((lo1 - lo0) * k), (size - 2 * pad) / (la1 - la0))
+    ox = (size - (lo1 - lo0) * k * scale) / 2
+    oy = (size - (la1 - la0) * scale) / 2
+
+    def xy(lon, lat):
+        return (ox + (lon - lo0) * k * scale, size - oy - (lat - la0) * scale)
+
+    def smooth(pts):
+        if len(pts) < 3:
+            return 'M' + ' L'.join(f'{x:.1f},{y:.1f}' for x, y in pts)
+        d = [f'M{pts[0][0]:.1f},{pts[0][1]:.1f}']
+        for i in range(1, len(pts) - 1):
+            mx, my = (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2
+            d.append(f'Q{pts[i][0]:.1f},{pts[i][1]:.1f} {mx:.1f},{my:.1f}')
+        d.append(f'L{pts[-1][0]:.1f},{pts[-1][1]:.1f}')
+        return ' '.join(d)
+
+    body = []
+    # A blurred layer first, so the dense cloud of dots merges into a soft
+    # landmass silhouette (real stop density, not a drawn coastline), then
+    # crisp dots on top for texture close up — the same two-pass treatment
+    # the design preview settled on before this was ever wired into main().
+    soft, crisp = [], []
+    for lon, lat in seoul_stops:
+        x, y = xy(lon, lat)
+        soft.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1.05"/>')
+        crisp.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="0.5"/>')
+    body.append(f'<g fill="{MUTED}" opacity="0.5" filter="url(#soften)">{"".join(soft)}</g>')
+    body.append(f'<g fill="{INK}" opacity="0.16">{"".join(crisp)}</g>')
+
+    legend = []
+    ly = size - 84
+    legend_top = ly - 20
+    for label, colour, pts in routes:
+        line_pts = [xy(lon, lat) for lon, lat in pts]
+        if len(line_pts) >= 2:
+            body.append(f'<path d="{smooth(line_pts)}" stroke="{colour}" '
+                         f'stroke-width="2.5" fill="none" stroke-linecap="round" '
+                         f'opacity="0.92"/>')
+            for x, y in (line_pts[0], line_pts[-1]):
+                body.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.5" fill="{colour}"/>')
+        legend.append(f'<rect x="30" y="{ly}" width="14" height="5" rx="2.5" fill="{colour}"/>')
+        legend.append(f'<text x="50" y="{ly + 5}" font-family="Menlo,monospace" '
+                       f'font-size="13" fill="{INK}">{_esc(label)}</text>')
+        ly += 19
+    # Extra breathing room below the last legend line before the caption,
+    # same fix as the card's own legend/caption spacing.
+    caption_y = ly + 12
+    legend_bg = (f'<rect x="0" y="{legend_top}" width="{size}" '
+                 f'height="{caption_y - legend_top + 10}" fill="{CREAM}" opacity="0.94"/>')
+    title_html = (f'<text x="30" y="25" font-family="Menlo,monospace" font-size="14" '
+                  f'font-weight="bold" fill="{RED}">{_esc(title)}</text>' if title else '')
+    caption_html = (f'<text x="30" y="{caption_y}" font-family="Menlo,monospace" '
+                    f'font-size="9" fill="{MUTED}">{_esc(caption)}</text>' if caption else '')
+
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}">'
+           f'<defs><filter id="soften" x="-20%" y="-20%" width="140%" height="140%">'
+           f'<feGaussianBlur stdDeviation="2.2"/></filter></defs>'
+           f'<rect width="{size}" height="{size}" fill="{CREAM}"/>'
+           f'{"".join(body)}{legend_bg}{"".join(legend)}{title_html}{caption_html}'
+           f'</svg>')
+    doc = f'<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">{svg}</body></html>'
+    return _shoot(doc, out_path, size=(size, size))
 
 
 # Source domains get bolded wherever they appear in prose body text.

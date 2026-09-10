@@ -56,7 +56,7 @@ from atproto import Client, client_utils, models
 
 import limit_guard
 import net_guard
-from seoul_index_card import render_card, CardRenderError, curly
+from seoul_index_card import render_card, render_bus_route_map, CardRenderError, curly, RED
 
 HERE = Path(__file__).parent
 CONFIG = HERE / 'seoul_index_config.json'
@@ -1127,6 +1127,12 @@ def _latest_daily(api_key, service, day_field_ok):
 # None until transport_facts() actually builds a 'busroutes' card this run.
 BUS_ROUTE_DAY = {'en': None, 'ko': None}
 BUS_ROUTE_STREAK = {'en': None, 'ko': None}
+# Read by main() to decide whether to render and thread the route map, and
+# which routes/day to fetch stop sequences for. Kept separate from the day's
+# transport_cache in state on purpose: this is only needed the rare run that
+# actually posts a busroutes card, never persisted, and never re-derived from
+# a stale day if the post ends up being some other vein instead.
+BUS_ROUTE_MAP_INFO = {'day': None, 'routes': None}
 # A 1- or 2-day streak is not yet a pattern — every route has a quiet run
 # sometimes. Below this, BUS_ROUTE_STREAK stays None and the footnote says
 # nothing about it, same reasoning as KBO_ORDER_SINCE and SEVERE_STARVE_DAYS
@@ -1285,6 +1291,8 @@ def transport_facts(api_key, state):
     bottom = c['bus_bottom']
     if _ascii_route(top) and _ascii_route(second) and _ascii_route(bottom):
         BUS_ROUTE_DAY['en'], BUS_ROUTE_DAY['ko'] = d, d_ko
+        BUS_ROUTE_MAP_INFO['day'] = c['date']
+        BUS_ROUTE_MAP_INFO['routes'] = [top[0], second[0], bottom[0]]
         streak_days = c['bus_streak_days']
         if streak_days >= BUS_ROUTE_STREAK_MIN:
             BUS_ROUTE_STREAK['en'] = (f'Route {top[0]} has led for the past '
@@ -1310,6 +1318,65 @@ def transport_facts(api_key, state):
                  label_ko='전체 버스 승차 인원', num=c['bus_total'], unit='people'),
         ]
     return facts
+
+
+def bus_route_map_stops(api_key, day, route_nos):
+    """{route_no: [(lon, lat), ...]} ordered stop coordinates for `route_nos`
+    on `day`, plus every Seoul-prefixed stop's own coordinates for the map's
+    background silhouette. Returns (routes, seoul_stops).
+
+    Fetched at POSTING time, not harvest time: transport_facts() already
+    pages the whole day's CardBusStatisticsServiceNew once to find the day's
+    ranking, but only keeps the aggregated totals, not each stop's own row —
+    keeping all ~40,000 of those in state just in case this vein posts would
+    bloat a JSON file written every run for data needed on the rare run
+    (3-day cooldown) that actually does. A second full-day pass here is the
+    simpler trade, paid only on that rare run.
+
+    The stop order comes from the same trick seoul-transit-art/harvest.py's
+    route_paths() verified against real coordinates: each row's own stop-name
+    field ends in a bracketed sequence number, "명륜3가.성대입구(00030)" — real
+    published order, not a guess.
+    """
+    base = f'http://openapi.seoul.go.kr:8088/{api_key}/json'
+    stop_total = int(http_get_json(f'{base}/busStopLocationXyInfo/1/1')
+                     ['busStopLocationXyInfo']['list_total_count'])
+    stops = {}
+    for s in range(1, stop_total + 1, 1000):
+        d = http_get_json(f'{base}/busStopLocationXyInfo/{s}/{min(s + 999, stop_total)}')
+        for r in d.get('busStopLocationXyInfo', {}).get('row', []):
+            try:
+                stops[r['STOPS_NO']] = (float(r['XCRD']), float(r['YCRD']))
+            except (KeyError, TypeError, ValueError):
+                continue
+    seoul_stops = [c for sid, c in stops.items() if sid.startswith('1')]
+
+    bd0 = http_get_json(f'{base}/CardBusStatisticsServiceNew/1/1/{day}')
+    btot = int(bd0['CardBusStatisticsServiceNew']['list_total_count'])
+    wanted = set(route_nos)
+    seq = {no: [] for no in wanted}
+    for s in range(1, btot + 1, 1000):
+        bd = http_get_json(f'{base}/CardBusStatisticsServiceNew/{s}/{min(s + 999, btot)}/{day}')
+        for x in bd.get('CardBusStatisticsServiceNew', {}).get('row', []):
+            no = x.get('RTE_NO')
+            if no not in wanted:
+                continue
+            m = re.search(r'\((\d+)\)\s*$', x.get('SBWY_STNS_NM') or '')
+            sid = x.get('STOPS_ID')
+            if not m or sid not in stops:
+                continue
+            seq[no].append((int(m.group(1)), sid))
+
+    routes = {}
+    for no, pairs in seq.items():
+        pairs.sort()
+        ids, seen = [], set()
+        for _, sid in pairs:
+            if sid not in seen and sid.startswith('1'):
+                seen.add(sid)
+                ids.append(sid)
+        routes[no] = [stops[sid] for sid in ids]
+    return routes, seoul_stops
 
 
 # --- rush hour -------------------------------------------------------------
@@ -7436,8 +7503,49 @@ def main():
                                  reply_to=_reply(p2_ref, root_ref), langs=['ko'],
                                  image_aspect_ratio=ko_ar)
             p3_ref = models.create_strong_ref(p3)
-            bsky.send_post(text=ko_source, reply_to=_reply(p3_ref, root_ref), langs=['ko'])
+            p4 = bsky.send_post(text=ko_source, reply_to=_reply(p3_ref, root_ref), langs=['ko'])
             print('\nPosted (4-post thread: EN card, EN source, KO card, KO source).')
+            if primary == 'busroutes' and BUS_ROUTE_MAP_INFO['day']:
+                # A 5th post, threaded after the usual four: real routes drawn
+                # from data already in hand, not a link to someone else's map
+                # (see the busroutes design discussion — no verified per-route
+                # URL exists on any service checked). Its own try/except, so a
+                # failed fetch or a Chrome hang here never touches the thread
+                # that already posted successfully above it.
+                try:
+                    day = BUS_ROUTE_MAP_INFO['day']
+                    route_stops, seoul_stops = bus_route_map_stops(
+                        api_key, day, BUS_ROUTE_MAP_INFO['routes'])
+                    busiest_no, second_no, quietest_no = BUS_ROUTE_MAP_INFO['routes']
+                    routes = [
+                        (f'Busiest: Route {busiest_no}', RED,
+                         route_stops.get(busiest_no, [])),
+                        (f'2nd-busiest: Route {second_no}', '#e08a1e',
+                         route_stops.get(second_no, [])),
+                        (f'Quietest: Route {quietest_no}', '#000000',
+                         route_stops.get(quietest_no, [])),
+                    ]
+                    map_path = Path(tempfile.mkdtemp()) / 'bus_route_map.png'
+                    _, map_size = render_bus_route_map(
+                        routes, seoul_stops, map_path, title=BUS_ROUTE_DAY['en'],
+                        caption=(f'Stops where each route saw a boarding, '
+                                f'{BUS_ROUTE_DAY["en"]}: not necessarily its full path'))
+                    map_alt = (
+                        f'Map of three Seoul bus routes on {BUS_ROUTE_DAY["en"]}: '
+                        f'busiest (Route {busiest_no}), second-busiest (Route {second_no}) '
+                        f'and quietest (Route {quietest_no}), drawn from the stops where '
+                        f'each saw a boarding that day over a faint backdrop of every '
+                        f'Seoul bus stop. Not necessarily each route’s full official path.')
+                    map_ar = models.AppBskyEmbedDefs.AspectRatio(
+                        width=map_size[0], height=map_size[1])
+                    p4_ref = models.create_strong_ref(p4)
+                    bsky.send_image(text='', image=map_path.read_bytes(),
+                                    image_alt=map_alt, langs=['en'],
+                                    reply_to=_reply(p4_ref, root_ref),
+                                    image_aspect_ratio=map_ar)
+                    print('Posted a 5th reply: the route map.')
+                except (CardRenderError, RuntimeError, KeyError) as e:
+                    print(f'\nRoute map failed ({e}); thread already posted without it.')
     else:
         # Plaintext fallback (card render failed): there are no card posts here,
         # so these full-text posts must carry the hashtags themselves — the tags
