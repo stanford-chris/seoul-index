@@ -1135,23 +1135,21 @@ def _latest_daily(api_key, service, day_field_ok):
     return None, 0
 
 
-# Read by compose() to lift the day onto the 'busroutes' card's own masthead
-# dateline, and to fold the streak into its footnote — the same
-# harvest-time-global pattern RUSH_M already uses for the rush vein's month.
-# None until transport_facts() actually builds a 'busroutes' card this run.
-BUS_ROUTE_DAY = {'en': None, 'ko': None}
-BUS_ROUTE_STREAK = {'en': None, 'ko': None}
-# Read by main() to decide whether to render and thread the route map, and
-# which routes/day to fetch stop sequences for. Kept separate from the day's
-# transport_cache in state on purpose: this is only needed the rare run that
-# actually posts a busroutes card, never persisted, and never re-derived from
-# a stale day if the post ends up being some other vein instead.
-BUS_ROUTE_MAP_INFO = {'day': None, 'routes': None}
+# The busroutes card since 10 September 2026 ranks by BOARDINGS PER STOP
+# SERVED, not raw boardings: his call, after 63 days of history showed the
+# raw ranking fixed at both ends (143 busiest and 1226 quietest on all 63)
+# because 143 is the longest route, not the most crowded. Per stop, 143 was
+# seventh of 326 on 7 September, behind 2211 (455 a stop on 40 stops), 5515
+# and 5621; 1226 was last on both measures. Routes with fewer than
+# BUS_MIN_STOPS stops served are left out, so a short shuttle cannot lead on
+# two stops. The fourth line is the citywide average on the same measure,
+# so the card stays one unit. Built from bus_route_history.json (totals and
+# stop counts per route per day), like the other history cards, which is
+# also what lets both streaks below be read straight from the record.
+BUS_MIN_STOPS = 10
 # A 1- or 2-day streak is not yet a pattern — every route has a quiet run
-# sometimes. Below this, BUS_ROUTE_STREAK stays None and the footnote says
-# nothing about it, same reasoning as KBO_ORDER_SINCE and SEVERE_STARVE_DAYS
-# elsewhere in this codebase: a report noisy with marginal findings is a
-# report nobody reads.
+# sometimes. Below this the footnote says nothing about it, same reasoning
+# as KBO_ORDER_SINCE and SEVERE_STARVE_DAYS elsewhere in this codebase.
 BUS_ROUTE_STREAK_MIN = 3
 
 # The ranking is over TRUNK AND BRANCH ROUTES ONLY — Seoul's own 간선 (blue,
@@ -1172,8 +1170,8 @@ BUS_ROUTE_STREAK_MIN = 3
 # two never changed. Letter-suffixed routes never came within six of the
 # bottom, so excluding them changed no result.
 _RANKED_ROUTE_RE = re.compile(r'^[1-7]\d{2,3}$')
-BUS_ROUTE_CAVEAT_EN = 'Trunk and branch routes only'
-BUS_ROUTE_CAVEAT_KO = '간선·지선 노선만'
+BUS_ROUTE_CAVEAT_EN = 'Boardings per stop served · trunk and branch routes with 10 or more stops'
+BUS_ROUTE_CAVEAT_KO = '정류장 1곳당 승차 인원 · 정류장 10곳 이상 간선·지선'
 # Stamped into transport_cache; a same-day cache stamped with another rule
 # (or none) is refetched rather than served with a route the current rule
 # would not rank at the bottom.
@@ -1323,6 +1321,7 @@ def load_bus_history():
     except (OSError, ValueError):
         h = {}
     h.setdefault('days', {})
+    h.setdefault('stops', {})
     h.setdefault('holidays', {})
     return h
 
@@ -1331,15 +1330,22 @@ def save_bus_history(h):
     write_json_atomic(BUS_HISTORY, h, ensure_ascii=False)
 
 
-def bus_history_add(h, day, route_sums):
+def bus_history_add(h, day, route_sums, route_stops=None):
     """Record a day's per-route totals (ASCII route numbers only; the Hangul
-    ones rank in no card). Idempotent: a day already held is left alone, so
-    a re-fetch under a new ranking rule cannot rewrite history."""
-    if day in h['days']:
-        return False
-    h['days'][day] = {no: int(v) for no, v in route_sums.items()
-                      if no and re.match(r'^[A-Za-z0-9-]+$', str(no))}
-    return True
+    ones rank in no card) and, since 10 September 2026, each route's count
+    of stops that saw a boarding (`h['stops'][day]`), for the per-stop
+    ranking. Idempotent per key: a day already held is left alone, so a
+    re-fetch under a new ranking rule cannot rewrite history; a day whose
+    totals are held but whose stop counts are not gains the stop counts."""
+    ascii_ = lambda no: no and re.match(r'^[A-Za-z0-9-]+$', str(no))
+    added = False
+    if day not in h['days']:
+        h['days'][day] = {no: int(v) for no, v in route_sums.items() if ascii_(no)}
+        added = True
+    if route_stops is not None and day not in h.setdefault('stops', {}):
+        h['stops'][day] = {no: int(n) for no, n in route_stops.items() if ascii_(no)}
+        added = True
+    return added
 
 
 def kr_holidays(h, year):
@@ -1610,36 +1616,127 @@ def ranked_route_no(no):
     return bool(no) and bool(_RANKED_ROUTE_RE.match(str(no)))
 
 
-def _bus_route_streak(state, day, top_no):
-    """Consecutive PUBLISHED days `top_no` has been the busiest bus route,
-    ending at `day`. Stored in state so a single day's win never reads as a
-    trend and a genuine run survives between runs.
+def bus_intensity_rank(h, day):
+    """(result, reason): trunk/branch routes on `day` with at least
+    BUS_MIN_STOPS stops served, ranked by boardings per stop served,
+    largest first, plus the citywide average on the same measure."""
+    if day not in h.get('days', {}) or day not in h.get('stops', {}):
+        return None, f'{day} has no stop counts in history'
+    rows = []
+    for no, v in h['days'][day].items():
+        if not ranked_route_no(no):
+            continue
+        n = h['stops'][day].get(no, 0)
+        if n < BUS_MIN_STOPS:
+            continue
+        rows.append((no, v / n, v, n))
+    if len(rows) < 3:
+        return None, f'only {len(rows)} routes with {BUS_MIN_STOPS}+ stops served'
+    rows.sort(key=lambda r: -r[1])
+    return {'ranked': rows,
+            'avg': sum(r[2] for r in rows) / sum(r[3] for r in rows)}, None
 
-    ⚠️ Callers must call this at most once per real day's fresh fetch — a
-    second call the same day would compare `day` against itself (a 0-day
-    gap, not 1), which is not "contiguous" and would wrongly reset a real
-    streak to 1. transport_facts() only reaches this inside its cache-miss
-    branch for exactly that reason.
 
-    ⚠️ A gap — a day the feed never published, or the bot never ran — resets
-    the count rather than bridging it: a silently wrong streak is worse than
-    a short one, the same call this file makes everywhere else a run could
-    go stale (SEVERE_STARVE_DAYS, the KBO order gate, the data-source probe).
-    """
-    prev = state.get('bus_route_streak') or {}
-    prev_day, prev_route = prev.get('date'), prev.get('route')
-    if prev_day == day and prev_route == top_no:
-        # Same day, same winner: a repeat call (a cache rebuilt under a new
-        # ranking rule did this on 10 Sep 2026 and reset a real 2-day streak
-        # to 1). Idempotent rather than a reset; a same-day call naming a
-        # DIFFERENT winner still falls through to a restart at 1 below.
-        return prev.get('days', 1)
-    contiguous = (prev_day and prev_route == top_no
-                  and (datetime.strptime(day, '%Y%m%d')
-                       - datetime.strptime(prev_day, '%Y%m%d')).days == 1)
-    days = prev.get('days', 0) + 1 if contiguous else 1
-    state['bus_route_streak'] = {'route': top_no, 'days': days, 'date': day}
-    return days
+def bus_rank_streaks(h, day):
+    """How long the day's busiest and quietest (per stop) have held those
+    places, read from the history: (top, top_days, bottom, bottom_days,
+    recorded, first_day). `recorded` is the run of consecutive days ending
+    at `day` that the history can rank at all, and `first_day` its start;
+    a streak equal to `recorded` is "every day recorded", which is all the
+    record can say. A missing day ends the walk rather than being bridged."""
+    r, _ = bus_intensity_rank(h, day)
+    if r is None:
+        return None
+    top, bottom = r['ranked'][0][0], r['ranked'][-1][0]
+    top_days = bottom_days = recorded = 0
+    top_alive = bottom_alive = True
+    d = day
+    first = day
+    while True:
+        rr, _ = bus_intensity_rank(h, d)
+        if rr is None:
+            break
+        recorded += 1
+        first = d
+        if top_alive and rr['ranked'][0][0] == top:
+            top_days += 1
+        else:
+            top_alive = False
+        if bottom_alive and rr['ranked'][-1][0] == bottom:
+            bottom_days += 1
+        else:
+            bottom_alive = False
+        d = (datetime.strptime(d, '%Y%m%d') - timedelta(days=1)).strftime('%Y%m%d')
+    return top, top_days, bottom, bottom_days, recorded, first
+
+
+def _streak_note(h, day):
+    """(en, ko) footnote clause for the busroutes card, or ('', '')."""
+    st = bus_rank_streaks(h, day)
+    if not st:
+        return '', ''
+    top, td, bottom, bd, recorded, first = st
+    fd = datetime.strptime(first, '%Y%m%d')
+    first_en, first_ko = fd.strftime('%-d %B'), f'{fd.month}월 {fd.day}일'
+    if td >= BUS_ROUTE_STREAK_MIN and bd >= BUS_ROUTE_STREAK_MIN and td == bd == recorded:
+        return (f'{top} busiest and {bottom} quietest on every day recorded, {recorded} since {first_en}',
+                f'기록된 {recorded}일({first_ko}부터) 내내 {top}번이 1위, {bottom}번이 최하위')
+    en, ko = [], []
+    if td >= BUS_ROUTE_STREAK_MIN:
+        if td == recorded:
+            en.append(f'{top} has led on every day recorded, {recorded} since {first_en}')
+            ko.append(f'{top}번은 기록된 {recorded}일({first_ko}부터) 내내 1위')
+        else:
+            en.append(f'{top} has led for the past {td} days')
+            ko.append(f'{top}번은 최근 {td}일간 매일 1위')
+    if bd >= BUS_ROUTE_STREAK_MIN:
+        if bd == recorded:
+            en.append(f'{bottom} quietest on every day recorded, {recorded} since {first_en}')
+            ko.append(f'{bottom}번은 기록된 {recorded}일({first_ko}부터) 내내 최하위')
+        else:
+            en.append(f'{bottom} quietest for the past {bd} days')
+            ko.append(f'{bottom}번은 최근 {bd}일간 매일 최하위')
+    return ' · '.join(en), ' · '.join(ko)
+
+
+def bus_routes_facts(h, day, d, d_ko):
+    """The busroutes card for `day`, from the history (see BUS_MIN_STOPS's
+    block): busiest, second-busiest and quietest route by boardings per stop
+    served, and the citywide average on the same measure. Fills
+    RANKED_CARD_INFO['busroutes'] when built; prints why when withheld."""
+    RANKED_CARD_INFO.pop('busroutes', None)
+    r, why = bus_intensity_rank(h, day)
+    if r is None:
+        print(f'Bus routes withheld for {d}: {why}.')
+        return []
+    top, second, bottom = r['ranked'][0], r['ranked'][1], r['ranked'][-1]
+    streak_en, streak_ko = _streak_note(h, day)
+    RANKED_CARD_INFO['busroutes'] = {
+        'day_en': d, 'day_ko': d_ko,
+        'note_en': ' · '.join(x for x in (BUS_ROUTE_CAVEAT_EN, streak_en) if x),
+        'note_ko': ' · '.join(x for x in (BUS_ROUTE_CAVEAT_KO, streak_ko) if x),
+        'map_day': day,
+        'map_caption': f'Stops where each route saw a boarding, {d}: not necessarily its full path',
+        'map_routes': [(f'Busiest: Route {top[0]}', MAP_COLOURS[0], top[0]),
+                       (f'2nd-busiest: Route {second[0]}', MAP_COLOURS[1], second[0]),
+                       (f'Quietest: Route {bottom[0]}', MAP_COLOURS[2], bottom[0])]}
+    # Bare route numbers, no "Route" on the line: his instruction, 10
+    # September 2026, since the opener already says these are bus routes.
+    # The stop count rides the label so a 16-stop route leading on this
+    # measure explains itself. The map legends keep "Route", having no
+    # opener to lean on; the selector rule REQUIRES an opener naming buses.
+    def line(fid, rank_en, rank_ko, row):
+        no, per, tot, n = row
+        return fact(fid, 'busroutes', f'{rank_en}: {no}, {n} stops',
+                    grouped(round(per)), grouped(round(per)), pin=True,
+                    label_ko=f'{rank_ko}: {no}번, 정류장 {n}곳',
+                    place_en=rank_en, place_ko=rank_ko)
+    return [line('bus_busiest_route', 'Busiest', '가장 붐빔', top),
+            line('bus_second_route', '2nd-busiest', '두 번째로 붐빔', second),
+            line('bus_quietest_route', 'Quietest', '가장 한산함', bottom),
+            fact('bus_route_total', 'busroutes', 'Average across all routes',
+                 grouped(round(r['avg'])), grouped(round(r['avg'])), pin=True,
+                 label_ko='전체 노선 평균')]
 
 
 def transport_facts(api_key, state):
@@ -1700,11 +1797,14 @@ def transport_facts(api_key, state):
         btot_rows = int(bd0['CardBusStatisticsServiceNew']['list_total_count'])
         bus_total = 0
         route = {}
+        route_stops = {}
         for s in range(1, btot_rows + 1, 1000):
             bd = http_get_json(f'{base}/CardBusStatisticsServiceNew/{s}/{min(s + 999, btot_rows)}/{day}')
             for x in bd.get('CardBusStatisticsServiceNew', {}).get('row', []):
                 v = int(x.get('GTON_TNOPE', '0') or 0)
                 bus_total += v
+                if v > 0:
+                    route_stops[x.get('RTE_NO', '?')] = route_stops.get(x.get('RTE_NO', '?'), 0) + 1
                 # Keyed on RTE_NO, not RTE_NM: a night ("N") route is split
                 # across two RTE_IDs, one per direction, sharing one RTE_NO
                 # (verified 9 Sep 2026, e.g. N13 = ids 11110363/11110364) — a
@@ -1715,22 +1815,11 @@ def transport_facts(api_key, state):
                 route[no] = route.get(no, 0) + v
         # Every route's total goes into the history file (idempotent), for the
         # three history cards.
-        if bus_history_add(hist, day, route):
+        if bus_history_add(hist, day, route, route_stops):
             save_bus_history(hist)
-        # Ranked over trunk and branch routes only (see ranked_route_no());
-        # the total above already counted every route, including the excluded.
-        city = {no: v for no, v in route.items() if ranked_route_no(no)}
-        ranked = sorted(city.items(), key=lambda kv: -kv[1])
-        bottom = min(city.items(), key=lambda kv: kv[1]) if city else None
-        # Streak only advances HERE, in the once-per-real-day fresh fetch —
-        # never on a same-day cache hit, or a second post the same day would
-        # compare today's winner against itself and read as a broken streak.
-        streak_days = _bus_route_streak(state, day, ranked[0][0]) if ranked else 0
         c = {'date': day, 'sub_total': sub_total, 'bus_total': bus_total,
              'busiest_st': tr_busiest[0], 'busiest_v': tr_busiest[1],
              'quietest_st': tr_quietest[0], 'quietest_v': tr_quietest[1],
-             'bus_ranked': ranked[:2], 'bus_bottom': bottom,
-             'bus_streak_days': streak_days,
              # Which ranking rule built this cache; see BUS_RANK_RULE.
              'bus_rank_rule': BUS_RANK_RULE,
              'st_ranked': st_ranked, 'st_bottom': st_bottom, 'st_coords': st_coords,
@@ -1784,79 +1873,9 @@ def transport_facts(api_key, state):
              label_ko=f'가장 한산한 지하철역, {c["quietest_st"]} ({d_ko})',
              num=c['quietest_v'], unit='people'),
     ]
-    # 'busroutes' is a SEPARATE category from 'transport' above, own post,
-    # never mixed — a distinct card shape (three ranked bus routes + their
-    # total, no subway line at all), not another transport fact for the
-    # selector to mix in. See SELECT_PROMPT's "busroutes" rule.
-    #
-    # The route NUMBER only, never RTE_NM's full "143번(정릉~개포동)" form: a
-    # village-bus route number carries its 자치구 in Hangul with no "구" suffix
-    # ("마포01"), which the existing districts table can't resolve and which
-    # has no safe English form to invent. Route numbers need no translation
-    # either way — that IS the label riders and signage use, in both
-    # languages — but only once EVERY one of the three is verified ASCII,
-    # or raw Hangul ships on the English card unremarked. All-or-nothing on
-    # purpose — a card missing just its quietest line would be a visibly
-    # broken version of a shape the reader has seen complete before.
-    #
-    # ⚠️ MEASURED 10 September 2026, 1-7 September's data: this is NOT the
-    # rare case the first version of this comment called "never observed".
-    # 276 of 664 route numbers (42%) are non-ASCII, and on EVERY weekday the
-    # quietest route was '8442퇴근' (17-23 boardings), a rush-hour-only
-    # variant whose number carries 퇴근 — not a village bus, a class the
-    # comment above did not anticipate. Only Saturday and Sunday (618 routes,
-    # the rush variants not running) had an ASCII quietest (8777, 8641). So
-    # as written this vein withholds five days in seven; the 9 September post
-    # got through on Sunday 6 September's data. Decision on what to do about
-    # it is his, and pending as of this comment.
-    def _ascii_route(pair):
-        return pair is not None and ranked_route_no(pair[0])
-
-    top = c['bus_ranked'][0] if c['bus_ranked'] else None
-    second = c['bus_ranked'][1] if len(c['bus_ranked']) >= 2 else None
-    bottom = c['bus_bottom']
-    unsafe = [p[0] if p else '(missing)' for p in (top, second, bottom) if not _ascii_route(p)]
-    if unsafe:
-        # Say so. On 10 September 2026 this withheld silently on '8442퇴근'
-        # (a rush-hour-only variant, not a village bus) and --only=busroutes
-        # reported "0 fact(s) in that vein", which reads as a broken
-        # harvester rather than this guard doing its job.
-        print(f'Bus routes withheld for {d}: no safe English form for '
-              f'{", ".join(repr(u) for u in unsafe)}.')
-    else:
-        BUS_ROUTE_DAY['en'], BUS_ROUTE_DAY['ko'] = d, d_ko
-        BUS_ROUTE_MAP_INFO['day'] = c['date']
-        BUS_ROUTE_MAP_INFO['routes'] = [top[0], second[0], bottom[0]]
-        streak_days = c['bus_streak_days']
-        if streak_days >= BUS_ROUTE_STREAK_MIN:
-            BUS_ROUTE_STREAK['en'] = (f'Route {top[0]} has led for the past '
-                                       f'{streak_days} days')
-            BUS_ROUTE_STREAK['ko'] = f'{top[0]}번은 최근 {streak_days}일간 매일 1위였음'
-        else:
-            BUS_ROUTE_STREAK['en'] = BUS_ROUTE_STREAK['ko'] = None
-        # Bare route numbers, no "Route" on the line: his instruction,
-        # 10 September 2026, since the opener already says these are bus
-        # routes ("Seoul's night buses, route by route"). The Korean side has
-        # always been the bare number plus 번. The map legends keep "Route",
-        # having no opener to lean on. The selector rule for every bus card
-        # therefore REQUIRES an opener that names buses.
-        facts += [
-            fact('bus_busiest_route', 'busroutes', f'Busiest: {top[0]}',
-                 grouped(top[1]), grouped(top[1]), pin=True,
-                 label_ko=f'가장 붐빔: {top[0]}번', place_en='Busiest',
-                 place_ko='가장 붐빔', num=top[1], unit='people'),
-            fact('bus_second_route', 'busroutes', f'2nd-busiest: {second[0]}',
-                 grouped(second[1]), grouped(second[1]), pin=True,
-                 label_ko=f'두 번째로 붐빔: {second[0]}번', place_en='2nd-busiest',
-                 place_ko='두 번째로 붐빔', num=second[1], unit='people'),
-            fact('bus_quietest_route', 'busroutes', f'Quietest: {bottom[0]}',
-                 grouped(bottom[1]), grouped(bottom[1]), pin=True,
-                 label_ko=f'가장 한산함: {bottom[0]}번', place_en='Quietest',
-                 place_ko='가장 한산함', num=bottom[1], unit='people'),
-            fact('bus_route_total', 'busroutes', 'Total bus boardings',
-                 grouped(c['bus_total']), grouped(c['bus_total']), pin=True,
-                 label_ko='전체 버스 승차 인원', num=c['bus_total'], unit='people'),
-        ]
+    # The busroutes card, from the history (see bus_routes_facts()). A
+    # separate category from 'transport' above, own post, never mixed.
+    facts += bus_routes_facts(hist, c['date'], d, d_ko)
 
     # The stations card. Same all-or-nothing rule as busroutes: every one of
     # the three needs an official English name (en_lookup never invents one),
@@ -7050,16 +7069,6 @@ def compose(sel, pool):
         scope_en.append(('The total monthly boardings during the designated hour',
                          RUSH_M['en']))
         scope_ko.append(('해당 시간대 승차 인원, 한 달 합계', RUSH_M['ko']))
-    if 'busroutes' in cats and BUS_ROUTE_DAY['en']:
-        # No descriptor, matching the KAC/IIAC/Korail/infant/daynight/river
-        # period entries above and below: per_pairs reads only the PERIOD
-        # half for the lifted dateline, and on the ordinary own-post card
-        # (the only way this vein is normally chosen) that lift always
-        # succeeds, so the bare `desc` that _scope_strs falls back to when
-        # NOT lifted (None here) never actually prints — the same accepted
-        # shape those other categories already carry rather than a new risk.
-        scope_en.append((None, BUS_ROUTE_DAY['en']))
-        scope_ko.append((None, BUS_ROUTE_DAY['ko']))
     if 'stations' in cats and STATION_DAY['en']:
         # Same shape as busroutes directly above.
         scope_en.append((None, STATION_DAY['en']))
@@ -7470,15 +7479,6 @@ def compose(sel, pool):
         # wording said the wrong thing about the figures.
         note_en = 'Population present, KT-estimated' if estimated else ''
         note_ko = '생활인구는 KT 추정' if estimated else ''
-    elif 'busroutes' in cats:
-        # A streak under BUS_ROUTE_STREAK_MIN reads as None here (see
-        # transport_facts()), so a fresh or broken streak says nothing
-        # rather than "led for the past 1 days".
-        # The ranking is over trunk and branch routes only (see
-        # ranked_route_no()), so the card says so, every time, ahead of any
-        # streak note.
-        note_en = ' · '.join(p for p in [BUS_ROUTE_CAVEAT_EN, BUS_ROUTE_STREAK['en']] if p)
-        note_ko = ' · '.join(p for p in [BUS_ROUTE_CAVEAT_KO, BUS_ROUTE_STREAK['ko']] if p)
     elif 'stations' in cats:
         # What the ranking counts (see STATION_DAY's block): summed across a
         # station's lines, Seoul only.
@@ -8153,62 +8153,18 @@ def main():
             p3_ref = models.create_strong_ref(p3)
             p4 = bsky.send_post(text=ko_source, reply_to=_reply(p3_ref, root_ref), langs=['ko'])
             print('\nPosted (4-post thread: EN card, EN source, KO card, KO source).')
-            if primary == 'busroutes' and BUS_ROUTE_MAP_INFO['day']:
-                # A 5th post, threaded after the usual four: real routes drawn
-                # from data already in hand, not a link to someone else's map
-                # (see the busroutes design discussion — no verified per-route
-                # URL exists on any service checked). Its own try/except, so a
-                # failed fetch or a Chrome hang here never touches the thread
-                # that already posted successfully above it.
-                try:
-                    day = BUS_ROUTE_MAP_INFO['day']
-                    route_stops, seoul_stops = bus_route_map_stops(
-                        api_key, day, BUS_ROUTE_MAP_INFO['routes'])
-                    busiest_no, second_no, quietest_no = BUS_ROUTE_MAP_INFO['routes']
-                    routes = [
-                        (f'Busiest: Route {busiest_no}', RED,
-                         route_stops.get(busiest_no, [])),
-                        (f'2nd-busiest: Route {second_no}', '#e08a1e',
-                         route_stops.get(second_no, [])),
-                        (f'Quietest: Route {quietest_no}', '#000000',
-                         route_stops.get(quietest_no, [])),
-                    ]
-                    map_path = Path(tempfile.mkdtemp()) / 'bus_route_map.png'
-                    _, map_size = render_bus_route_map(
-                        routes, seoul_stops, map_path, title=BUS_ROUTE_DAY['en'],
-                        caption=(f'Stops where each route saw a boarding, '
-                                f'{BUS_ROUTE_DAY["en"]}: not necessarily its full path'))
-                    map_alt = (
-                        f'Map of three Seoul bus routes on {BUS_ROUTE_DAY["en"]}: '
-                        f'busiest (Route {busiest_no}), second-busiest (Route {second_no}) '
-                        f'and quietest (Route {quietest_no}), drawn from the stops where '
-                        f'each saw a boarding that day over a faint backdrop of every '
-                        f'Seoul bus stop. Not necessarily each route’s full official path.')
-                    map_ar = models.AppBskyEmbedDefs.AspectRatio(
-                        width=map_size[0], height=map_size[1])
-                    p4_ref = models.create_strong_ref(p4)
-                    bsky.send_image(text='', image=map_path.read_bytes(),
-                                    image_alt=map_alt, langs=['en'],
-                                    reply_to=_reply(p4_ref, root_ref),
-                                    image_aspect_ratio=map_ar)
-                    print('Posted a 5th reply: the route map.')
-                except Exception as e:  # noqa: BLE001 — deliberately broad, see below
-                    # Broad on purpose. The four-post thread above is already
-                    # public, and the state write (last_cat, cat_last_at, the
-                    # cooldown stamps, recent_ids, the streak) happens AFTER
-                    # this block. Anything escaping here — a TypeError from a
-                    # malformed API envelope, an OSError on the temp file, an
-                    # atproto error at send time — would abort the run with
-                    # the post out and the state unsaved, and the next run
-                    # could then pick busroutes again and repost the same
-                    # card. A lost map is a lost reply; a lost state write is
-                    # a duplicate thread.
-                    print(f'\nRoute map failed ({type(e).__name__}: {e}); '
-                          f'thread already posted without it.')
             if primary == 'stations' and STATION_MAP_INFO['day']:
-                # The station card's fifth post, same contract as the route
-                # map above: its own broad except, because the thread is
-                # already public and the state write is still to come.
+                # The station card's fifth post. Its own broad except, on
+                # purpose: the four-post thread above is already public and
+                # the state write (last_cat, cooldown stamps, recent_ids)
+                # happens AFTER this block, so anything escaping here — a
+                # TypeError from a malformed API envelope, an OSError on the
+                # temp file, an atproto error at send time — would abort the
+                # run with the post out and the state unsaved, and the next
+                # run could repost the same card. A lost map is a lost reply;
+                # a lost state write is a duplicate thread. The generic block
+                # below (busroutes and the history cards) follows the same
+                # contract for the same reason.
                 try:
                     labels = STATION_MAP_INFO['stations']
                     pins = [(labels[0][0], RED, (labels[0][1], labels[0][2])),
@@ -8233,7 +8189,7 @@ def main():
                                     reply_to=_reply(models.create_strong_ref(p4), root_ref),
                                     image_aspect_ratio=map_ar)
                     print('Posted a 5th reply: the station map.')
-                except Exception as e:  # noqa: BLE001 — see the route map above
+                except Exception as e:  # noqa: BLE001 — deliberately broad, see above
                     print(f'\nStation map failed ({type(e).__name__}: {e}); '
                           f'thread already posted without it.')
             if primary in RANKED_CARD_INFO and RANKED_CARD_INFO[primary].get('map_routes'):
@@ -8262,7 +8218,7 @@ def main():
                                     reply_to=_reply(models.create_strong_ref(p4), root_ref),
                                     image_aspect_ratio=map_ar)
                     print(f'Posted a 5th reply: the {primary} map.')
-                except Exception as e:  # noqa: BLE001 — see the route map above
+                except Exception as e:  # noqa: BLE001 — deliberately broad, see the station map
                     print(f'\n{primary} map failed ({type(e).__name__}: {e}); '
                           f'thread already posted without it.')
     else:

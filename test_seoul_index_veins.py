@@ -1693,20 +1693,37 @@ class OpenersAreNotCutMidPhrase(unittest.TestCase):
 
 
 class BusRoutesVein(unittest.TestCase):
-    """Added 9 Sep 2026, expanded into its own 'busroutes' category the same
-    day once the single busiest-route line grew into a four-line ranked card
-    (busiest, 2nd-busiest, quietest, total) with a day-over-day streak note,
-    at the user's own direction. transport_facts() sums
-    CardBusStatisticsServiceNew's per-stop boardings into a per-route total —
-    these tests cover what would ship the ranking wrong or incomplete rather
-    than not at all: a night route split across two RTE_IDs double-counted or
-    halved, a village-bus route number (Hangul, no safe English form)
-    reaching the English card unremarked, and a streak that starts trusting
-    itself before it has actually recurred.
+    """Added 9 Sep 2026; rebuilt 10 Sep 2026 on BOARDINGS PER STOP SERVED,
+    from the history file, at the user's direction, after 63 days showed
+    the raw ranking fixed at both ends (143, the longest route, busiest
+    every day; 1226 quietest every day). These tests cover what would ship
+    the ranking wrong rather than not at all: a route split across two
+    RTE_IDs double-counted or halved, a Hangul route number or a tailored/
+    night/express route reaching the ranking, a short shuttle leading on
+    two stops, and the fourth line drifting off the card's one unit.
     """
 
     SUB_ROWS = [{'SBWY_STNS_NM': '홍대입구', 'GTON_TNOPE': '71953'},
                 {'SBWY_STNS_NM': '임진강', 'GTON_TNOPE': '57'}]
+
+    @staticmethod
+    def _rows(no, rte_id, per_stop, stops):
+        return [{'RTE_ID': rte_id, 'RTE_NO': no, 'RTE_NM': f'{no}번(A~B)',
+                 'STOPS_ID': f'{no}-{i}', 'GTON_TNOPE': per_stop} for i in range(stops)]
+
+    # Four rankable routes: 100 at 30 a stop (300 over 10), 1129 at 25 (split
+    # across two RTE_IDs, 5 stops each — the real verified split is N13, one
+    # RTE_ID per direction; night routes left the ranking, so the split is
+    # carried on a branch number, the grouping being by RTE_NO regardless),
+    # 272 at 9 (108 over 12) and 7719 at 1 (10 over 10).
+    FIVE_ROUTES = (_rows.__func__('100', '11110001', 30, 10) + _rows.__func__('1129', '11110363', 25, 5)
+                   + _rows.__func__('1129', '11110364', 25, 5) + _rows.__func__('272', '2', 9, 12)
+                   + _rows.__func__('7719', '3', 1, 10))
+
+    def setUp(self):
+        # transport_facts() records the stubbed day into the history and the
+        # card is built from it, so every test needs a fresh, empty history.
+        S.BUS_HISTORY = _Path(_tempfile.mkdtemp()) / 'bus_route_history.json'
 
     def _facts(self, bus_rows, state=None):
         with Stub({'CardSubwayStatsNew': ok('CardSubwayStatsNew', self.SUB_ROWS),
@@ -1716,123 +1733,70 @@ class BusRoutesVein(unittest.TestCase):
     def by_id(self, facts, fid):
         return next((f for f in facts if f['id'] == fid), None)
 
-    # Four distinct rankable routes: enough for a real busiest/2nd/quietest
-    # spread, with a two-RTE_ID split kept in to prove RTE_NO grouping still
-    # holds at the ranking's edges, not just for a lone pair. (The real
-    # verified split is N13, one RTE_ID per direction; night routes left the
-    # ranking on 10 Sep 2026, so the split is carried here on a branch
-    # number — the grouping is by RTE_NO regardless of class.)
-    FIVE_ROUTES = [
-        {'RTE_ID': '11110001', 'RTE_NO': '100', 'RTE_NM': '100번(A~B)', 'GTON_TNOPE': 200},
-        {'RTE_ID': '11110001', 'RTE_NO': '100', 'RTE_NM': '100번(A~B)', 'GTON_TNOPE': 100},
-        {'RTE_ID': '11110363', 'RTE_NO': '1129', 'RTE_NM': '1129번(A방향)', 'GTON_TNOPE': 120},
-        {'RTE_ID': '11110364', 'RTE_NO': '1129', 'RTE_NM': '1129번(B방향)', 'GTON_TNOPE': 130},
-        {'RTE_ID': '2', 'RTE_NO': '272', 'RTE_NM': '272번(A~B)', 'GTON_TNOPE': 90},
-        {'RTE_ID': '3', 'RTE_NO': '7719', 'RTE_NM': '7719번(A~B)', 'GTON_TNOPE': 5},
-    ]
-
     def test_a_route_split_across_two_directions_sums_not_doubles(self):
-        # A route can run as two RTE_IDs (one per direction) sharing one
-        # RTE_NO — a rider means both when they say "Route 1129". Grouping by RTE_ID
-        # instead would report only one direction's half; grouping by the
-        # old RTE_NM (route name + endpoints) would also have worked here,
-        # but not for the case below.
-        facts = self._facts(self.FIVE_ROUTES)
-        top = self.by_id(facts, 'bus_busiest_route')
-        self.assertIsNotNone(top, 'busiest-route fact missing')
-        self.assertEqual(top['label_en'], 'Busiest: 100')
-        self.assertEqual(top['value_en'], '300')
-        self.assertEqual(top['num'], 300)
-        self.assertEqual(top['unit'], 'people')
-        self.assertTrue(top['pin'])
-        self.assertEqual(top['cat'], 'busroutes')
-
-    def test_second_and_quietest_are_ranked_correctly(self):
         facts = self._facts(self.FIVE_ROUTES)
         second = self.by_id(facts, 'bus_second_route')
-        quietest = self.by_id(facts, 'bus_quietest_route')
-        self.assertEqual(second['label_en'], '2nd-busiest: 1129')
-        self.assertEqual(second['value_en'], '250')
-        self.assertEqual(quietest['label_en'], 'Quietest: 7719')
-        self.assertEqual(quietest['value_en'], '5')
-        total = self.by_id(facts, 'bus_route_total')
-        self.assertEqual(total['label_en'], 'Total bus boardings')
-        self.assertEqual(total['value_en'], S.grouped(sum(
-            int(r['GTON_TNOPE']) for r in self.FIVE_ROUTES)))
+        self.assertIsNotNone(second, 'busroutes withheld')
+        # 250 boardings over 10 stops across both RTE_IDs: 25 a stop.
+        self.assertEqual(second['label_en'], '2nd-busiest: 1129, 10 stops')
+        self.assertEqual(second['value_en'], '25')
+        self.assertEqual(second['cat'], 'busroutes'); self.assertTrue(second['pin'])
 
-    def test_a_village_bus_is_left_out_of_the_ranking_not_the_total(self):
-        # 마포01 (Mapo 01) is a real, correctly-formed RTE_NO with no safe
-        # English rendering. Until 10 Sep 2026 its presence withheld the WHOLE
-        # card; measured on 1-7 Sep's data that fired every weekday (the
-        # quietest route was '8442퇴근', a rush-hour-only variant, five days
-        # in seven), so the ranking is now over numbered city routes only and
-        # the footnote says so. The day's total still counts every route.
-        rows = self.FIVE_ROUTES + [
-            {'RTE_ID': '4', 'RTE_NO': '마포01', 'RTE_NM': '마포01(A~B)', 'GTON_TNOPE': 1},
-            {'RTE_ID': '5', 'RTE_NO': '8442퇴근', 'RTE_NM': '8442퇴근(A~B)', 'GTON_TNOPE': 2}]
-        facts = self._facts(rows)
+    def test_ranked_by_boardings_per_stop_with_the_average_as_fourth_line(self):
+        facts = self._facts(self.FIVE_ROUTES)
+        top = self.by_id(facts, 'bus_busiest_route')
+        self.assertEqual(top['label_en'], 'Busiest: 100, 10 stops')
+        self.assertEqual(top['value_en'], '30')
+        self.assertEqual(top['label_ko'], '가장 붐빔: 100번, 정류장 10곳')
         quiet = self.by_id(facts, 'bus_quietest_route')
-        self.assertIsNotNone(quiet, 'ranking withheld')
-        self.assertEqual(quiet['label_en'], 'Quietest: 7719')
+        self.assertEqual(quiet['label_en'], 'Quietest: 7719, 10 stops')
+        self.assertEqual(quiet['value_en'], '1')
+        avg = self.by_id(facts, 'bus_route_total')
+        self.assertEqual(avg['label_en'], 'Average across all routes')
+        self.assertEqual(avg['value_en'], '16')      # 668 boardings over 42 stops
+        info = S.RANKED_CARD_INFO['busroutes']
+        self.assertTrue(info['note_en'].startswith('Boardings per stop served'))
+        self.assertEqual([no for _, _, no in info['map_routes']], ['100', '1129', '7719'])
+
+    def test_hangul_tailored_night_and_express_routes_never_rank(self):
+        # Each would lead (or trail) if counted: village bus and rush variant
+        # at 1,000 a stop, 8641 and N13 at 500, 9401 at 400, all on 12 stops.
+        rows = self.FIVE_ROUTES
+        for no, per in (('마포01', 1000), ('8442퇴근', 1000), ('8641', 500), ('N13', 500), ('9401', 400)):
+            rows = rows + self._rows(no, no, per, 12)
+        facts = self._facts(rows)
+        self.assertEqual(self.by_id(facts, 'bus_busiest_route')['label_en'], 'Busiest: 100, 10 stops')
         for f in facts:
-            self.assertNotIn('마포', f['label_en'])
-            self.assertNotIn('퇴근', f['label_en'])
-        # 200+100+120+130+90+5 city + 1 + 2 excluded = 648
-        self.assertEqual(self.by_id(facts, 'bus_route_total')['value_en'], '648')
-        self.assertEqual(self.by_id(facts, 'bus_total')['value_en'], '648')
+            self.assertNotIn('마포', f['label_en']); self.assertNotIn('퇴근', f['label_en'])
+        # The average is over ranked routes only, so it is unchanged too.
+        self.assertEqual(self.by_id(facts, 'bus_route_total')['value_en'], '16')
 
-    def test_night_tailored_express_and_loop_half_routes_are_ranked_out_not_uncounted(self):
-        # His question of 10 Sep 2026: busiest and quietest must be apples to
-        # apples. 8333A (06:35-08:05, eight trips, weekdays only) had been the
-        # quietest every weekday against a trunk route running all day. So
-        # N (night), 8xxx (tailored), 9xxx (express) and letter-suffixed loop
-        # halves leave the ranking — and stay in the day's total.
-        rows = self.FIVE_ROUTES + [
-            {'RTE_ID': '6', 'RTE_NO': 'N13', 'RTE_NM': 'N13번(A~B)', 'GTON_TNOPE': 1},
-            {'RTE_ID': '7', 'RTE_NO': '8333A', 'RTE_NM': '8333A(A~B)', 'GTON_TNOPE': 1},
-            {'RTE_ID': '8', 'RTE_NO': '9409', 'RTE_NM': '9409번(A~B)', 'GTON_TNOPE': 1},
-            {'RTE_ID': '9', 'RTE_NO': '110A', 'RTE_NM': '110A(A~B)', 'GTON_TNOPE': 1}]
+    def test_a_route_with_too_few_stops_served_never_ranks(self):
+        # 150 at 1 a stop on 5 stops would be the quietest if counted.
+        rows = self.FIVE_ROUTES + self._rows('150', '9', 1, 5)
         facts = self._facts(rows)
-        quiet = self.by_id(facts, 'bus_quietest_route')
-        self.assertEqual(quiet['label_en'], 'Quietest: 7719')
-        self.assertEqual(self.by_id(facts, 'bus_route_total')['value_en'], '649')
-        for no, ok in (('143', True), ('1226', True), ('7719', True), ('799', True),
-                       ('N13', False), ('8333A', False), ('8641', False), ('9409', False),
-                       ('110A', False), ('마포01', False), ('8442퇴근', False), ('?', False),
-                       ('9', False), ('', False), (None, False)):
-            self.assertEqual(S.ranked_route_no(no), ok, no)
-
-    def test_a_same_day_cache_built_under_another_rule_is_refetched(self):
-        # A cache written under an earlier ranking rule (all routes, or the
-        # ASCII-only rule of earlier the same day) can carry a route at the
-        # bottom the current rule would never rank. Its 'bus_rank_rule' stamp
-        # is missing or different, and it must be treated as a miss.
-        with Stub({'CardSubwayStatsNew': ok('CardSubwayStatsNew', self.SUB_ROWS),
-                   'CardBusStatisticsServiceNew': ok('CardBusStatisticsServiceNew', self.FIVE_ROUTES)}):
-            day = S._latest_daily('unused-key', 'CardSubwayStatsNew', True)[0]
-        stale = {'transport_cache': {'date': day, 'sub_total': 1, 'bus_total': 1,
-                                     'busiest_st': 'x', 'busiest_v': 1, 'quietest_st': 'y',
-                                     'quietest_v': 1, 'bus_ranked': [('143', 9), ('160', 8)],
-                                     'bus_bottom': ('8442퇴근', 17), 'bus_streak_days': 1}}
-        facts = self._facts(self.FIVE_ROUTES, state=stale)
-        quiet = self.by_id(facts, 'bus_quietest_route')
-        self.assertIsNotNone(quiet, 'stale cache was served')
-        self.assertEqual(quiet['label_en'], 'Quietest: 7719')
-        self.assertEqual(stale['transport_cache'].get('bus_rank_rule'), S.BUS_RANK_RULE)
+        self.assertEqual(self.by_id(facts, 'bus_quietest_route')['label_en'], 'Quietest: 7719, 10 stops')
 
     def test_no_bus_data_at_all_withholds_the_whole_ranking(self):
         facts = self._facts([])
         for fid in ('bus_busiest_route', 'bus_second_route',
                     'bus_quietest_route', 'bus_route_total'):
             self.assertIsNone(self.by_id(facts, fid))
+        self.assertNotIn('busroutes', S.RANKED_CARD_INFO)
 
-    def test_fewer_than_three_distinct_routes_withholds_rather_than_crashes(self):
-        # Guards len(ranked) >= 2 for a second line and a bottom distinct
-        # from it — a degenerate day should never IndexError.
-        rows = [{'RTE_ID': '1', 'RTE_NO': '100', 'RTE_NM': '100번(A~B)', 'GTON_TNOPE': 50}]
+    def test_fewer_than_three_rankable_routes_withholds_rather_than_crashes(self):
+        rows = self._rows('100', '1', 30, 10) + self._rows('272', '2', 9, 12)
         facts = self._facts(rows)
         self.assertIsNone(self.by_id(facts, 'bus_busiest_route'))
+        # The rest of the vein still posts.
+        self.assertIsNotNone(self.by_id(facts, 'bus_total'))
 
+    def test_the_stubbed_day_lands_in_the_history_with_stop_counts(self):
+        self._facts(self.FIVE_ROUTES)
+        h = S.load_bus_history()
+        (day, totals), = h['days'].items()
+        self.assertEqual(totals['100'], 300); self.assertEqual(totals['1129'], 250)
+        self.assertEqual(h['stops'][day]['1129'], 10); self.assertEqual(h['stops'][day]['272'], 12)
 
 
 class StationsVein(unittest.TestCase):
@@ -2222,54 +2186,52 @@ class OnlyFlagGuard(unittest.TestCase):
         self.assertEqual(sum(f['cat'] == 'stations' for f in pool), 0)   # ordinary cooldown
 
 class BusRouteStreak(unittest.TestCase):
-    """`_bus_route_streak()` is the one piece of this vein with real memory:
-    the footnote's "Route 143 has led for the past N days" is only as honest
-    as this count. Verified here rather than trusted, because the failure
-    mode is not a crash — it is a plausible, wrong number of days.
+    """bus_rank_streaks() reads both streaks straight from the history —
+    replacing, on 10 Sep 2026, a state counter that had started at 2 the day
+    the vein was built while the real run stood at 63. The footnote is only
+    as honest as this walk, and its failure is a plausible wrong number.
     """
 
-    def test_a_fresh_state_starts_the_streak_at_one(self):
-        state = {}
-        self.assertEqual(S._bus_route_streak(state, '20260906', '143'), 1)
-        self.assertEqual(state['bus_route_streak'],
-                         {'route': '143', 'days': 1, 'date': '20260906'})
+    def _hist(self, n, top_seq, bottom_seq):
+        # n consecutive days ending 7 Sep 2026; per-stop leader/trailer set
+        # per day by top_seq/bottom_seq (lists of route numbers, oldest first).
+        from datetime import date, timedelta
+        h = {'days': {}, 'stops': {}, 'holidays': {}}
+        for i in range(n):
+            d = (date(2026, 9, 7) - timedelta(days=n - 1 - i)).strftime('%Y%m%d')
+            top, bottom = top_seq[i], bottom_seq[i]
+            h['days'][d] = {top: 5000, bottom: 100, '500': 2000, '600': 1500}
+            h['stops'][d] = {top: 10, bottom: 10, '500': 10, '600': 10}
+        return h
 
-    def test_the_same_route_on_the_next_calendar_day_increments(self):
-        state = {'bus_route_streak': {'route': '143', 'days': 5, 'date': '20260905'}}
-        self.assertEqual(S._bus_route_streak(state, '20260906', '143'), 6)
+    def test_a_full_record_reads_as_every_day_recorded(self):
+        h = self._hist(5, ['143'] * 5, ['1226'] * 5)
+        top, td, bottom, bd, rec, first = S.bus_rank_streaks(h, '20260907')
+        self.assertEqual((top, td, bottom, bd, rec, first), ('143', 5, '1226', 5, 5, '20260903'))
+        en, ko = S._streak_note(h, '20260907')
+        self.assertEqual(en, '143 busiest and 1226 quietest on every day recorded, 5 since 3 September')
+        self.assertIn('기록된 5일(9월 3일부터) 내내', ko)
 
-    def test_a_different_route_resets_to_one(self):
-        state = {'bus_route_streak': {'route': '143', 'days': 9, 'date': '20260905'}}
-        self.assertEqual(S._bus_route_streak(state, '20260906', '272'), 1)
-        self.assertEqual(state['bus_route_streak']['route'], '272')
+    def test_a_broken_streak_counts_only_the_run(self):
+        h = self._hist(6, ['160', '143', '143', '143', '143', '143'], ['1226'] * 6)
+        top, td, bottom, bd, rec, first = S.bus_rank_streaks(h, '20260907')
+        self.assertEqual((td, bd, rec), (5, 6, 6))
+        en, _ = S._streak_note(h, '20260907')
+        self.assertEqual(en, '143 has led for the past 5 days · 1226 quietest on every day recorded, 6 since 2 September')
 
-    def test_a_repeat_call_for_the_same_day_and_winner_keeps_the_count(self):
-        # A cache rebuilt for a day already counted (a ranking-rule change
-        # forced one on 10 Sep 2026) must not compare the day against itself
-        # and reset a real streak to 1.
-        state = {'bus_route_streak': {'route': '143', 'days': 2, 'date': '20260907'}}
-        self.assertEqual(S._bus_route_streak(state, '20260907', '143'), 2)
-        self.assertEqual(state['bus_route_streak']['days'], 2)
-        # A different winner on the same day is a restart, not a continuation.
-        self.assertEqual(S._bus_route_streak(state, '20260907', '160'), 1)
+    def test_a_short_streak_says_nothing(self):
+        h = self._hist(3, ['160', '160', '143'], ['1226', '1226', '7719'])
+        self.assertEqual(S._streak_note(h, '20260907'), ('', ''))
 
-    def test_a_gap_in_published_days_resets_the_streak(self):
-        # 20260904 -> 20260906 is a 2-day jump, not a 1-day one: the feed
-        # (or the bot) missed a day, and bridging the gap would silently
-        # claim a streak that was never actually observed end to end.
-        state = {'bus_route_streak': {'route': '143', 'days': 9, 'date': '20260904'}}
-        self.assertEqual(S._bus_route_streak(state, '20260906', '143'), 1)
+    def test_a_missing_day_ends_the_walk_rather_than_bridging_it(self):
+        h = self._hist(6, ['143'] * 6, ['1226'] * 6)
+        del h['days']['20260904']
+        top, td, bottom, bd, rec, first = S.bus_rank_streaks(h, '20260907')
+        self.assertEqual((td, bd, rec, first), (3, 3, 3, '20260905'))
 
-    def test_calling_it_twice_for_the_same_day_does_not_double_count(self):
-        # Documents WHY transport_facts() only calls this inside its
-        # cache-miss branch: a second call for a day already recorded is a
-        # 0-day gap, not a 1-day one, so calling it again here (simulating a
-        # caller that forgot the cache-miss guard) would wrongly reset a
-        # real streak to 1. This test exists so that bug, if ever
-        # reintroduced, fails here rather than silently on a live card.
-        state = {}
-        S._bus_route_streak(state, '20260906', '143')
-        self.assertEqual(S._bus_route_streak(state, '20260906', '143'), 1)
+    def test_no_stop_counts_means_no_streak_and_no_crash(self):
+        h = self._hist(3, ['143'] * 3, ['1226'] * 3); h['stops'] = {}
+        self.assertIsNone(S.bus_rank_streaks(h, '20260907'))
 
 
 class BusRoutesCard(unittest.TestCase):
@@ -2283,18 +2245,17 @@ class BusRoutesCard(unittest.TestCase):
 
     def _pool(self):
         return [
-            S.fact('bus_busiest_route', 'busroutes', 'Busiest: 143',
-                   '27,516', '27,516', pin=True, label_ko='가장 붐빔: 143번',
-                   place_en='Busiest', place_ko='가장 붐빔', num=27516, unit='people'),
-            S.fact('bus_second_route', 'busroutes', '2nd-busiest: 272',
-                   '26,091', '26,091', pin=True, label_ko='두 번째로 붐빔: 272번',
-                   place_en='2nd-busiest', place_ko='두 번째로 붐빔', num=26091, unit='people'),
-            S.fact('bus_quietest_route', 'busroutes', 'Quietest: 8641',
-                   '13', '13', pin=True, label_ko='가장 한산함: 8641번',
-                   place_en='Quietest', place_ko='가장 한산함', num=13, unit='people'),
-            S.fact('bus_route_total', 'busroutes', 'Total bus boardings',
-                   '3,428,830', '3,428,830', pin=True, label_ko='전체 버스 승차 인원',
-                   num=3428830, unit='people'),
+            S.fact('bus_busiest_route', 'busroutes', 'Busiest: 2211, 40 stops',
+                   '455', '455', pin=True, label_ko='가장 붐빔: 2211번, 정류장 40곳',
+                   place_en='Busiest', place_ko='가장 붐빔'),
+            S.fact('bus_second_route', 'busroutes', '2nd-busiest: 5515, 33 stops',
+                   '392', '392', pin=True, label_ko='두 번째로 붐빔: 5515번, 정류장 33곳',
+                   place_en='2nd-busiest', place_ko='두 번째로 붐빔'),
+            S.fact('bus_quietest_route', 'busroutes', 'Quietest: 1226, 20 stops',
+                   '21', '21', pin=True, label_ko='가장 한산함: 1226번, 정류장 20곳',
+                   place_en='Quietest', place_ko='가장 한산함'),
+            S.fact('bus_route_total', 'busroutes', 'Average across all routes',
+                   '158', '158', pin=True, label_ko='전체 노선 평균'),
         ]
 
     def _card(self, ids=None):
@@ -2304,9 +2265,16 @@ class BusRoutesCard(unittest.TestCase):
                'picks': [{'id': i} for i in ids]}
         return S.compose(sel, pool)
 
+    NOTE = 'Boardings per stop served · trunk and branch routes with 10 or more stops'
+
     def setUp(self):
-        S.BUS_ROUTE_DAY['en'] = S.BUS_ROUTE_DAY['ko'] = None
-        S.BUS_ROUTE_STREAK['en'] = S.BUS_ROUTE_STREAK['ko'] = None
+        S.RANKED_CARD_INFO.pop('busroutes', None)
+
+    def _info(self, note_extra=''):
+        S.RANKED_CARD_INFO['busroutes'] = {
+            'day_en': '6 September', 'day_ko': '9월 6일',
+            'note_en': ' · '.join(x for x in (self.NOTE, note_extra) if x),
+            'note_ko': '정류장 1곳당 승차 인원 · 정류장 10곳 이상 간선·지선'}
 
     def test_no_line_carries_an_emoji(self):
         c = self._card()
@@ -2319,7 +2287,7 @@ class BusRoutesCard(unittest.TestCase):
 
     def test_the_total_line_bolds_whole(self):
         c = self._card()
-        total = next(l for l in c['items_en'] if 'Total' in l['label'])
+        total = next(l for l in c['items_en'] if 'Average' in l['label'])
         self.assertTrue(total.get('bold'))
         # Not also given an emph run — it has no place_en to bold a run from.
         self.assertNotIn('emph', total)
@@ -2330,7 +2298,7 @@ class BusRoutesCard(unittest.TestCase):
         c = self._card()
         labels = [l['label'] for l in c['items_en']]
         self.assertEqual([l.split(':')[0] for l in labels],
-                         ['Busiest', '2nd-busiest', 'Quietest', 'Total bus boardings'])
+                         ['Busiest', '2nd-busiest', 'Quietest', 'Average across all routes'])
 
     def test_the_opener_emoji_is_the_bus_regardless_of_the_selector(self):
         pool = self._pool()
@@ -2347,29 +2315,24 @@ class BusRoutesCard(unittest.TestCase):
         c = self._card(ids=['bus_busiest_route', 'bus_quietest_route'])
         self.assertEqual(len(c['items_en']), 4)
 
-    def test_the_day_lifts_to_the_dateline_and_the_footnote_stays_clean(self):
-        S.BUS_ROUTE_DAY['en'], S.BUS_ROUTE_DAY['ko'] = '6 September', '9월 6일'
+    def test_the_day_lifts_to_the_dateline_and_the_footnote_carries_the_measure(self):
+        self._info()
         c = self._card()
         self.assertEqual(c['dateline_en'], '6 September')
-        # The city-routes caveat is always there; nothing else is.
-        self.assertEqual(c['note_en'], 'Trunk and branch routes only')
-        self.assertEqual(c['note_ko'], '간선·지선 노선만')
+        self.assertEqual(c['note_en'], self.NOTE)
+        self.assertEqual(c['note_ko'], '정류장 1곳당 승차 인원 · 정류장 10곳 이상 간선·지선')
 
-    def test_a_long_enough_streak_rides_the_footnote(self):
-        S.BUS_ROUTE_DAY['en'], S.BUS_ROUTE_DAY['ko'] = '6 September', '9월 6일'
-        S.BUS_ROUTE_STREAK['en'] = 'Route 143 has led for the past 10 days'
-        S.BUS_ROUTE_STREAK['ko'] = '143번은 최근 10일간 매일 1위였음'
+    def test_a_streak_note_rides_the_footnote_after_the_measure(self):
+        self._info('2211 has led for the past 10 days')
         c = self._card()
-        self.assertEqual(c['note_en'],
-                         'Trunk and branch routes only · Route 143 has led for the past 10 days')
+        self.assertEqual(c['note_en'], self.NOTE + ' · 2211 has led for the past 10 days')
         self.assertEqual(c['dateline_en'], '6 September')
 
-    def test_no_streak_note_leaves_only_the_caveat(self):
-        S.BUS_ROUTE_DAY['en'], S.BUS_ROUTE_DAY['ko'] = '6 September', '9월 6일'
-        S.BUS_ROUTE_STREAK['en'] = S.BUS_ROUTE_STREAK['ko'] = None
+    def test_without_registry_info_the_card_still_composes_with_no_dateline(self):
+        # transport_facts() always fills the registry when it builds the
+        # card; this pins that a bare pool does not crash compose().
         c = self._card()
-        self.assertEqual(c['note_en'], 'Trunk and branch routes only')
-
+        self.assertEqual(len(c['items_en']), 4)
 
 class BusRouteMapStops(unittest.TestCase):
     """bus_route_map_stops() added 10 Sep 2026 for the route-map thread reply
