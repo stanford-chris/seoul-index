@@ -1852,6 +1852,16 @@ class BusRouteStreak(unittest.TestCase):
         self.assertEqual(S._bus_route_streak(state, '20260906', '272'), 1)
         self.assertEqual(state['bus_route_streak']['route'], '272')
 
+    def test_a_repeat_call_for_the_same_day_and_winner_keeps_the_count(self):
+        # A cache rebuilt for a day already counted (a ranking-rule change
+        # forced one on 10 Sep 2026) must not compare the day against itself
+        # and reset a real streak to 1.
+        state = {'bus_route_streak': {'route': '143', 'days': 2, 'date': '20260907'}}
+        self.assertEqual(S._bus_route_streak(state, '20260907', '143'), 2)
+        self.assertEqual(state['bus_route_streak']['days'], 2)
+        # A different winner on the same day is a restart, not a continuation.
+        self.assertEqual(S._bus_route_streak(state, '20260907', '160'), 1)
+
     def test_a_gap_in_published_days_resets_the_streak(self):
         # 20260904 -> 20260906 is a 2-day jump, not a 1-day one: the feed
         # (or the bot) missed a day, and bridging the gap would silently

@@ -1191,6 +1191,12 @@ def _bus_route_streak(state, day, top_no):
     """
     prev = state.get('bus_route_streak') or {}
     prev_day, prev_route = prev.get('date'), prev.get('route')
+    if prev_day == day and prev_route == top_no:
+        # Same day, same winner: a repeat call (a cache rebuilt under a new
+        # ranking rule did this on 10 Sep 2026 and reset a real 2-day streak
+        # to 1). Idempotent rather than a reset; a same-day call naming a
+        # DIFFERENT winner still falls through to a restart at 1 below.
+        return prev.get('days', 1)
     contiguous = (prev_day and prev_route == top_no
                   and (datetime.strptime(day, '%Y%m%d')
                        - datetime.strptime(prev_day, '%Y%m%d')).days == 1)
