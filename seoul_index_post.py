@@ -169,6 +169,12 @@ TAIL_N = _tail_n(sys.argv)                    # read the card log, then exit
 # overlap rule would reject every card a single small vein can build.
 ONLY_CAT = next((a[len(_ONLY_PREFIX):] for a in sys.argv
                  if a.startswith(_ONLY_PREFIX)), None) or None
+# --only skips its vein's own cooldown, but not a post made in the last
+# ONLY_MIN_HOURS: on 10 September 2026 the 20:30 scheduled run chose the new
+# stations vein by itself and a hand-run --only=stations at 21:01 put the
+# identical card out again. --force overrides, for a deliberate repost.
+FORCE = '--force' in sys.argv
+ONLY_MIN_HOURS = 6
 MAX_POST_CHARS = 285  # buffer under Bluesky's 300-grapheme limit
 SEOUL_TZ = ZoneInfo('Asia/Seoul')
 SOURCE_URL = 'https://data.seoul.go.kr/'
@@ -5494,14 +5500,24 @@ def apply_cooldown(pool, state, stamp_key, cat, days, label):
     mid-run and skip the post. main() writes aware stamps, so this is the
     unhappy path only.
     """
+    stamp = state.get(stamp_key)
     if ONLY_CAT == cat:
         # --only=<cat> asks for THIS vein now, by hand. Withholding it on its
         # own cooldown made `--only=busroutes` exit "0 fact(s) in that vein"
         # the day after it posted (10 September 2026), which reads as a
         # broken harvester rather than a guard doing its job. The scheduled
         # path never sets ONLY_CAT, so the cooldown is untouched there.
+        # ⚠️ But a post made within ONLY_MIN_HOURS is refused outright (see
+        # FORCE): that is a duplicate in the making, not a stale cooldown.
+        if stamp and not FORCE:
+            try:
+                age_h = (datetime.now(timezone.utc) - datetime.fromisoformat(stamp)).total_seconds() / 3600
+            except (ValueError, TypeError):
+                age_h = None
+            if age_h is not None and age_h < ONLY_MIN_HOURS:
+                sys.exit(f'--only={cat}: {label} posted {age_h:.1f}h ago, under '
+                         f'{ONLY_MIN_HOURS}h; refusing a duplicate. Pass --force to repost.')
         return pool
-    stamp = state.get(stamp_key)
     if not stamp:
         return pool
     try:

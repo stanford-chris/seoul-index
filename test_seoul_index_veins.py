@@ -2175,6 +2175,52 @@ class BusHistoryCards(unittest.TestCase):
             self.assertEqual(c['note_en'], S.RANKED_CARD_INFO[cat]['note_en'], cat)
             self.assertEqual(c['opener']['emoji'], '🚌', cat)
 
+
+class OnlyFlagGuard(unittest.TestCase):
+    """--only skips its own vein's cooldown (so a hand-run can show a vein
+    the day after it posted) but refuses a vein that posted within
+    ONLY_MIN_HOURS unless --force: the duplicate stations thread of
+    10 Sep 2026, 30 minutes after the scheduled run had chosen it.
+    """
+
+    def setUp(self):
+        self._only, self._force = S.ONLY_CAT, S.FORCE
+        S.ONLY_CAT, S.FORCE = 'stations', False
+
+    def tearDown(self):
+        S.ONLY_CAT, S.FORCE = self._only, self._force
+
+    def _pool(self):
+        return [{'cat': 'stations', 'id': f's{i}'} for i in range(4)] + \
+               [{'cat': 'other', 'id': f'o{i}'} for i in range(6)]
+
+    def _stamp(self, hours_ago):
+        from datetime import datetime, timedelta, timezone
+        return (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
+
+    def test_a_post_minutes_ago_is_refused(self):
+        state = {'last_stations_at': self._stamp(0.5)}
+        with self.assertRaises(SystemExit) as cm:
+            S.apply_cooldown(self._pool(), state, 'last_stations_at', 'stations', 3, 'Stations')
+        self.assertIn('refusing a duplicate', str(cm.exception))
+
+    def test_a_post_a_day_ago_is_allowed_through_its_cooldown(self):
+        state = {'last_stations_at': self._stamp(26)}
+        pool = S.apply_cooldown(self._pool(), state, 'last_stations_at', 'stations', 3, 'Stations')
+        self.assertEqual(sum(f['cat'] == 'stations' for f in pool), 4)
+
+    def test_force_overrides(self):
+        S.FORCE = True
+        state = {'last_stations_at': self._stamp(0.5)}
+        pool = S.apply_cooldown(self._pool(), state, 'last_stations_at', 'stations', 3, 'Stations')
+        self.assertEqual(sum(f['cat'] == 'stations' for f in pool), 4)
+
+    def test_the_scheduled_path_is_untouched(self):
+        S.ONLY_CAT = None
+        state = {'last_stations_at': self._stamp(0.5)}
+        pool = S.apply_cooldown(self._pool(), state, 'last_stations_at', 'stations', 3, 'Stations')
+        self.assertEqual(sum(f['cat'] == 'stations' for f in pool), 0)   # ordinary cooldown
+
 class BusRouteStreak(unittest.TestCase):
     """`_bus_route_streak()` is the one piece of this vein with real memory:
     the footnote's "Route 143 has led for the past N days" is only as honest
