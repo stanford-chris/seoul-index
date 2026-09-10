@@ -1276,13 +1276,21 @@ def transport_facts(api_key, state):
     # ("마포01"), which the existing districts table can't resolve and which
     # has no safe English form to invent. Route numbers need no translation
     # either way — that IS the label riders and signage use, in both
-    # languages — but only once EVERY one of the three is verified ASCII: a
-    # village bus becoming one of the day's three extremes (never observed
-    # across the full days checked as of 9 Sep 2026, but not provably
-    # impossible, and far likelier at the quiet end than the busy one) would
-    # otherwise ship raw Hangul on the English card unremarked. All-or-
-    # nothing on purpose — a card missing just its quietest line would be a
-    # visibly broken version of a shape the reader has seen complete before.
+    # languages — but only once EVERY one of the three is verified ASCII,
+    # or raw Hangul ships on the English card unremarked. All-or-nothing on
+    # purpose — a card missing just its quietest line would be a visibly
+    # broken version of a shape the reader has seen complete before.
+    #
+    # ⚠️ MEASURED 10 September 2026, 1-7 September's data: this is NOT the
+    # rare case the first version of this comment called "never observed".
+    # 276 of 664 route numbers (42%) are non-ASCII, and on EVERY weekday the
+    # quietest route was '8442퇴근' (17-23 boardings), a rush-hour-only
+    # variant whose number carries 퇴근 — not a village bus, a class the
+    # comment above did not anticipate. Only Saturday and Sunday (618 routes,
+    # the rush variants not running) had an ASCII quietest (8777, 8641). So
+    # as written this vein withholds five days in seven; the 9 September post
+    # got through on Sunday 6 September's data. Decision on what to do about
+    # it is his, and pending as of this comment.
     def _ascii_route(pair):
         return pair is not None and pair[0] != '?' and re.match(r'^[A-Za-z0-9-]+$', str(pair[0]))
 
