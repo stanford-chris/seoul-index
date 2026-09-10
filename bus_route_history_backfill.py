@@ -35,7 +35,7 @@ def main():
         if tot == 0:
             print(day, 'no rows, skipped', flush=True)
             continue
-        sums, stops = {}, {}
+        sums, stop_ids = {}, {}
         for s in range(1, tot + 1, 1000):
             bd = sp.http_get_json(f'{base}/CardBusStatisticsServiceNew/{s}/{min(s + 999, tot)}/{day}')
             for x in bd.get('CardBusStatisticsServiceNew', {}).get('row', []):
@@ -43,8 +43,8 @@ def main():
                 v = int(x.get('GTON_TNOPE', '0') or 0)
                 sums[no] = sums.get(no, 0) + v
                 if v > 0:
-                    stops[no] = stops.get(no, 0) + 1
-        sp.bus_history_add(h, day, sums, stops)
+                    stop_ids.setdefault(no, set()).add(x.get('STOPS_ID'))   # distinct, see STOPS_RULE
+        sp.bus_history_add(h, day, sums, {no: len(ids) for no, ids in stop_ids.items()})
         sp.save_bus_history(h)
         print(day, len(h['days'][day]), 'routes', len(h['stops'][day]), 'with stop counts', flush=True)
     for year in sorted({k[:4] for k in h['days']}):

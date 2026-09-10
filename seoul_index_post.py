@@ -1312,6 +1312,7 @@ def rank_stations(srows, in_seoul):
 # weekday) and nightbus (which only needs one day but shares the file).
 # ⚠️ Tests must point BUS_HISTORY at a temp path: transport_facts() writes it.
 BUS_HISTORY = Path(__file__).with_name('bus_route_history.json')
+STOPS_RULE = 'distinct-stop-ids'
 HOLIDAYS_URL = 'https://date.nager.at/api/v3/PublicHolidays/{year}/KR'
 
 
@@ -1321,8 +1322,14 @@ def load_bus_history():
     except (OSError, ValueError):
         h = {}
     h.setdefault('days', {})
-    h.setdefault('stops', {})
     h.setdefault('holidays', {})
+    # Stop counts are versioned: the first fill counted feed ROWS, which
+    # over-counts routes that carry a stop twice; a file stamped with an
+    # older rule drops its stop counts so the backfill rebuilds them.
+    if h.get('stops_rule') != STOPS_RULE:
+        h['stops'] = {}
+        h['stops_rule'] = STOPS_RULE
+    h.setdefault('stops', {})
     return h
 
 
@@ -1734,9 +1741,12 @@ def bus_routes_facts(h, day, d, d_ko):
     return [line('bus_busiest_route', 'Busiest', '가장 붐빔', top),
             line('bus_second_route', '2nd-busiest', '두 번째로 붐빔', second),
             line('bus_quietest_route', 'Quietest', '가장 한산함', bottom),
-            fact('bus_route_total', 'busroutes', 'Average across all routes',
+            # "per stop" on the line itself: the label check flagged the first
+            # wording ("Average across all routes: 138") as saying nothing
+            # about stops, and this line can be met alone in a hashtag feed.
+            fact('bus_route_total', 'busroutes', 'Average per stop, all routes',
                  grouped(round(r['avg'])), grouped(round(r['avg'])), pin=True,
-                 label_ko='전체 노선 평균')]
+                 label_ko='정류장당 평균, 전체 노선')]
 
 
 def transport_facts(api_key, state):
@@ -1797,14 +1807,17 @@ def transport_facts(api_key, state):
         btot_rows = int(bd0['CardBusStatisticsServiceNew']['list_total_count'])
         bus_total = 0
         route = {}
-        route_stops = {}
+        # DISTINCT stop ids per route, not rows: 62 of 326 trunk/branch routes
+        # carry more rows than stops on a given day (2211: 51 rows, 40 stops,
+        # 7 September 2026), and counting rows halved its boardings per stop.
+        route_stop_ids = {}
         for s in range(1, btot_rows + 1, 1000):
             bd = http_get_json(f'{base}/CardBusStatisticsServiceNew/{s}/{min(s + 999, btot_rows)}/{day}')
             for x in bd.get('CardBusStatisticsServiceNew', {}).get('row', []):
                 v = int(x.get('GTON_TNOPE', '0') or 0)
                 bus_total += v
                 if v > 0:
-                    route_stops[x.get('RTE_NO', '?')] = route_stops.get(x.get('RTE_NO', '?'), 0) + 1
+                    route_stop_ids.setdefault(x.get('RTE_NO', '?'), set()).add(x.get('STOPS_ID'))
                 # Keyed on RTE_NO, not RTE_NM: a night ("N") route is split
                 # across two RTE_IDs, one per direction, sharing one RTE_NO
                 # (verified 9 Sep 2026, e.g. N13 = ids 11110363/11110364) — a
@@ -1815,7 +1828,7 @@ def transport_facts(api_key, state):
                 route[no] = route.get(no, 0) + v
         # Every route's total goes into the history file (idempotent), for the
         # three history cards.
-        if bus_history_add(hist, day, route, route_stops):
+        if bus_history_add(hist, day, route, {no: len(ids) for no, ids in route_stop_ids.items()}):
             save_bus_history(hist)
         c = {'date': day, 'sub_total': sub_total, 'bus_total': bus_total,
              'busiest_st': tr_busiest[0], 'busiest_v': tr_busiest[1],

@@ -1707,9 +1707,11 @@ class BusRoutesVein(unittest.TestCase):
                 {'SBWY_STNS_NM': '임진강', 'GTON_TNOPE': '57'}]
 
     @staticmethod
-    def _rows(no, rte_id, per_stop, stops):
+    def _rows(no, rte_id, per_stop, stops, first=0):
+        # Stop ids are distinct per (route, index) — `first` offsets them so a
+        # second direction gets its own stops rather than re-serving the same.
         return [{'RTE_ID': rte_id, 'RTE_NO': no, 'RTE_NM': f'{no}번(A~B)',
-                 'STOPS_ID': f'{no}-{i}', 'GTON_TNOPE': per_stop} for i in range(stops)]
+                 'STOPS_ID': f'{no}-{first + i}', 'GTON_TNOPE': per_stop} for i in range(stops)]
 
     # Four rankable routes: 100 at 30 a stop (300 over 10), 1129 at 25 (split
     # across two RTE_IDs, 5 stops each — the real verified split is N13, one
@@ -1717,7 +1719,7 @@ class BusRoutesVein(unittest.TestCase):
     # carried on a branch number, the grouping being by RTE_NO regardless),
     # 272 at 9 (108 over 12) and 7719 at 1 (10 over 10).
     FIVE_ROUTES = (_rows.__func__('100', '11110001', 30, 10) + _rows.__func__('1129', '11110363', 25, 5)
-                   + _rows.__func__('1129', '11110364', 25, 5) + _rows.__func__('272', '2', 9, 12)
+                   + _rows.__func__('1129', '11110364', 25, 5, first=5) + _rows.__func__('272', '2', 9, 12)
                    + _rows.__func__('7719', '3', 1, 10))
 
     def setUp(self):
@@ -1752,7 +1754,7 @@ class BusRoutesVein(unittest.TestCase):
         self.assertEqual(quiet['label_en'], 'Quietest: 7719, 10 stops')
         self.assertEqual(quiet['value_en'], '1')
         avg = self.by_id(facts, 'bus_route_total')
-        self.assertEqual(avg['label_en'], 'Average across all routes')
+        self.assertEqual(avg['label_en'], 'Average per stop, all routes')
         self.assertEqual(avg['value_en'], '16')      # 668 boardings over 42 stops
         info = S.RANKED_CARD_INFO['busroutes']
         self.assertTrue(info['note_en'].startswith('Boardings per stop served'))
@@ -1790,6 +1792,22 @@ class BusRoutesVein(unittest.TestCase):
         self.assertIsNone(self.by_id(facts, 'bus_busiest_route'))
         # The rest of the vein still posts.
         self.assertIsNotNone(self.by_id(facts, 'bus_total'))
+
+    def test_a_stop_served_twice_counts_once(self):
+        # 62 of 326 routes carry more rows than distinct stops on a day
+        # (2211: 51 rows, 40 stops, 7 Sep 2026); counting rows halved its
+        # boardings per stop. Route 100 here re-serves each of its 10 stops.
+        rows = self.FIVE_ROUTES + self._rows('100', '11110001', 30, 10)   # same STOPS_IDs again
+        facts = self._facts(rows)
+        top = self.by_id(facts, 'bus_busiest_route')
+        self.assertEqual(top['label_en'], 'Busiest: 100, 10 stops')
+        self.assertEqual(top['value_en'], '60')      # 600 over 10, not 20 rows
+
+    def test_a_history_stamped_with_an_older_stop_rule_drops_its_stop_counts(self):
+        S.BUS_HISTORY.write_text('{"days": {"20260907": {"100": 1}}, "stops": {"20260907": {"100": 9}}}')
+        h = S.load_bus_history()
+        self.assertEqual(h['stops'], {}); self.assertEqual(h['stops_rule'], S.STOPS_RULE)
+        self.assertEqual(h['days']['20260907'], {'100': 1})
 
     def test_the_stubbed_day_lands_in_the_history_with_stop_counts(self):
         self._facts(self.FIVE_ROUTES)
@@ -2254,8 +2272,8 @@ class BusRoutesCard(unittest.TestCase):
             S.fact('bus_quietest_route', 'busroutes', 'Quietest: 1226, 20 stops',
                    '21', '21', pin=True, label_ko='가장 한산함: 1226번, 정류장 20곳',
                    place_en='Quietest', place_ko='가장 한산함'),
-            S.fact('bus_route_total', 'busroutes', 'Average across all routes',
-                   '158', '158', pin=True, label_ko='전체 노선 평균'),
+            S.fact('bus_route_total', 'busroutes', 'Average per stop, all routes',
+                   '158', '158', pin=True, label_ko='정류장당 평균, 전체 노선'),
         ]
 
     def _card(self, ids=None):
@@ -2298,7 +2316,7 @@ class BusRoutesCard(unittest.TestCase):
         c = self._card()
         labels = [l['label'] for l in c['items_en']]
         self.assertEqual([l.split(':')[0] for l in labels],
-                         ['Busiest', '2nd-busiest', 'Quietest', 'Average across all routes'])
+                         ['Busiest', '2nd-busiest', 'Quietest', 'Average per stop, all routes'])
 
     def test_the_opener_emoji_is_the_bus_regardless_of_the_selector(self):
         pool = self._pool()
