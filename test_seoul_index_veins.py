@@ -2133,12 +2133,18 @@ class BusHistoryCards(unittest.TestCase):
         # One up, one down since 11 September 2026 (two of each before).
         self.assertEqual(ids[:2], ['busmv_up1', 'busmv_down1'])
         self.assertEqual(len([i for i in ids if i.startswith('busmv_')]), 2)
-        self.assertEqual(facts[0]['label_en'], 'Up: 200, 20,000 boardings')
+        self.assertEqual(facts[0]['label_en'], 'Up the most: 200, 20,000 boardings')
         self.assertEqual(facts[0]['value_en'], '+100%')
-        self.assertEqual(facts[1]['label_ko'], '감소: 300번, 5,000명 승차')
+        self.assertEqual(facts[1]['label_ko'], '가장 많이 감소: 300번, 5,000명 승차')
         self.assertIn('busnight_total', ids); self.assertIn('buswk_top1', ids)
         info = S.RANKED_CARD_INFO
         self.assertEqual(info['busmovers']['day_en'], '7 September')
+        # Opener and dateline are Python's, his wording, 11 September 2026;
+        # the weekday in the opener is the day's own (7 September: Monday).
+        self.assertEqual(info['busmovers']['opener_en'],
+                         'Seoul’s bus routes, against their usual Monday')
+        self.assertEqual(info['busmovers']['opener_ko'], '서울의 버스 노선, 평소 월요일 대비')
+        self.assertEqual(info['busmovers']['dateline_en'], 'Boardings on 7 September')
         self.assertIn('previous 4 Mondays', info['busmovers']['note_en'])
         self.assertEqual([no for _, _, no in info['busmovers']['map_routes']][:1], ['200'])
         self.assertEqual(info['busweekend']['day_en'], '31 August to 6 September')
@@ -2154,7 +2160,7 @@ class BusHistoryCards(unittest.TestCase):
     def test_the_cards_compose_like_busroutes(self):
         h = self._hist(29); h['holidays'] = {'2026': [], '2025': []}
         pool = S.history_bus_facts(h, '20260907', '7 September', '9월 7일')
-        for cat, opener, first_place in (('busmovers', 'Where the buses moved', 'Up'),
+        for cat, opener, first_place in (('busmovers', 'Where the buses moved', 'Up the most'),
                                           ('nightbus', 'The night buses', 'Busiest'),
                                           ('busweekend', 'Weekends on the buses', 'Holds up best')):
             sub = [f for f in pool if f['cat'] == cat]

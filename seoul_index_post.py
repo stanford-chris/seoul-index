@@ -1559,6 +1559,14 @@ def history_bus_facts(h, day, d, d_ko):
         n = mv['n_prior']
         RANKED_CARD_INFO['busmovers'] = {
             'day_en': d, 'day_ko': d_ko,
+            # Opener and dateline are Python's, his wording, 11 September
+            # 2026: the selector's own openers ("Where Seoul's buses swung
+            # today") never said the card is each route against its own
+            # usual figure. Same fixed-opener arrangement as rush; applied
+            # in main() where rush's is.
+            'opener_en': f'Seoul’s bus routes, against their usual {wd_en}',
+            'opener_ko': f'서울의 버스 노선, 평소 {wd_ko} 대비',
+            'dateline_en': f'Boardings on {d}', 'dateline_ko': f'{d_ko} 승차',
             'note_en': (f'Against each route’s median of its previous {n} {wd_en}s · '
                         f'trunk and branch routes over 1,000 boardings'),
             'note_ko': f'각 노선의 이전 {wd_ko} {n}일 중앙값 대비 · 승차 1,000명 이상 간선·지선',
@@ -1567,12 +1575,16 @@ def history_bus_facts(h, day, d, d_ko):
                            for i, (no, v, m, r) in enumerate(mv['ups'] + mv['downs'])]}
         for no, v, m, r in mv['ups'] + mv['downs']:
             up = r > 1
+            # "Up the most" / "Down the most": his wording, 11 September 2026,
+            # so the row says it is the day's extreme, not one rise among many.
+            rank_en = 'Up the most' if up else 'Down the most'
+            rank_ko = '가장 많이 증가' if up else '가장 많이 감소'
             facts.append(fact(
                 f'busmv_{"up" if up else "down"}1', 'busmovers',
-                f'{"Up" if up else "Down"}: {no}, {grouped(v)} boardings',
+                f'{rank_en}: {no}, {grouped(v)} boardings',
                 _pct(r), _pct(r), pin=True,
-                label_ko=f'{"증가" if up else "감소"}: {no}번, {grouped(v)}명 승차',
-                place_en='Up' if up else 'Down', place_ko='증가' if up else '감소'))
+                label_ko=f'{rank_ko}: {no}번, {grouped(v)}명 승차',
+                place_en=rank_en, place_ko=rank_ko))
 
     nb, why = night_bus_rank(h, day)
     if nb is None:
@@ -5470,7 +5482,7 @@ Rules:
 - "transport" lines are Seoul's total subway and bus boardings for the most recently published day, plus that day's busiest and quietest subway stations. The subway and bus TOTAL labels already carry the date in the label itself ("Subway boardings on 26 August", "Bus boardings the same day") — there is no separate dateline to lean on here, so do NOT put a date anywhere in the opener, and do NOT write a second, different date of your own: a neutral opener with no date at all is enough, e.g. "Through the turnstiles", "Seoul on the move". Never call a station busy, quiet, packed or empty — the four numbers say it.
 - "busroutes" lines are that day's busiest, second-busiest and quietest Seoul bus routes by plain route number ("Busiest: 143"), plus the day's total bus boardings — own post, never mixed with any other category, including "transport" above (that vein's own bus/subway totals are a different card). All FOUR lines are compulsory and must be used together, in that order: this is a complete small ranking, not a selection from it, the same rule "boxoffice" uses for its top four films. The dateline carries the date, so do NOT put a date anywhere in the opener and do NOT write a second one of your own — the opener MUST name buses or bus routes, because the lines carry BARE ROUTE NUMBERS with no "Route" word ("Busiest: 143"), e.g. "Seoul's buses", "On the buses today", and it MUST NOT settle on one wording, so write a fresh one each time. Never call a route busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines: the numbers say it. If the footnote already names a route's winning streak, do not repeat or rephrase that fact in the opener — it would say the same thing twice on one card.
 - "stations" lines are that day's busiest, second-busiest and quietest Seoul SUBWAY stations by official English name ("Busiest: Seoul Station"), plus the day's total subway boardings — own post, never mixed with any other category, including "transport" and "busroutes" above. Exactly the same rules as "busroutes": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the opener MUST name the subway or its stations, because the lines carry BARE STATION NAMES with no "station" word ("Busiest: Seoul Station", "Quietest: Dorimcheon"), e.g. "Seoul's subway, station by station", "Through the turnstiles", and it MUST NOT settle on one wording; never call a station busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines.
-- "busmovers" lines are the day's biggest RISE and biggest FALL in bus boardings, route by route, each against that route's own typical figure for the same weekday ("Up: 5511, 16,571 boardings" with a value of "+40%"). Own post, never mixed with any other category. BOTH lines are compulsory, in that order (up, then down): this is a two-line card by design, like "rush". The dateline carries the date and the footnote explains the comparison, so do NOT put a date or a percentage in the opener, and NEVER write "today" or "yesterday" (the feed runs days behind, so the day on the dateline is neither); the opener MUST name buses or bus routes (the lines carry BARE ROUTE NUMBERS), and a neutral opener about the routes that moved most is enough, e.g. "Where Seoul's buses moved", "The routes that swung", and it MUST NOT settle on one wording. Never guess WHY a route rose or fell.
+- "busmovers" lines are the day's biggest RISE and biggest FALL in bus boardings, route by route, each against that route's own typical figure for the same weekday ("Up the most: 5511, 16,571 boardings" with a value of "+40%"). Own post, never mixed with any other category. BOTH lines are compulsory, in that order (up, then down): this is a two-line card by design, like "rush". Like "rush", its opener is FIXED and written by Python ("Seoul's bus routes, against their usual Monday"), so whatever opener you write for this card is replaced; the dateline carries the date and the footnote the comparison. Never guess WHY a route rose or fell.
 - "nightbus" lines are the day's busiest, second-busiest and quietest NIGHT bus routes (Seoul's N routes, which run through the small hours) plus the night total — own post, exactly the "busroutes" rules: all FOUR lines, in order, no date in the opener, the opener MUST name night buses, since the lines carry BARE ROUTE NUMBERS ("Seoul after midnight, by bus", "The night buses"), never "busy" or "quiet" as adjectives.
 - "busweekend" lines are the routes whose boardings changed MOST between weekdays and the weekend over one week: two that hold up best at the weekend, two that fall most ("Holds up best: 271, 9,880 a day" with a value of "+3%" or "−12%"). Own post, all FOUR lines in that order; the dateline carries the week and the footnote the comparison, so the opener names neither; the opener MUST name buses or bus routes, since the lines carry BARE ROUTE NUMBERS; a fresh opener about weekends on the buses each time. Never guess why.
 - "books" lines are checkouts at SEOUL LIBRARY over the last 60 days, counted by SUBJECT: literature, philosophy, 어학 and the rest, in the library's own classification. Labels are BARE SUBJECT NAMES, so the opener MUST name the library and say these are loans, exactly as the "library" membership lines do — and MUST NOT settle on one wording: "What Seoul Library lent, by subject", "Seoul Library's loans, by subject", "Borrowing at Seoul Library, by subject" and "What went out of Seoul Library" are four of many, so write a fresh one rather than reusing the last. ⚠️ It is ONE library, the city's flagship, NOT Seoul's 215 public libraries — never imply otherwise. ⚠️ Do NOT put the date or the window in the opener: both ride on the card automatically. Own post, never mixed with any other category. ⚠️ The value may carry a trailing "(1 in N)" — that is Python's, and it is the subject's share of every checkout counted, which is why four lines can still say what the other six weigh. Leave it exactly where it is and NEVER restate it, convert it to a percentage, explain it, or build the opener or a label on it; the card footnote gives the total it divides by. ⚠️ TEN subjects are offered and a card takes four, so there is no one right card and THE EXTREMES ARE NOT COMPULSORY. Do not reach for the biggest subject at the top and the smallest at the bottom every time: four subjects from the middle of the list is a card, the four smallest is a card, and a set leaving out the largest number altogether is a card. The two pairs are two arrangements among many rather than the default — a "book_heat" pair is two subjects that came out level, a "book_gap" pair is the least- and most-borrowed of the ten; use at most ONE of them on a card, and prefer neither if the plain four you have chosen already say something. Deliberately vary which subjects appear from post to post and lean hard on AVOID_IDS here: with only ten subjects this vein repeats itself faster than any other. Never say which way the gap runs, never call a subject popular or neglected, and never draw a conclusion about what Seoul reads — set the numbers down and let the reader do it.
@@ -8105,6 +8117,13 @@ def main():
     if sel.get('picks') and all(by_cat.get(p.get('id')) == 'rush' for p in sel['picks']):
         sel['opener_en'], sel['opener_ko'] = 'Boarding the subway', '지하철 승차'
         sel['opener_emoji'] = '🚇'
+    # A ranked card whose registry entry carries an opener (busmovers, since
+    # 11 September 2026) is the same arrangement: Python's words, not the
+    # selector's. The weekday in it changes with the day.
+    for rc, info in RANKED_CARD_INFO.items():
+        if (info.get('opener_en') and sel.get('picks')
+                and all(by_cat.get(p.get('id')) == rc for p in sel['picks'])):
+            sel['opener_en'], sel['opener_ko'] = info['opener_en'], info['opener_ko']
 
     c = compose(sel, pool)
     used, primary = c['used'], c['primary']
