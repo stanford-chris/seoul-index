@@ -419,6 +419,90 @@ def render_bus_route_map(routes, seoul_stops, out_path, title='', caption=''):
     return _shoot(doc, out_path, size=(size, size))
 
 
+
+def render_station_map(stations, seoul_stops, out_path, title='', caption=''):
+    """Place named subway stations over the same faint backdrop of every Seoul
+    bus stop that render_bus_route_map() draws — the threaded reply for the
+    stations card. Added 10 September 2026, his call ("including a map with
+    subway card"). Same reasoning as the route map: built from data already
+    in hand, no external map, no fabricated URL.
+
+    `stations`: [(label, colour, (lon, lat)), ...] — one entry per station,
+    in ranking order (Busiest / 2nd-busiest / Quietest), so the legend reads
+    top to bottom the way the card does. `seoul_stops`: [(lon, lat), ...]
+    for every Seoul-prefixed bus stop, drawn as the background silhouette —
+    the bus-stop cloud rather than the ~330 stations, which are too sparse
+    to read as a landmass. Each station is a filled dot with a white ring so
+    it reads against the dots beneath it, and its label sits beside it on
+    the map as well as in the legend, since three dots with no names on a
+    grey field say nothing until the reader's eye drops to the legend.
+
+    Returns (path, (w, h)), or raises CardRenderError — main() treats a
+    failed map exactly as it treats a failed route map: the thread above it
+    has already posted and stays.
+    """
+    if not stations or not seoul_stops:
+        raise CardRenderError('no station or stop data to draw')
+    size = MAP_SIZE
+    pad = size * 0.05
+    lo0 = min(p[0] for p in seoul_stops)
+    lo1 = max(p[0] for p in seoul_stops)
+    la0 = min(p[1] for p in seoul_stops)
+    la1 = max(p[1] for p in seoul_stops)
+    k = math.cos(math.radians((la0 + la1) / 2))
+    scale = min((size - 2 * pad) / ((lo1 - lo0) * k), (size - 2 * pad) / (la1 - la0))
+    ox = (size - (lo1 - lo0) * k * scale) / 2
+    oy = (size - (la1 - la0) * scale) / 2
+
+    def xy(lon, lat):
+        return (ox + (lon - lo0) * k * scale, size - oy - (lat - la0) * scale)
+
+    body = []
+    soft, crisp = [], []
+    for lon, lat in seoul_stops:
+        x, y = xy(lon, lat)
+        soft.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1.05"/>')
+        crisp.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="0.5"/>')
+    body.append(f'<g fill="{MUTED}" opacity="0.5" filter="url(#soften)">{"".join(soft)}</g>')
+    body.append(f'<g fill="{INK}" opacity="0.16">{"".join(crisp)}</g>')
+
+    legend = []
+    ly = size - 84
+    legend_top = ly - 20
+    for label, colour, (lon, lat) in stations:
+        x, y = xy(lon, lat)
+        body.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="7" fill="{colour}" '
+                     f'stroke="{CREAM}" stroke-width="2.5"/>')
+        # The map label is the station name alone (after the rank word and
+        # colon in the legend label), placed to the right of the dot, or to
+        # the left when the dot sits in the eastern fifth so it cannot run
+        # off the frame.
+        name = label.split(': ', 1)[-1]
+        anchor, tx = ('end', x - 11) if x > size * 0.8 else ('start', x + 11)
+        body.append(f'<text x="{tx:.1f}" y="{y + 4:.1f}" text-anchor="{anchor}" '
+                     f'font-family="Menlo,monospace" font-size="12" font-weight="bold" '
+                     f'fill="{colour}" stroke="{CREAM}" stroke-width="3" '
+                     f'paint-order="stroke">{_esc(name)}</text>')
+        legend.append(f'<circle cx="37" cy="{ly + 2.5}" r="5" fill="{colour}"/>')
+        legend.append(f'<text x="50" y="{ly + 5}" font-family="Menlo,monospace" '
+                       f'font-size="13" fill="{INK}">{_esc(label)}</text>')
+        ly += 19
+    caption_y = ly + 12
+    legend_bg = (f'<rect x="0" y="{legend_top}" width="{size}" '
+                 f'height="{caption_y - legend_top + 10}" fill="{CREAM}" opacity="0.94"/>')
+    title_html = (f'<text x="30" y="25" font-family="Menlo,monospace" font-size="14" '
+                  f'font-weight="bold" fill="{RED}">{_esc(title)}</text>' if title else '')
+    caption_html = (f'<text x="30" y="{caption_y}" font-family="Menlo,monospace" '
+                    f'font-size="9" fill="{MUTED}">{_esc(caption)}</text>' if caption else '')
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}">'
+           f'<defs><filter id="soften" x="-20%" y="-20%" width="140%" height="140%">'
+           f'<feGaussianBlur stdDeviation="2.2"/></filter></defs>'
+           f'<rect width="{size}" height="{size}" fill="{CREAM}"/>'
+           f'{"".join(body)}{legend_bg}{"".join(legend)}{title_html}{caption_html}'
+           f'</svg>')
+    doc = f'<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">{svg}</body></html>'
+    return _shoot(doc, out_path, size=(size, size))
+
 # Source domains get bolded wherever they appear in prose body text.
 PROSE_BOLD_TERMS = ('data.seoul.go.kr', 'kosis.kr')
 
