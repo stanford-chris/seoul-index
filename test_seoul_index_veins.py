@@ -2147,6 +2147,8 @@ class BusHistoryCards(unittest.TestCase):
         self.assertEqual(info['busmovers']['dateline_en'], 'Boardings on 7 September')
         self.assertIn('previous 4 Mondays', info['busmovers']['note_en'])
         self.assertEqual([no for _, _, no in info['busmovers']['map_routes']][:1], ['200'])
+        self.assertEqual([l.split(':')[0] for l, _, _ in info['busmovers']['map_routes']],
+                         ['Up the most', 'Down the most'])
         self.assertEqual(info['busweekend']['day_en'], '31 August to 6 September')
         self.assertEqual(info['busweekend']['map_day'], '20260905')
         self.assertEqual(info['nightbus']['note_en'], 'Night routes only')

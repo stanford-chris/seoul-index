@@ -1571,7 +1571,10 @@ def history_bus_facts(h, day, d, d_ko):
                         f'trunk and branch routes over 1,000 boardings'),
             'note_ko': f'각 노선의 이전 {wd_ko} {n}일 중앙값 대비 · 승차 1,000명 이상 간선·지선',
             'map_day': day, 'map_caption': caption,
-            'map_routes': [(f'{"Up" if r > 1 else "Down"}: Route {no} ({_pct(r)})', MAP_COLOURS[i], no)
+            # Legend matches the rows ("Up the most"), his call, 11 September
+            # 2026; it keeps "Route", having no opener to lean on.
+            'map_routes': [(f'{"Up the most" if r > 1 else "Down the most"}: Route {no} ({_pct(r)})',
+                            MAP_COLOURS[i], no)
                            for i, (no, v, m, r) in enumerate(mv['ups'] + mv['downs'])]}
         for no, v, m, r in mv['ups'] + mv['downs']:
             up = r > 1
