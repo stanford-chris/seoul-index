@@ -1753,23 +1753,44 @@ class BusRoutesVein(unittest.TestCase):
         self.assertEqual(total['value_en'], S.grouped(sum(
             int(r['GTON_TNOPE']) for r in self.FIVE_ROUTES)))
 
-    def test_a_village_bus_route_number_withholds_the_whole_card_not_one_line(self):
-        # 마포01 (Mapo 01) is a real, correctly-formed RTE_NO — it just has no
-        # safe English rendering, the same problem en_name() exists to solve
-        # for station names. There is no lookup table for it, so the WHOLE
-        # ranked set is withheld rather than shipping a card with one line
-        # missing (a visibly broken version of a shape readers have seen
-        # complete before) or raw Hangul on the English card.
+    def test_a_village_bus_is_left_out_of_the_ranking_not_the_total(self):
+        # 마포01 (Mapo 01) is a real, correctly-formed RTE_NO with no safe
+        # English rendering. Until 10 Sep 2026 its presence withheld the WHOLE
+        # card; measured on 1-7 Sep's data that fired every weekday (the
+        # quietest route was '8442퇴근', a rush-hour-only variant, five days
+        # in seven), so the ranking is now over numbered city routes only and
+        # the footnote says so. The day's total still counts every route.
         rows = self.FIVE_ROUTES + [
-            {'RTE_ID': '4', 'RTE_NO': '마포01', 'RTE_NM': '마포01(A~B)', 'GTON_TNOPE': 1}]
+            {'RTE_ID': '4', 'RTE_NO': '마포01', 'RTE_NM': '마포01(A~B)', 'GTON_TNOPE': 1},
+            {'RTE_ID': '5', 'RTE_NO': '8442퇴근', 'RTE_NM': '8442퇴근(A~B)', 'GTON_TNOPE': 2}]
         facts = self._facts(rows)
-        for fid in ('bus_busiest_route', 'bus_second_route',
-                    'bus_quietest_route', 'bus_route_total'):
-            self.assertIsNone(self.by_id(facts, fid), fid)
-        # The rest of the vein must still post — busroutes is a separate
-        # category from transport, so withholding it must not touch these.
-        self.assertIsNotNone(self.by_id(facts, 'sub_total'))
-        self.assertIsNotNone(self.by_id(facts, 'bus_total'))
+        quiet = self.by_id(facts, 'bus_quietest_route')
+        self.assertIsNotNone(quiet, 'ranking withheld')
+        self.assertIn('Route 9', quiet['label_en'])
+        for f in facts:
+            self.assertNotIn('마포', f['label_en'])
+            self.assertNotIn('퇴근', f['label_en'])
+        # 200+100+120+130+90+5 city + 1 + 2 excluded = 648
+        self.assertEqual(self.by_id(facts, 'bus_route_total')['value_en'], '648')
+        self.assertEqual(self.by_id(facts, 'bus_total')['value_en'], '648')
+
+    def test_a_same_day_cache_from_before_the_city_filter_is_refetched(self):
+        # A cache written under the old all-routes ranking carries a Hangul
+        # route at the bottom and no 'bus_city_only' marker. Served as-is it
+        # would withhold the card for the rest of that day; it must be
+        # treated as a miss.
+        with Stub({'CardSubwayStatsNew': ok('CardSubwayStatsNew', self.SUB_ROWS),
+                   'CardBusStatisticsServiceNew': ok('CardBusStatisticsServiceNew', self.FIVE_ROUTES)}):
+            day = S._latest_daily('unused-key', 'CardSubwayStatsNew', True)[0]
+        stale = {'transport_cache': {'date': day, 'sub_total': 1, 'bus_total': 1,
+                                     'busiest_st': 'x', 'busiest_v': 1, 'quietest_st': 'y',
+                                     'quietest_v': 1, 'bus_ranked': [('143', 9), ('160', 8)],
+                                     'bus_bottom': ('8442퇴근', 17), 'bus_streak_days': 1}}
+        facts = self._facts(self.FIVE_ROUTES, state=stale)
+        quiet = self.by_id(facts, 'bus_quietest_route')
+        self.assertIsNotNone(quiet, 'stale cache was served')
+        self.assertIn('Route 9', quiet['label_en'])
+        self.assertTrue(stale['transport_cache'].get('bus_city_only'))
 
     def test_no_bus_data_at_all_withholds_the_whole_ranking(self):
         facts = self._facts([])
@@ -1905,21 +1926,24 @@ class BusRoutesCard(unittest.TestCase):
         S.BUS_ROUTE_DAY['en'], S.BUS_ROUTE_DAY['ko'] = '6 September', '9월 6일'
         c = self._card()
         self.assertEqual(c['dateline_en'], '6 September')
-        self.assertEqual(c['note_en'], '')
+        # The city-routes caveat is always there; nothing else is.
+        self.assertEqual(c['note_en'], 'Numbered city routes only')
+        self.assertEqual(c['note_ko'], '마을버스와 출퇴근 전용 노선 제외')
 
     def test_a_long_enough_streak_rides_the_footnote(self):
         S.BUS_ROUTE_DAY['en'], S.BUS_ROUTE_DAY['ko'] = '6 September', '9월 6일'
         S.BUS_ROUTE_STREAK['en'] = 'Route 143 has led for the past 10 days'
         S.BUS_ROUTE_STREAK['ko'] = '143번은 최근 10일간 매일 1위였음'
         c = self._card()
-        self.assertEqual(c['note_en'], 'Route 143 has led for the past 10 days')
+        self.assertEqual(c['note_en'],
+                         'Numbered city routes only · Route 143 has led for the past 10 days')
         self.assertEqual(c['dateline_en'], '6 September')
 
-    def test_no_streak_note_means_no_footnote_at_all(self):
+    def test_no_streak_note_leaves_only_the_caveat(self):
         S.BUS_ROUTE_DAY['en'], S.BUS_ROUTE_DAY['ko'] = '6 September', '9월 6일'
         S.BUS_ROUTE_STREAK['en'] = S.BUS_ROUTE_STREAK['ko'] = None
         c = self._card()
-        self.assertEqual(c['note_en'], '')
+        self.assertEqual(c['note_en'], 'Numbered city routes only')
 
 
 class BusRouteMapStops(unittest.TestCase):

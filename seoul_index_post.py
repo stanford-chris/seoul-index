@@ -1140,6 +1140,25 @@ BUS_ROUTE_MAP_INFO = {'day': None, 'routes': None}
 # report nobody reads.
 BUS_ROUTE_STREAK_MIN = 3
 
+# The ranking is over NUMBERED CITY ROUTES ONLY, his call, 10 September 2026.
+# A route number that is not plain ASCII — a village bus ("마포01", its 자치구
+# in Hangul) or a rush-hour-only variant ("8442퇴근") — is left out of the
+# busiest/2nd/quietest ranking, and the card's footnote says so. Measured on
+# 1-7 September's data before deciding: 276 of 664 route numbers were
+# non-ASCII and '8442퇴근' (17-23 boardings) was the quietest on EVERY
+# weekday, so the earlier all-or-nothing withhold (still below, as the belt)
+# was refusing the card five days in seven. The day's TOTAL still counts
+# every route: the caveat qualifies the ranking, not the sum.
+_CITY_ROUTE_RE = re.compile(r'^[A-Za-z0-9-]+$')
+BUS_ROUTE_CAVEAT_EN = 'Numbered city routes only'
+BUS_ROUTE_CAVEAT_KO = '마을버스와 출퇴근 전용 노선 제외'
+
+
+def city_route_no(no):
+    """True for a route number with a safe, translation-free rendering
+    ("143", "N13", "8641", "8146-1"); False for one carrying Hangul."""
+    return bool(no) and no != '?' and bool(_CITY_ROUTE_RE.match(str(no)))
+
 
 def _bus_route_streak(state, day, top_no):
     """Consecutive PUBLISHED days `top_no` has been the busiest bus route,
@@ -1174,7 +1193,7 @@ def transport_facts(api_key, state):
     if not day:
         return []
     cache = state.get('transport_cache', {})
-    if cache.get('date') == day:
+    if cache.get('date') == day and cache.get('bus_city_only'):
         c = cache
     else:
         base = f'http://openapi.seoul.go.kr:8088/{api_key}/json'
@@ -1206,8 +1225,11 @@ def transport_facts(api_key, state):
                 # a coincidence to guard against.
                 no = x.get('RTE_NO', '?')
                 route[no] = route.get(no, 0) + v
-        ranked = sorted(route.items(), key=lambda kv: -kv[1])
-        bottom = min(route.items(), key=lambda kv: kv[1]) if route else None
+        # Ranked over numbered city routes only (see city_route_no()); the
+        # total above already counted every route, including the excluded.
+        city = {no: v for no, v in route.items() if city_route_no(no)}
+        ranked = sorted(city.items(), key=lambda kv: -kv[1])
+        bottom = min(city.items(), key=lambda kv: kv[1]) if city else None
         # Streak only advances HERE, in the once-per-real-day fresh fetch —
         # never on a same-day cache hit, or a second post the same day would
         # compare today's winner against itself and read as a broken streak.
@@ -1216,7 +1238,11 @@ def transport_facts(api_key, state):
              'busiest_st': busiest['SBWY_STNS_NM'], 'busiest_v': int(busiest['GTON_TNOPE']),
              'quietest_st': quietest['SBWY_STNS_NM'], 'quietest_v': int(quietest['GTON_TNOPE']),
              'bus_ranked': ranked[:2], 'bus_bottom': bottom,
-             'bus_streak_days': streak_days}
+             'bus_streak_days': streak_days,
+             # Marks a cache built under the city-routes-only ranking; a
+             # same-day cache written before 10 Sep 2026 lacks it and is
+             # refetched rather than served with a Hangul route at the bottom.
+             'bus_city_only': True}
         state['transport_cache'] = c
 
     dt = datetime.strptime(c['date'], '%Y%m%d')
@@ -1292,7 +1318,7 @@ def transport_facts(api_key, state):
     # got through on Sunday 6 September's data. Decision on what to do about
     # it is his, and pending as of this comment.
     def _ascii_route(pair):
-        return pair is not None and pair[0] != '?' and re.match(r'^[A-Za-z0-9-]+$', str(pair[0]))
+        return pair is not None and city_route_no(pair[0])
 
     top = c['bus_ranked'][0] if c['bus_ranked'] else None
     second = c['bus_ranked'][1] if len(c['bus_ranked']) >= 2 else None
@@ -6866,8 +6892,11 @@ def compose(sel, pool):
         # A streak under BUS_ROUTE_STREAK_MIN reads as None here (see
         # transport_facts()), so a fresh or broken streak says nothing
         # rather than "led for the past 1 days".
-        note_en = BUS_ROUTE_STREAK['en'] or ''
-        note_ko = BUS_ROUTE_STREAK['ko'] or ''
+        # The ranking excludes village and rush-hour-only routes (see
+        # city_route_no()), so the card says so, every time, ahead of any
+        # streak note.
+        note_en = ' · '.join(p for p in [BUS_ROUTE_CAVEAT_EN, BUS_ROUTE_STREAK['en']] if p)
+        note_ko = ' · '.join(p for p in [BUS_ROUTE_CAVEAT_KO, BUS_ROUTE_STREAK['ko']] if p)
     else:
         note_en = 'Crowds are KT-estimated' if estimated else ''
         note_ko = '인구는 KT 추정' if estimated else ''
