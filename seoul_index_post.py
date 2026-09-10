@@ -125,7 +125,7 @@ CLAUDE_TIMEOUT = 300
 # 20 Jul 2026). Fail before doing anything at all — but only when THIS file is
 # the program being run: importers (seoul_index_methodology.py) have their own
 # flags, and validating their argv here rejected `--pin` on 23 Jul 2026.
-_KNOWN_ARGS = {'--dry-run', '--spotlight', '--show-cross', '--tail'}
+_KNOWN_ARGS = {'--dry-run', '--spotlight', '--show-cross', '--tail', '--force'}
 _ONLY_PREFIX = '--only='       # --only=<cat>: build the card from one vein
 
 
