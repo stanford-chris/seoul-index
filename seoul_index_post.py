@@ -1208,7 +1208,7 @@ STATION_CAVEAT_KO = '서울 시내 역, 전 노선 합산'
 STATION_IN_SEOUL_KM = 0.3
 STATION_QUIET_FLOOR = 10     # the transport vein's own feed-artifact floor
 # Stamped into transport_cache beside bus_rank_rule, same reasoning.
-STATION_RANK_RULE = 'seoul-summed'
+STATION_RANK_RULE = 'seoul-summed-2'   # -2: the transport lines follow it too
 
 
 def fold_station(name):
@@ -1656,6 +1656,13 @@ def transport_facts(api_key, state):
         # Busiest station, and quietest *sane* one (drop sub-handful feed artifacts
         # at major stations by ignoring boardings < 10).
         srows.sort(key=lambda x: int(x['GTON_TNOPE']))
+        # ⚠️ Per-ROW busiest/quietest until 10 September 2026, which put
+        # Gangnam (one row) above Seoul Station (five rows, one per line) and
+        # a Korail halt in Paju at the bottom. Now summed per station, and
+        # inside Seoul when the stations card's membership test is
+        # available (see STATION_DAY's block); all-network summed when it is
+        # not. Set below, once the stations block has run, from the same
+        # ranking the stations card uses, so the two cards cannot disagree.
         busiest = srows[-1]
         sane = [x for x in srows if int(x['GTON_TNOPE']) >= 10]
         quietest = sane[0] if sane else srows[0]
@@ -1674,6 +1681,14 @@ def transport_facts(api_key, state):
                          if n in coords}
         except RuntimeError as e:
             print(f'Stations card withheld: coordinate feeds unavailable ({e}).')
+        # The transport vein's own busiest/quietest station lines: summed
+        # per station, Seoul-only when membership is known, else all-network.
+        if st_ranked and st_bottom:
+            tr_busiest, tr_quietest = st_ranked[0], st_bottom
+        else:
+            all_ranked, all_bottom = rank_stations(srows, {fold_station(x['SBWY_STNS_NM']) for x in srows})
+            tr_busiest = all_ranked[0] if all_ranked else (fold_station(busiest['SBWY_STNS_NM']), int(busiest['GTON_TNOPE']))
+            tr_quietest = all_bottom or (fold_station(quietest['SBWY_STNS_NM']), int(quietest['GTON_TNOPE']))
         # Bus: page through the day.
         bd0 = http_get_json(f'{base}/CardBusStatisticsServiceNew/1/1/{day}')
         btot_rows = int(bd0['CardBusStatisticsServiceNew']['list_total_count'])
@@ -1706,8 +1721,8 @@ def transport_facts(api_key, state):
         # compare today's winner against itself and read as a broken streak.
         streak_days = _bus_route_streak(state, day, ranked[0][0]) if ranked else 0
         c = {'date': day, 'sub_total': sub_total, 'bus_total': bus_total,
-             'busiest_st': busiest['SBWY_STNS_NM'], 'busiest_v': int(busiest['GTON_TNOPE']),
-             'quietest_st': quietest['SBWY_STNS_NM'], 'quietest_v': int(quietest['GTON_TNOPE']),
+             'busiest_st': tr_busiest[0], 'busiest_v': tr_busiest[1],
+             'quietest_st': tr_quietest[0], 'quietest_v': tr_quietest[1],
              'bus_ranked': ranked[:2], 'bus_bottom': bottom,
              'bus_streak_days': streak_days,
              # Which ranking rule built this cache; see BUS_RANK_RULE.

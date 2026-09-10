@@ -1908,6 +1908,17 @@ class StationsVein(unittest.TestCase):
             self.assertEqual(f['cat'], 'stations'); self.assertTrue(f['pin'])
             self.assertEqual(f['unit'], 'people')
 
+    def test_the_transport_veins_station_lines_agree_with_the_stations_card(self):
+        # Until 10 Sep 2026 the transport vein read busiest/quietest per ROW,
+        # so it said Gangnam while the summed ranking said Seoul Station and
+        # named a Paju halt as quietest. Both cards now read one ranking.
+        facts = self._facts()
+        self.assertEqual(self.by_id(facts, 'sub_busiest')['label_en'],
+                         'Busiest subway station, Seoul Station, ' + S.STATION_DAY['en'])
+        self.assertEqual(self.by_id(facts, 'sub_busiest')['value_en'], '85,000')
+        self.assertIn('Oksu', self.by_id(facts, 'sub_quietest')['label_en'])
+        self.assertEqual(self.by_id(facts, 'sub_quietest')['value_en'], '5,050')
+
     def test_a_station_outside_seoul_never_ranks_but_is_counted_in_the_total(self):
         facts = self._facts()
         quiet = self.by_id(facts, 'st_quietest')
@@ -1950,6 +1961,9 @@ class StationsVein(unittest.TestCase):
         facts = self._facts(stub_extra={'subwayStationMaster': RuntimeError('down')})
         self.assertIsNone(self.by_id(facts, 'st_busiest'))
         self.assertIsNotNone(self.by_id(facts, 'sub_busiest'))
+        # Without membership the transport lines fall back to the whole
+        # network, still summed per station: Seoul Station, not Gangnam.
+        self.assertIn('Seoul Station', self.by_id(facts, 'sub_busiest')['label_en'])
         self.assertIsNotNone(self.by_id(facts, 'bus_busiest_route'))
 
     def test_the_map_info_carries_the_three_stations_coordinates_in_rank_order(self):
