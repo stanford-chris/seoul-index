@@ -1572,7 +1572,11 @@ def history_bus_facts(h, day, d, d_ko):
         top, second, bottom = nb['ranked'][0], nb['ranked'][1], nb['ranked'][-1]
         RANKED_CARD_INFO['nightbus'] = {
             'day_en': d, 'day_ko': d_ko,
-            'note_en': 'Night (N) routes only', 'note_ko': '심야(N) 노선만',
+            # The dateline says what the figures ARE, his wording, 11 September
+            # 2026: "Boardings on 7 September" rather than a bare date. day_en
+            # stays the bare date, since the map's title and alt read it.
+            'dateline_en': f'Boardings on {d}', 'dateline_ko': f'{d_ko} 승차',
+            'note_en': 'Night routes only', 'note_ko': '심야 노선만',
             'map_day': day, 'map_caption': caption,
             'map_routes': [(f'Busiest: Route {top[0]}', MAP_COLOURS[0], top[0]),
                            (f'2nd-busiest: Route {second[0]}', MAP_COLOURS[1], second[0]),
@@ -7107,8 +7111,10 @@ def compose(sel, pool):
         scope_ko.append((None, STATION_DAY['ko']))
     for ranked_cat, info in RANKED_CARD_INFO.items():
         if ranked_cat in cats and info.get('day_en'):
-            scope_en.append((None, info['day_en']))
-            scope_ko.append((None, info['day_ko']))
+            # A card may fly a worded dateline (nightbus: "Boardings on
+            # 7 September") while its map keeps the bare day_en.
+            scope_en.append((None, info.get('dateline_en') or info['day_en']))
+            scope_ko.append((None, info.get('dateline_ko') or info['day_ko']))
     if uses_kac:
         src_en += ' · Korea Airports Corporation'
         src_ko += ' · 한국공항공사'

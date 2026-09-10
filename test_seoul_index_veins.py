@@ -2139,7 +2139,13 @@ class BusHistoryCards(unittest.TestCase):
         self.assertEqual([no for _, _, no in info['busmovers']['map_routes']][:1], ['200'])
         self.assertEqual(info['busweekend']['day_en'], '31 August to 6 September')
         self.assertEqual(info['busweekend']['map_day'], '20260905')
-        self.assertEqual(info['nightbus']['note_en'], 'Night (N) routes only')
+        self.assertEqual(info['nightbus']['note_en'], 'Night routes only')
+        self.assertEqual(info['nightbus']['note_ko'], '심야 노선만')
+        # His wording, 11 September 2026: the dateline says what the figures
+        # are, while day_en stays the bare date the map title and alt read.
+        self.assertEqual(info['nightbus']['dateline_en'], 'Boardings on 7 September')
+        self.assertEqual(info['nightbus']['dateline_ko'], '9월 7일 승차')
+        self.assertEqual(info['nightbus']['day_en'], '7 September')
 
     def test_the_cards_compose_like_busroutes(self):
         h = self._hist(29); h['holidays'] = {'2026': [], '2025': []}
@@ -2153,7 +2159,9 @@ class BusHistoryCards(unittest.TestCase):
             self.assertEqual(len(c['items_en']), 4, cat)          # completed from one pick
             self.assertTrue(all(l['emoji'] == '' for l in c['lines']), cat)
             self.assertEqual(c['lines'][0]['emph_en'], first_place, cat)
-            self.assertEqual(c['dateline_en'], S.RANKED_CARD_INFO[cat]['day_en'], cat)
+            info = S.RANKED_CARD_INFO[cat]
+            self.assertEqual(c['dateline_en'], info.get('dateline_en') or info['day_en'], cat)
+            self.assertEqual(c['dateline_ko'], info.get('dateline_ko') or info['day_ko'], cat)
             self.assertEqual(c['note_en'], S.RANKED_CARD_INFO[cat]['note_en'], cat)
             self.assertEqual(c['opener']['emoji'], '🚌', cat)
 
