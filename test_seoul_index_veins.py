@@ -2203,6 +2203,36 @@ class OnlyFlagGuard(unittest.TestCase):
         pool = S.apply_cooldown(self._pool(), state, 'last_stations_at', 'stations', 3, 'Stations')
         self.assertEqual(sum(f['cat'] == 'stations' for f in pool), 0)   # ordinary cooldown
 
+
+class HeldVeins(unittest.TestCase):
+    """HELD_CATS keeps a vein out of the pool until he decides (busroutes,
+    10 Sep 2026, after the per-stop rebuild). It must hold against selection
+    AND the vein floor, and still let a hand-run --only show the vein."""
+
+    def setUp(self):
+        self._held, self._only = set(S.HELD_CATS), S.ONLY_CAT
+        S.HELD_CATS, S.ONLY_CAT = {'busroutes'}, None
+
+    def tearDown(self):
+        S.HELD_CATS, S.ONLY_CAT = self._held, self._only
+
+    def _pool(self):
+        return [{'cat': 'busroutes', 'id': f'b{i}'} for i in range(4)] + \
+               [{'cat': 'other', 'id': f'o{i}'} for i in range(6)]
+
+    def test_a_held_vein_leaves_the_pool(self):
+        pool = S.apply_holds(self._pool())
+        self.assertEqual({f['cat'] for f in pool}, {'other'})
+
+    def test_only_still_shows_a_held_vein(self):
+        S.ONLY_CAT = 'busroutes'
+        pool = S.apply_holds(self._pool())
+        self.assertEqual(sum(f['cat'] == 'busroutes' for f in pool), 4)
+
+    def test_the_live_hold_is_the_one_he_asked_for(self):
+        # Pins the current instruction; change this test when he decides.
+        self.assertEqual(self._held, {'busroutes'})
+
 class BusRouteStreak(unittest.TestCase):
     """bus_rank_streaks() reads both streaks straight from the history —
     replacing, on 10 Sep 2026, a state counter that had started at 2 the day

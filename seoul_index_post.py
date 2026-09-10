@@ -466,6 +466,14 @@ TOURISM_COOLDOWN_DAYS = 3
 # every time it is offered. The two- and three-line ranks below it are the
 # part that actually varies day to day.
 BUSROUTES_COOLDOWN_DAYS = 3
+# Veins held out of the pool entirely, by his instruction, until he decides:
+# busroutes since 10 September 2026 (the per-stop rebuild, previewed but not
+# yet approved for the feed). Applied after the cooldowns and BEFORE the vein
+# floor, so a held vein can be neither selected nor promoted as starved. A
+# hand-run --only=<cat> still shows it (with --dry-run for a preview, or
+# --force past the six-hour guard), since that is how a decision gets made.
+# Empty the set to release a vein; nothing else needs touching.
+HELD_CATS = {'busroutes'}
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -5521,6 +5529,17 @@ def cross_vein_pairs(pool):
     return out
 
 
+def apply_holds(pool):
+    """Drop every HELD_CATS vein from the pool (see HELD_CATS), except the
+    one a hand-run --only asks for. Says so in the log each run, so a held
+    vein never reads as a broken harvester."""
+    held = {c for c in HELD_CATS if c != ONLY_CAT}
+    n = sum(f['cat'] in held for f in pool)
+    if n:
+        print(f'Held back by HELD_CATS ({", ".join(sorted(held))}): {n} facts withheld.')
+    return [f for f in pool if f['cat'] not in held]
+
+
 def apply_cooldown(pool, state, stamp_key, cat, days, label):
     """Drop `cat` from the pool if its last post is younger than `days`.
 
@@ -8027,6 +8046,7 @@ def main():
                               NIGHTBUS_COOLDOWN_DAYS, 'Night bus')
         pool = apply_cooldown(pool, state, 'last_busweekend_at', 'busweekend',
                               BUSWEEKEND_COOLDOWN_DAYS, 'Weekend swing')
+        pool = apply_holds(pool)
 
         # The floor under the veins the selector never reaches for. Applied
         # after the cooldowns so a promoted vein is never one the cooldown has
