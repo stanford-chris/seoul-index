@@ -2271,8 +2271,8 @@ class HeldVeins(unittest.TestCase):
         # Pins the current instruction; change this test when he decides.
         # busroutes was held 10-11 September 2026 and released on the 11th;
         # busstops held and released the same day, 11 September, once its
-        # wording was settled; railstations held from 11 September the same way.
-        self.assertEqual(self._held, {'railstations'})
+        # wording was settled; railstations likewise, held and released the same day.
+        self.assertEqual(self._held, set())
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
