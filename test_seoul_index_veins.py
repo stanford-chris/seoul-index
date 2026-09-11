@@ -2273,9 +2273,9 @@ class HeldVeins(unittest.TestCase):
         # busroutes was held 10-11 September 2026 and released on the 11th;
         # busstops held and released the same day, 11 September, once its
         # wording was settled; railstations likewise, held and released the same
-        # day; seoulstation and stationgap likewise. air and wxday held from
-        # 11 September while he chooses among five mocked-up additions.
-        self.assertEqual(self._held, {'air', 'wxday'})
+        # day; seoulstation and stationgap likewise; air and wxday held for
+        # the mock-ups and released the same day. Nothing is held.
+        self.assertEqual(self._held, set())
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
@@ -3189,6 +3189,16 @@ class AirVeinFourLines(unittest.TestCase):
         self.assertEqual(by['air_bad']['value_en'], '2 of 3')
         self.assertEqual(S.AIR_NOW['emoji'], '🔴')
         self.assertNotIn('air_bad', self.facts())       # a clean day carries no bad line
+
+    def test_an_all_air_card_carries_the_scale(self):
+        pool = list(self.facts().values())
+        sel = {'opener_en': 'x', 'opener_ko': 'x', 'picks': [{'id': f['id']} for f in pool]}
+        c = S.compose(sel, pool)
+        self.assertEqual(c['note_en'], 'PM2.5: good to 15, bad from 36. PM10: good to 30, bad from 81. In µg/m³.')
+        self.assertEqual(c['note_ko'], '초미세먼지: 15까지 좋음, 36부터 나쁨. 미세먼지: 30까지 좋음, 81부터 나쁨. 단위 µg/m³.')
+        # The branch is `cats == {'air'}`: a mixed card never reaches it.
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertIn("    elif cats == {'air'}:", src)
 
     def test_no_grades_means_no_count_line(self):
         rows = [{k: v for k, v in r.items() if k != 'CAI_GRD'} for r in self.rows()]

@@ -488,7 +488,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # --dry-run for a preview, or --force past the six-hour guard), since that is
 # how a decision gets made. Empty the set to release a vein; nothing else
 # needs touching. Empty since 11 September 2026.
-HELD_CATS = {'air', 'wxday'}   # held 11 Sep 2026: mock-ups of five additions await his choice
+HELD_CATS = set()   # air and wxday held for the mock-ups and released 11 Sep 2026
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -1135,6 +1135,8 @@ def kma_now(key):
 
 # The air title's glyph: KMA's index colours, the worst grade present.
 AIR_GRADE_EMOJI = {'좋음': '🟢', '보통': '🟡', '나쁨': '🟠', '매우나쁨': '🔴'}
+AIR_SCALE_NOTE_EN = 'PM2.5: good to 15, bad from 36. PM10: good to 30, bad from 81. In µg/m³.'
+AIR_SCALE_NOTE_KO = '초미세먼지: 15까지 좋음, 36부터 나쁨. 미세먼지: 30까지 좋음, 81부터 나쁨. 단위 µg/m³.'
 AIR_NOW = {'emoji': None}
 
 
@@ -8358,6 +8360,13 @@ def compose(sel, pool):
         info = next(RANKED_CARD_INFO[rc] for rc in RANKED_CATS
                     if rc in cats and rc in RANKED_CARD_INFO)
         note_en, note_ko = info['note_en'], info['note_ko']
+    elif cats == {'air'}:
+        # The scale the PM figures sit on, his call, 11 September 2026:
+        # a bare µg/m³ says nothing to a reader without it. AirKorea's own
+        # index bands (khaiInfo, read 11 September 2026): PM2.5 좋음 0-15,
+        # 나쁨 from 36; PM10 좋음 0-30, 나쁨 from 81. Only on an all-air card;
+        # an air line riding on a crowd card keeps the crowd note.
+        note_en, note_ko = AIR_SCALE_NOTE_EN, AIR_SCALE_NOTE_KO
     else:
         note_en = 'Crowds are KT-estimated' if estimated else ''
         note_ko = '인구는 KT 추정' if estimated else ''
