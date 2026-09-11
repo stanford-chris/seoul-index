@@ -268,7 +268,8 @@ SEVERE_STARVE_DAYS = STARVE_DAYS * 2
 # total (in the millions) would jump to the top of a card whose whole point is
 # the top-to-bottom rank of the three routes above it.
 ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist', 'busroutes', 'stations',
-                'busmovers', 'nightbus', 'busweekend', 'busstops', 'railstations', 'seoulstation'}
+                'busmovers', 'nightbus', 'busweekend', 'busstops', 'railstations', 'seoulstation',
+                'stationgap'}
 
 # Every vein's lines are all-or-nothing on emoji, not just a chosen few: a
 # partial set reads as an oversight rather than a judgement, whatever the
@@ -482,7 +483,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # --dry-run for a preview, or --force past the six-hour guard), since that is
 # how a decision gets made. Empty the set to release a vein; nothing else
 # needs touching. Empty since 11 September 2026.
-HELD_CATS = set()   # seoulstation held and released 11 Sep 2026 once he had seen it
+HELD_CATS = {'stationgap'}   # held 11 Sep 2026 until he has seen the card
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -1497,6 +1498,75 @@ def stations_in_seoul(coords, seoul_stops, within_km=STATION_IN_SEOUL_KM):
     return inside
 
 
+# --- the station gap card ----------------------------------------------------
+# His call, 11 September 2026 ("Build No. 1"), after measuring the feed's
+# alighting column over thirteen days: ranked by people getting off, the
+# stations card repeats itself (Seoul Station and Jamsil lead both ways,
+# and only the third slot swaps Gangnam for Hongik Univ.), but the GAP
+# between the two columns is new. Saturday 5 September 2026 at 여의나루:
+# 73,991 got off and 21,074 got on, an event on the river that no boardings
+# ranking would show; every weekday 역삼 takes 6,000-8,000 more off than on
+# and 김포공항 the reverse. So: the rush card's shape, ONE station, two
+# lines, both figures published, the larger first, the day's widest
+# ABSOLUTE gap (a ratio would hand the card to a halt with 50 on and 500
+# off). Summed per station across lines and inside Seoul, the stations
+# card's own two rules. A computed difference is never printed: the two
+# figures sit together and the arrangement does the rest.
+STATIONGAP_COOLDOWN_DAYS = 7     # 역삼 leads most weekdays
+STATIONGAP_RULE = 'seoul-abs-1'  # stamped into transport_cache beside st_rule
+STATIONGAP_OPENER_EN = 'Seoul’s subway, one station'
+STATIONGAP_OPENER_KO = '서울 지하철, 역 하나'
+STATIONGAP_NOTE_EN = ('The station with the day’s widest gap between getting off and getting on. '
+                      'Stations inside Seoul, all lines combined.')
+STATIONGAP_NOTE_KO = '하차와 승차의 차이가 그날 가장 큰 역. 서울 시내 역, 전 노선 합산.'
+
+
+def station_gap(srows, in_seoul):
+    """(name, on, off) for the Seoul station with the widest |off - on|,
+    summed across its lines, or None. Rows without a digit off-count are
+    left out, so a feed that dropped the column withholds rather than
+    reading every station as all-boardings."""
+    on, off = {}, {}
+    for x in srows:
+        name = fold_station(x.get('SBWY_STNS_NM'))
+        a, b = str(x.get('GTON_TNOPE', '')), str(x.get('GTOFF_TNOPE', ''))
+        if not name or name not in in_seoul or not (a.isdigit() and b.isdigit()):
+            continue
+        on[name] = on.get(name, 0) + int(a)
+        off[name] = off.get(name, 0) + int(b)
+    if not on:
+        return None
+    name = max(on, key=lambda n: (abs(off[n] - on[n]), n))
+    return name, on[name], off[name]
+
+
+def station_gap_facts(c, d, d_ko):
+    """The stationgap card for the cached day. Fills RANKED_CARD_INFO when
+    built; prints why when withheld."""
+    RANKED_CARD_INFO.pop('stationgap', None)
+    if c.get('gap_rule') != STATIONGAP_RULE or not c.get('gap'):
+        return []
+    name, on, off = c['gap']
+    en = en_lookup(name, 'stations')
+    if not en:
+        print(f'Station gap card withheld for {d}: no English name for {name!r}.')
+        return []
+    RANKED_CARD_INFO['stationgap'] = {
+        'day_en': d, 'day_ko': d_ko,
+        'opener_en': STATIONGAP_OPENER_EN, 'opener_ko': STATIONGAP_OPENER_KO,
+        'dateline_en': d, 'dateline_ko': d_ko,
+        'note_en': STATIONGAP_NOTE_EN, 'note_ko': STATIONGAP_NOTE_KO}
+    # The station is the emphasised run (place_en), as the rush card bolds
+    # its station; the larger figure leads.
+    off_line = fact('st_gap_off', 'stationgap', f'Got off at {en}', grouped(off), grouped(off),
+                    pin=True, label_ko=f'{name} 하차', place_en=en, place_ko=name,
+                    num=off, unit='people')
+    on_line = fact('st_gap_on', 'stationgap', f'Got on at {en}', grouped(on), grouped(on),
+                   pin=True, label_ko=f'{name} 승차', place_en=en, place_ko=name,
+                   num=on, unit='people')
+    return [off_line, on_line] if off >= on else [on_line, off_line]
+
+
 def rank_stations(srows, in_seoul):
     """Sum boardings per folded station name, keep stations inside Seoul,
     and return (ranked largest-first, quietest at or above the floor)."""
@@ -1639,13 +1709,13 @@ BUSWEEKEND_COOLDOWN_DAYS = 7
 # 'map_routes': [(label, colour, route_no)], 'map_caption'}}. Reset every run.
 RANKED_CARD_INFO = {}
 RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend', 'busstops',
-               'railstations', 'seoulstation')
+               'railstations', 'seoulstation', 'stationgap')
 # The veins whose card is TWO lines by design: rush (one station at two
 # hours) and, since 11 September 2026, busmovers (one rise, one fall) and
 # busweekend (one holds up best, one falls most). Every other vein needs
 # three facts to be a card, and the starvation floor and --only both read
 # this set rather than naming rush alone.
-TWO_LINE_CATS = frozenset({'rush', 'busmovers', 'busweekend'})
+TWO_LINE_CATS = frozenset({'rush', 'busmovers', 'busweekend', 'stationgap'})
 MAP_COLOURS = ('#d70000', '#e08a1e', '#000000', '#7a7a7a')
 
 
@@ -2057,7 +2127,8 @@ def transport_facts(api_key, state):
     cache = state.get('transport_cache', {})
     if (cache.get('date') == day and cache.get('bus_rank_rule') == BUS_RANK_RULE
             and cache.get('st_rule') == STATION_RANK_RULE
-            and cache.get('stop_rule') == BUSSTOP_RANK_RULE):
+            and cache.get('stop_rule') == BUSSTOP_RANK_RULE
+            and cache.get('gap_rule') == STATIONGAP_RULE):
         c = cache
     else:
         base = f'http://openapi.seoul.go.kr:8088/{api_key}/json'
@@ -2082,7 +2153,7 @@ def transport_facts(api_key, state):
         # block above). Its two coordinate feeds are its own dependency: a
         # failure there withholds THIS card and says so, and touches nothing
         # the transport and busroutes facts need.
-        st_ranked, st_bottom, st_coords, st_count = [], None, {}, 0
+        st_ranked, st_bottom, st_coords, st_count, gap = [], None, {}, 0, None
         # Fetched once here for both cards: the stations card's membership
         # test and the bus stops card's pins. A failure withholds both and
         # says so; the transport and busroutes facts do not need it.
@@ -2098,6 +2169,7 @@ def transport_facts(api_key, state):
             in_seoul = stations_in_seoul(coords, list(stop_xy.values()))
             st_count = len(in_seoul)
             st_ranked, st_bottom = rank_stations(srows, in_seoul)
+            gap = station_gap(srows, in_seoul)
             st_ranked = st_ranked[:2]
             st_coords = {n: coords[n] for n, _ in st_ranked + ([st_bottom] if st_bottom else [])
                          if n in coords}
@@ -2156,6 +2228,8 @@ def transport_facts(api_key, state):
              'bus_rank_rule': BUS_RANK_RULE,
              'st_ranked': st_ranked, 'st_bottom': st_bottom, 'st_coords': st_coords,
              'st_in_seoul': st_count, 'st_rule': STATION_RANK_RULE,
+             # The station gap card's day cache (see STATIONGAP_RULE).
+             'gap': gap, 'gap_rule': STATIONGAP_RULE,
              # The bus stops card's day cache: the raw top BUSSTOP_KEEP stops,
              # how many stops took a boarding, and the pins' coordinates.
              'stop_ranked': stop_ranked,
@@ -2264,6 +2338,8 @@ def transport_facts(api_key, state):
 
     # The bus stops card, from the same day's rows (see BUSSTOP_RANK_RULE).
     facts += bus_stops_facts(c, d, d_ko)
+    # The station gap card, from the same subway rows (see STATIONGAP_RULE).
+    facts += station_gap_facts(c, d, d_ko)
 
     # The three history cards. kr_holidays() may have fetched a year into the
     # history's cache; keep it.
@@ -6053,6 +6129,7 @@ Rules:
 - "busstops" lines are that day's busiest, second-busiest and third-busiest Seoul BUS STOPS ("Busiest: Hongik University Station", one stop per name, the busier side of the road), plus how many stops took at least one boarding that day — own post, never mixed with any other category, including "transport", "busroutes" and "stations" above. Exactly the same rules as "stations": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the lines carry BARE STOP NAMES with no "stop" word, and a stop named after a station reads as the station unless the title says these are bus stops, so like "busmovers" its opener is FIXED and written by Python ("Seoul's bus stops") and whatever opener you write for this card is replaced; never call a stop busy, quiet, packed or empty, and never remark on the gap between the lines. There is no quietest line on this card, by design.
 - "railstations" lines are the four busiest of Seoul's Korail stations by boardings on one day ("Seoul Station", "Yongsan"), from the Korea Railroad Corporation — own post, never mixed with any other category, including "rail" and "stations" above (the subway card is a different thing). All FOUR lines are compulsory, used together, in that order; the dateline carries the date and the footnote the operator note, so do NOT put either in the opener. The lines are BARE STATION NAMES, so like "busmovers" its opener is FIXED and written by Python ("Seoul's railway stations") and whatever opener you write for this card is replaced. Never call a station busy or quiet, and never remark on the gap between the lines.
 - "seoulstation" lines are ONE station, Seoul Station, on one day: how many boarded Korail trains there, how many got off, the two together ("Passengers"), and "A typical Tuesday", the median of the previous same weekdays — own post, never mixed with any other category, including "rail", "railstations" and "stations". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Seoul Station"), so whatever opener you write for this card is replaced; the dateline carries the date and the footnote says what typical means. Never guess WHY the day differs from a typical one, and never call the station busy or quiet.
+- "stationgap" lines are ONE Seoul subway station on one day, the station with the widest gap between people getting off and getting on: "Got off at Yeouinaru" and "Got on at Yeouinaru", the larger first — own post, never mixed with any other category. BOTH lines are compulsory, in the order given: a two-line card by design, like "rush". Its opener is FIXED and written by Python ("Seoul's subway, one station"), so whatever opener you write for this card is replaced; the dateline carries the date and the footnote says how the station was chosen. Never state or hint at the difference between the two figures, never guess WHY they differ, and never call the station busy or quiet.
 - "busmovers" lines are the day's biggest RISE and biggest FALL in bus boardings, route by route, each against that route's own typical figure for the same weekday ("Up the most: 5511, 16,571 boardings" with a value of "+40%"). Own post, never mixed with any other category. BOTH lines are compulsory, in that order (up, then down): this is a two-line card by design, like "rush". Like "rush", its opener is FIXED and written by Python ("Seoul's bus routes, against their usual Monday"), so whatever opener you write for this card is replaced; the dateline carries the date and the footnote the comparison. Never guess WHY a route rose or fell.
 - "nightbus" lines are the day's busiest, second-busiest and quietest NIGHT bus routes (Seoul's N routes, which run through the small hours) plus the night total — own post, exactly the "busroutes" rules: all FOUR lines, in order, no date in the opener, the opener MUST name night buses, since the lines carry BARE ROUTE NUMBERS ("Seoul after midnight, by bus", "The night buses"), never "busy" or "quiet" as adjectives.
 - "busweekend" lines are the two routes whose boardings changed MOST between weekdays and the weekend over one week: the one that holds up best at the weekend and the one that falls most ("Holds up best: Route 271, 9,880 a day" with a value of "+3%" or "−12%"). Own post, BOTH lines in that order: a two-line card by design, like "rush"; the dateline carries the week and the footnote the comparison. Like "rush" and "busmovers", its opener is FIXED and written by Python ("Seoul's bus routes, weekend against weekday"), so whatever opener you write for this card is replaced. Never guess why.
@@ -8660,6 +8737,8 @@ def main():
                               RAILSTATIONS_COOLDOWN_DAYS, 'Rail stations')
         pool = apply_cooldown(pool, state, 'last_seoulstation_at', 'seoulstation',
                               SEOULSTATION_COOLDOWN_DAYS, 'Seoul Station')
+        pool = apply_cooldown(pool, state, 'last_stationgap_at', 'stationgap',
+                              STATIONGAP_COOLDOWN_DAYS, 'Station gap')
         pool = apply_holds(pool)
 
         # The floor under the veins the selector never reaches for. Applied
@@ -8962,6 +9041,8 @@ def main():
         state['last_railstations_at'] = state['last_success_at']
     if primary == 'seoulstation':
         state['last_seoulstation_at'] = state['last_success_at']
+    if primary == 'stationgap':
+        state['last_stationgap_at'] = state['last_success_at']
     write_json_atomic(STATE, state, ensure_ascii=False, indent=2)
 
     log_card(c, sel, primary, posted_uri, handle, fallback=cards is None)

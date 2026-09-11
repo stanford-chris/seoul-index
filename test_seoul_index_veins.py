@@ -2273,8 +2273,9 @@ class HeldVeins(unittest.TestCase):
         # busroutes was held 10-11 September 2026 and released on the 11th;
         # busstops held and released the same day, 11 September, once its
         # wording was settled; railstations likewise, held and released the same
-        # day; seoulstation likewise, held and released the same day.
-        self.assertEqual(self._held, set())
+        # day; seoulstation likewise; stationgap held from 11 September until
+        # he has seen it.
+        self.assertEqual(self._held, {'stationgap'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
@@ -3031,9 +3032,112 @@ class SeoulStationCard(unittest.TestCase):
         self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['dateline_en'], 'September 8')
         self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['dateline_ko'], '9월 8일')
 
-    def test_nothing_is_held(self):
+    def test_nothing_of_this_class_is_held(self):
         # seoulstation was held and released on 11 September 2026.
-        self.assertEqual(S.HELD_CATS, set())
+        self.assertNotIn('seoulstation', S.HELD_CATS)
+
+
+class StationGapCard(unittest.TestCase):
+    """One station, both directions: the day's widest |off - on|, summed
+    per station, inside Seoul, both figures published, the larger first.
+    What would ship it wrong: a ratio handing the card to a tiny halt, a
+    Gyeonggi station winning, a per-row reading missing the sum, and a
+    feed that dropped the off column reading every station as pure
+    boardings."""
+
+    MASTER = StationsVein.MASTER
+    STOP_ROWS = StationsVein.STOP_ROWS
+    BUS_ROWS = BusRoutesVein.FIVE_ROUTES
+
+    def _row(self, line, name, on, off):
+        return {'SBWY_ROUT_LN_NM': line, 'SBWY_STNS_NM': name, 'GTON_TNOPE': str(on), 'GTOFF_TNOPE': str(off)}
+
+    def rows(self):
+        return [self._row('2호선', '강남', 50000, 52000),          # gap 2,000
+                self._row('1호선', '서울역', 30000, 20000),         # 서울역 summed: on 55,000, off 47,000 -> 8,000
+                self._row('4호선', '서울역', 25000, 27000),
+                self._row('2호선', '잠실(송파구청)', 40000, 61000),  # 잠실 summed: 60,000 / 81,000 -> 21,000
+                self._row('8호선', '잠실', 20000, 20000),
+                self._row('3호선', '옥수', 50, 500),                # ratio 10x but a gap of 450
+                self._row('경의선', '임진강', 9, 99999)]             # outside Seoul, never counts
+
+    def _facts(self, sub_rows=None, state=None):
+        S.BUS_HISTORY = _Path(_tempfile.mkdtemp()) / 'bus_route_history.json'
+        payloads = {'CardSubwayStatsNew': ok('CardSubwayStatsNew', sub_rows or self.rows()),
+                    'CardBusStatisticsServiceNew': ok('CardBusStatisticsServiceNew', self.BUS_ROWS),
+                    'subwayStationMaster': ok('subwayStationMaster', self.MASTER),
+                    'busStopLocationXyInfo': ok('busStopLocationXyInfo', self.STOP_ROWS)}
+        with Stub(payloads):
+            return S.transport_facts('unused-key', state if state is not None else {})
+
+    def tearDown(self):
+        S.RANKED_CARD_INFO.pop('stationgap', None)
+
+    def gap(self, facts):
+        return [f for f in facts if f['cat'] == 'stationgap']
+
+    def test_the_widest_absolute_gap_summed_per_station_larger_figure_first(self):
+        g = self.gap(self._facts())
+        self.assertEqual([(f['label_en'], f['value_en']) for f in g],
+                         [('Got off at Jamsil', '81,000'), ('Got on at Jamsil', '60,000')])
+        self.assertEqual([f['label_ko'] for f in g], ['잠실 하차', '잠실 승차'])
+        for f in g:
+            self.assertTrue(f['pin']); self.assertEqual(f['place_en'], 'Jamsil'); self.assertEqual(f['unit'], 'people')
+
+    def test_boardings_lead_when_more_got_on(self):
+        rows = [r for r in self.rows() if not r['SBWY_STNS_NM'].startswith('잠실')] + [
+            self._row('2호선', '잠실', 90000, 30000)]
+        g = self.gap(self._facts(rows))
+        self.assertEqual([f['label_en'] for f in g], ['Got on at Jamsil', 'Got off at Jamsil'])
+
+    def test_a_gyeonggi_station_and_a_ratio_never_win(self):
+        rows = [r for r in self.rows() if not r['SBWY_STNS_NM'].startswith('잠실')]
+        g = self.gap(self._facts(rows))
+        self.assertEqual(g[0]['place_en'], 'Seoul Station')    # 8,000 beats 옥수's 450 and 임진강 is out
+
+    def test_a_feed_without_the_off_column_withholds(self):
+        rows = [{k: v for k, v in r.items() if k != 'GTOFF_TNOPE'} for r in self.rows()]
+        facts = self._facts(rows)
+        self.assertEqual(self.gap(facts), [])
+        self.assertNotIn('stationgap', S.RANKED_CARD_INFO)
+        self.assertTrue([f for f in facts if f['cat'] == 'stations'])   # the stations card is untouched
+
+    def test_the_registry_carries_the_fixed_opener_the_day_and_the_note(self):
+        self._facts()
+        info = S.RANKED_CARD_INFO['stationgap']
+        self.assertEqual(info['opener_en'], 'Seoul’s subway, one station')
+        self.assertEqual(info['dateline_en'], S.STATION_DAY['en'])
+        self.assertEqual(info['note_en'], S.STATIONGAP_NOTE_EN)
+
+    def test_a_same_day_cache_without_the_gap_rule_is_refetched(self):
+        with Stub({'CardSubwayStatsNew': ok('CardSubwayStatsNew', self.rows())}):
+            day = S._latest_daily('unused-key', 'CardSubwayStatsNew', True)[0]
+        stale = {'transport_cache': {'date': day, 'sub_total': 1, 'bus_total': 1, 'busiest_st': 'x',
+                                     'busiest_v': 1, 'quietest_st': 'y', 'quietest_v': 1,
+                                     'bus_rank_rule': S.BUS_RANK_RULE, 'st_rule': S.STATION_RANK_RULE,
+                                     'stop_rule': S.BUSSTOP_RANK_RULE, 'st_ranked': [], 'st_bottom': None}}
+        self.assertTrue(self.gap(self._facts(state=stale)), 'stale cache was served')
+
+    def test_the_card_composes_as_a_two_line_card_with_the_subway_emoji(self):
+        pool = self.gap(self._facts())
+        sel = {'opener_en': 'x', 'opener_ko': 'x', 'opener_emoji': '🚌',
+               'picks': [{'id': pool[0]['id']}]}          # one pick: the other line is completed
+        c = S.compose(sel, pool)
+        self.assertEqual([l['label_en'] for l in c['lines']], ['Got off at Jamsil', 'Got on at Jamsil'])
+        self.assertEqual([l['emph_en'] for l in c['lines']], ['Jamsil', 'Jamsil'])
+        self.assertTrue(all(l['emoji'] == '' for l in c['lines']))
+        self.assertEqual(c['opener']['emoji'], '🚇')
+        self.assertEqual(c['note_en'], S.STATIONGAP_NOTE_EN)
+
+    def test_the_vein_is_wired_everywhere_the_other_two_line_cards_are(self):
+        self.assertIn('stationgap', S.RANKED_CATS)
+        self.assertIn('stationgap', S.TWO_LINE_CATS)
+        self.assertIn('stationgap', S.ORDERED_CATS)
+        self.assertGreaterEqual(S.STATIONGAP_COOLDOWN_DAYS, 7)
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertIn("'last_stationgap_at', 'stationgap'", src)
+        self.assertIn("state['last_stationgap_at'] = state['last_success_at']", src)
+        self.assertIn('- "stationgap" lines are', src)
 
 
 if __name__ == '__main__':
