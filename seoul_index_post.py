@@ -4286,6 +4286,25 @@ WXDAY_OPENER_EN = 'Seoul’s weather yesterday'
 WXDAY_OPENER_KO = '어제 서울의 날씨'
 
 
+def wx_day_emoji(row):
+    """The title glyph for yesterday, from the row's own published fields,
+    his call, 11 September 2026. Snow (ddMefs, fresh snow depth) beats rain
+    (sumRn, a millimetre or more; a trace 0.0 or 0.3 is not a rainy day),
+    then KMA's own cloud-cover bands on avgTca in tenths: 맑음 to 5, 구름많음
+    to 8, 흐림 above. Measured 25 August to 10 September 2026: 31 August
+    (34.8 mm) reads 🌧, 3 to 8 September (0.3 to 2.3 tenths, 11 hours of
+    sun) ☀️, 10 September (7.1 tenths, 0.2 hours) ⛅. A row with no cloud
+    field falls back to the neutral 🌤."""
+    if (_wx_num(row, 'ddMefs') or 0) > 0:
+        return '🌨'
+    if (_wx_num(row, 'sumRn') or 0) >= 1.0:
+        return '🌧'
+    cloud = _wx_num(row, 'avgTca')
+    if cloud is None:
+        return '🌤'
+    return '☀️' if cloud <= 5 else '⛅' if cloud <= 8 else '☁️'
+
+
 def wx_day_facts(key):
     """The wxday card: yesterday's published readings from station 108.
     Fills RANKED_CARD_INFO when built; prints why when withheld."""
@@ -4311,8 +4330,10 @@ def wx_day_facts(key):
         'note_en': f'Seoul’s reference station, observing since {WX_OBSERVING_SINCE}',
         'note_ko': f'서울 대표 관측소, {WX_OBSERVING_SINCE}년 관측 개시',
         # One glyph per line, his call; the rain line keeps its glyph on a
-        # dry day, since the line is still about rain.
-        'line_emoji': {'High': '🔺', 'Low': '🔻', 'Average': '🌡', 'Rain': '🌧'}}
+        # dry day, since the line is still about rain. The title's is the
+        # day's own weather (wx_day_emoji), also his call.
+        'line_emoji': {'High': '🔺', 'Low': '🔻', 'Average': '🌡', 'Rain': '🌧'},
+        'emoji': wx_day_emoji(r)}
     facts = [fact('wxday_hi', 'wxday', 'High', to_f(hi), f'{hi:.1f}°C', pin=True, label_ko='최고기온'),
              fact('wxday_lo', 'wxday', 'Low', to_f(lo), f'{lo:.1f}°C', pin=True, label_ko='최저기온')]
     if avg is not None:
@@ -7583,7 +7604,8 @@ def compose(sel, pool):
         elif fid.startswith('rail'):
             opener_emoji = '🚆'
         elif fid.startswith('wx'):
-            opener_emoji = '🌤'      # the weather-day card is a ranked card, not a transport one
+            # The day's own weather, read off the row (see wx_day_emoji).
+            opener_emoji = RANKED_CARD_INFO.get('wxday', {}).get('emoji') or '🌤'
         else:
             opener_emoji = '🚗'
 

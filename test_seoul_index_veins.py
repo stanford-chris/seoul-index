@@ -3252,11 +3252,24 @@ class WxDayCard(unittest.TestCase):
                'picks': [{'id': f['id'], 'emoji': '🎉'} for f in pool]}   # the selector's are ignored
         c = S.compose(sel, pool)
         self.assertEqual([l['emoji'] for l in c['lines']], ['🔺', '🔻', '🌡', '🌧'])
-        self.assertEqual(c['opener']['emoji'], '🌤')
+        self.assertEqual(c['opener']['emoji'], '🌤')     # the fixture row has no cloud field
         # A registry entry without line_emoji still strips, as before.
         S.RANKED_CARD_INFO['wxday'].pop('line_emoji')
         c = S.compose(sel, pool)
         self.assertEqual([l['emoji'] for l in c['lines']], ['', '', '', ''])
+
+    def test_the_title_emoji_is_the_days_weather_from_the_rows_own_fields(self):
+        e = S.wx_day_emoji
+        self.assertEqual(e({'sumRn': '34.8', 'avgTca': '10.0'}), '🌧')     # 31 Aug 2026
+        self.assertEqual(e({'sumRn': '', 'avgTca': '1.3'}), '☀️')          # 8 Sep
+        self.assertEqual(e({'sumRn': '', 'avgTca': '7.1'}), '⛅')          # 10 Sep
+        self.assertEqual(e({'sumRn': '0.0', 'avgTca': '9.9'}), '☁️')       # 30 Aug, a trace is not rain
+        self.assertEqual(e({'sumRn': '0.3', 'avgTca': '6.3'}), '⛅')       # 2 Sep, likewise
+        self.assertEqual(e({'sumRn': '5.0', 'avgTca': '10.0', 'ddMefs': '3.0'}), '🌨')
+        self.assertEqual(e({'sumRn': ''}), '🌤')                           # no cloud field
+        pool = self.wx({'tm': 'x', 'maxTa': '21.5', 'minTa': '15.8', 'avgTa': '18.4', 'sumRn': '', 'avgTca': '7.1'})
+        sel = {'opener_en': 'x', 'opener_ko': 'x', 'opener_emoji': '🚗', 'picks': [{'id': f['id']} for f in pool]}
+        self.assertEqual(S.compose(sel, pool)['opener']['emoji'], '⛅')
 
     def test_the_weather_vein_no_longer_offers_yesterday_lines(self):
         src = open(S.__file__, encoding='utf-8').read()
