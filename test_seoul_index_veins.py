@@ -2275,8 +2275,9 @@ class HeldVeins(unittest.TestCase):
         # wording was settled; railstations likewise, held and released the same
         # day; seoulstation and stationgap likewise; air and wxday held for
         # the mock-ups and released the same day; rescue likewise, held for
-        # its mock-up and released on 11 September. Nothing is held.
-        self.assertEqual(self._held, set())
+        # its mock-up and released on 11 September; kopis held for its
+        # mock-up the same evening.
+        self.assertEqual(self._held, {'kopis'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
@@ -3417,6 +3418,84 @@ class RescueCard(unittest.TestCase):
         self.assertIn("uses_apqa = 'rescue' in cats", src)
         self.assertIn("('animal.go.kr', 'https://www.animal.go.kr')", src)
         self.assertIn("pool += rescue_facts(gov_key)", src)
+
+
+class KopisCard(unittest.TestCase):
+    """One week on Seoul's stages from the box-office register. What would
+    ship it wrong: a row read from the wrong region, a non-numeric field
+    read as zero, a week with no showings read as a quiet week, and the
+    won line formatted as a bare number."""
+
+    XML = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><prfsts>'
+           '<prfst><area>경기/인천</area><prfcnt>9</prfcnt><prfprocnt>1</prfprocnt>'
+           '<prfdtcnt>9</prfdtcnt><nmrs>9</nmrs><nmrcancl>1</nmrcancl><totnmrs>8</totnmrs>'
+           '<amount>9</amount><seatcnt>1</seatcnt><fcltycnt>1</fcltycnt><prfplccnt>1</prfplccnt></prfst>'
+           '<prfst><area>서울</area><prfcnt>421</prfcnt><prfprocnt>249</prfprocnt>'
+           '<prfdtcnt>1724</prfdtcnt><nmrs>417075</nmrs><nmrcancl>171251</nmrcancl>'
+           '<totnmrs>245824</totnmrs><amount>16938688403</amount><seatcnt>595098</seatcnt>'
+           '<fcltycnt>1683</fcltycnt><prfplccnt>2115</prfplccnt></prfst></prfsts>')
+
+    def kopis(self, xml):
+        import subprocess as real_subprocess
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append(cmd[-1])
+            return types.SimpleNamespace(stdout=xml, returncode=0)
+        S.subprocess.run = run
+        try:
+            return S.kopis_facts('KEY'), calls
+        finally:
+            S.subprocess.run = real_subprocess.run
+
+    def tearDown(self):
+        S.RANKED_CARD_INFO.pop('kopis', None)
+
+    def test_the_seoul_row_in_a_fixed_order_with_the_won_formatted(self):
+        facts, calls = self.kopis(self.XML)
+        self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
+                         [('Productions', '421'), ('Opened this week', '249'), ('Performances', '1,724'),
+                          ('Tickets sold', '245,824'), ('Box office', '₩16.9bn')])
+        self.assertEqual([(f['label_ko'], f['value_ko']) for f in facts],
+                         [('공연 건수', '421'), ('개막 편수', '249'), ('상연 횟수', '1,724'),
+                          ('티켓 판매', '245,824'), ('티켓 판매액', '169억 원')])
+        self.assertTrue(all(f['pin'] and f['cat'] == 'kopis' for f in facts))
+        self.assertEqual((facts[-1]['num'], facts[-1]['unit']), (16938688403, 'won'))
+        self.assertEqual(len(calls), 1)
+        self.assertIn('prfstsArea', calls[0])
+
+    def test_the_window_is_the_seven_days_ending_yesterday(self):
+        _, calls = self.kopis(self.XML)
+        end = S.datetime.now(S.SEOUL_TZ).date() - S.timedelta(days=1)
+        start = end - S.timedelta(days=6)
+        self.assertIn(f'stdate={start:%Y%m%d}&eddate={end:%Y%m%d}', calls[0])
+        info = S.RANKED_CARD_INFO['kopis']
+        self.assertEqual(info['opener_en'], 'On stage in Seoul')
+        self.assertEqual(info['dateline_en'], S._span_en(f'{start:%Y%m%d}', f'{end:%Y%m%d}'))
+        self.assertIn('net of cancellations', info['note_en'])
+        self.assertEqual(info['line_emoji']['Box office'], '💰')
+
+    def test_no_seoul_row_bad_xml_or_no_showings_withholds(self):
+        self.assertEqual(self.kopis(self.XML.replace('<area>서울</area>', '<area>부산</area>'))[0], [])
+        self.assertEqual(self.kopis('')[0], [])
+        self.assertEqual(self.kopis('<html>blocked</html>')[0], [])
+        self.assertEqual(self.kopis(self.XML.replace('<prfdtcnt>1724</prfdtcnt>', '<prfdtcnt>0</prfdtcnt>'))[0], [])
+        self.assertEqual(self.kopis(self.XML.replace('<amount>16938688403</amount>', '<amount></amount>'))[0], [])
+        self.assertNotIn('kopis', S.RANKED_CARD_INFO)
+        self.assertEqual(S.kopis_facts(None), [])
+
+    def test_the_vein_is_wired_everywhere_the_other_ranked_cards_are(self):
+        self.assertIn('kopis', S.RANKED_CATS)
+        self.assertIn('kopis', S.ORDERED_CATS)
+        self.assertIn('kopis', S.WON_CATS)
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertIn("'last_kopis_at', 'kopis'", src)
+        self.assertIn("state['last_kopis_at'] = state['last_success_at']", src)
+        self.assertIn('- "kopis" lines are', src)
+        self.assertIn("uses_kopis = 'kopis' in cats", src)
+        self.assertIn("('kopis.or.kr', 'https://www.kopis.or.kr')", src)
+        self.assertIn("pool += kopis_facts(kopis_key)", src)
+        self.assertIn("kopis_key = config.get('kopis_key')", src)
 
 
 if __name__ == '__main__':

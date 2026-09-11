@@ -274,7 +274,7 @@ SEVERE_STARVE_DAYS = STARVE_DAYS * 2
 # the top-to-bottom rank of the three routes above it.
 ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist', 'busroutes', 'stations',
                 'busmovers', 'nightbus', 'busweekend', 'busstops', 'railstations', 'seoulstation',
-                'stationgap', 'wxday', 'rescue'}
+                'stationgap', 'wxday', 'rescue', 'kopis'}
 
 # Every vein's lines are all-or-nothing on emoji, not just a chosen few: a
 # partial set reads as an oversight rather than a judgement, whatever the
@@ -488,7 +488,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # --dry-run for a preview, or --force past the six-hour guard), since that is
 # how a decision gets made. Empty the set to release a vein; nothing else
 # needs touching. Empty since 11 September 2026.
-HELD_CATS = set()   # rescue held for its mock-up and released 11 Sep 2026, like air and wxday
+HELD_CATS = {'kopis'}   # held for the mock-up, 11 Sep 2026; rescue, air and wxday released that day
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -635,7 +635,7 @@ def won_en(amount):
 
 # Categories that ever post a won_en() value. compose() reads this to decide
 # whether a card needs the "$1 ≈ ₩N" footnote at all.
-WON_CATS = {'price', 'spending', 'avgbill', 'property', 'healthcost'}
+WON_CATS = {'price', 'spending', 'avgbill', 'property', 'healthcost', 'kopis'}
 
 # Set once per run by refresh_usd_rate(), read by compose() for the footnote.
 # ⚠️ Deliberately a single rate on the FOOTNOTE, not a per-value "(~$18.3M)"
@@ -1783,7 +1783,7 @@ BUSWEEKEND_COOLDOWN_DAYS = 7
 # 'map_routes': [(label, colour, route_no)], 'map_caption'}}. Reset every run.
 RANKED_CARD_INFO = {}
 RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend', 'busstops',
-               'railstations', 'seoulstation', 'stationgap', 'wxday', 'rescue')
+               'railstations', 'seoulstation', 'stationgap', 'wxday', 'rescue', 'kopis')
 # The veins whose card is TWO lines by design: rush (one station at two
 # hours) and, since 11 September 2026, busmovers (one rise, one fall) and
 # busweekend (one holds up best, one falls most). Every other vein needs
@@ -4837,6 +4837,101 @@ def rescue_facts(key):
     return facts
 
 
+# --- Performances (KOPIS, 공연예술통합전산망) -----------------------------------
+# The national box-office register for the performing arts (theatre,
+# musicals, classical, dance, circus…), run by 예술경영지원센터. Its own key,
+# issued on application through a public form (no account) on 11 September
+# 2026; not a data.go.kr one. One call: prfstsArea, one row per region for a
+# span of up to 31 days. Counting, not modelling: every line is the
+# register's own figure for the 서울 row.
+# Field names from the API page's own 출력결과 필드 table: prfcnt 공연건수,
+# prfprocnt 개막편수, prfdtcnt 상연횟수, nmrs 판매수, nmrcancl 취소수,
+# totnmrs 총 티켓판매수 (= nmrs - nmrcancl, checked on 1-7 September 2026:
+# 417,075 - 171,251 = 245,824), amount 총 티켓판매액.
+# ⚠️ The gateway answers a bare curl with 0 bytes and www. with a bodiless
+# 301: send a browser User-Agent and follow redirects.
+# ⚠️ The day rows are additive on showings and tickets (the seven days of
+# 1-7 September sum to the week's 1,724 showings and 417,075 sales) but
+# NOT on performances: a run playing all week is one performance in the
+# week's row and seven across the days. Always ask for the week in one call.
+# ⚠️ How far a day's figures settle after it is NOT measured: on the first
+# probe (11 September) the previous day's row was present and full-sized.
+# The window ends yesterday until a later comparison says otherwise.
+KOPIS_BASE = ('https://kopis.or.kr/openApi/restful/prfstsArea'
+              '?service={key}&stdate={a}&eddate={b}')
+KOPIS_WINDOW_DAYS = 7
+KOPIS_COOLDOWN_DAYS = 7
+KOPIS_OPENER_EN = 'On stage in Seoul'
+KOPIS_OPENER_KO = '서울의 공연'
+KOPIS_NOTE_EN = ('Theatre, musicals, classical, dance and more, from the national '
+                 'box-office register; tickets net of cancellations')
+KOPIS_NOTE_KO = '연극·뮤지컬·클래식·무용 등, 공연예술통합전산망 집계, 티켓은 취소분 제외'
+
+
+def _kopis_seoul(key, a, b):
+    """The 서울 row of prfstsArea for a..b (YYYYMMDD), as {tag: int}, or
+    None when the call failed, parsed to nothing, or carried no 서울 row."""
+    url = KOPIS_BASE.format(key=key, a=a, b=b)
+    r = subprocess.run(['curl', '-s', '-L', '--max-time', '30', '-A', MOLIT_UA, url],
+                       capture_output=True, text=True)
+    try:
+        root = ET.fromstring(r.stdout)
+    except ET.ParseError:
+        return None
+    for row in root.findall('prfst'):
+        if (row.findtext('area') or '').strip() == '서울':
+            out = {}
+            for c in row:
+                if c.tag == 'area':
+                    continue
+                try:
+                    out[c.tag] = int(c.text)
+                except (TypeError, ValueError):
+                    return None
+            return out
+    return None
+
+
+def kopis_facts(key):
+    """The kopis card: one week on Seoul's stages, the register's own five
+    figures. Fills RANKED_CARD_INFO when built; prints why when withheld."""
+    RANKED_CARD_INFO.pop('kopis', None)
+    if not key:
+        return []
+    end = datetime.now(SEOUL_TZ).date() - timedelta(days=1)
+    start = end - timedelta(days=KOPIS_WINDOW_DAYS - 1)
+    a, b = f'{start:%Y%m%d}', f'{end:%Y%m%d}'
+    row = _kopis_seoul(key, a, b)
+    if row is None:
+        print(f'Performances card withheld: no Seoul row could be read for {a}-{b}.')
+        return []
+    need = ('prfcnt', 'prfprocnt', 'prfdtcnt', 'totnmrs', 'amount')
+    if any(k not in row for k in need) or not row['prfdtcnt']:
+        print(f'Performances card withheld: a field is missing or the week shows '
+              f'no showings for {a}-{b}: {row}.')
+        return []
+    span_en, span_ko = _span_en(a, b), _span_ko(a, b)
+    RANKED_CARD_INFO['kopis'] = {
+        'day_en': span_en, 'day_ko': span_ko,
+        'opener_en': KOPIS_OPENER_EN, 'opener_ko': KOPIS_OPENER_KO,
+        'dateline_en': span_en, 'dateline_ko': span_ko,
+        'note_en': KOPIS_NOTE_EN, 'note_ko': KOPIS_NOTE_KO,
+        'line_emoji': {'Productions': '🎭', 'Opened this week': '🎬', 'Performances': '🎟',
+                       'Tickets sold': '🎫', 'Box office': '💰'},
+        'emoji': '🎭'}
+    return [fact('kopis_productions', 'kopis', 'Productions', grouped(row['prfcnt']),
+                 grouped(row['prfcnt']), pin=True, label_ko='공연 건수'),
+            fact('kopis_opened', 'kopis', 'Opened this week', grouped(row['prfprocnt']),
+                 grouped(row['prfprocnt']), pin=True, label_ko='개막 편수'),
+            fact('kopis_showings', 'kopis', 'Performances', grouped(row['prfdtcnt']),
+                 grouped(row['prfdtcnt']), pin=True, label_ko='상연 횟수'),
+            fact('kopis_tickets', 'kopis', 'Tickets sold', grouped(row['totnmrs']),
+                 grouped(row['totnmrs']), pin=True, label_ko='티켓 판매'),
+            fact('kopis_box', 'kopis', 'Box office', won_en(row['amount']),
+                 won_ko(row['amount']), pin=True, label_ko='티켓 판매액',
+                 num=row['amount'], unit='won')]
+
+
 # --- Korea by rail (KORAIL) --------------------------------------------------
 # 한국철도공사's ticketing/movement-type statistics via data.go.kr (자동승인,
 # approved 2 Sep 2026): ten operations, covering intercity trains (간선열차:
@@ -6296,7 +6391,7 @@ def worldbank_facts(state, kosis_key):
 # --- selection + composition ----------------------------------------------
 
 def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
-               kobis_key=None):
+               kobis_key=None, kopis_key=None):
     # gov_key is the shared data.go.kr key: one key, per-API 활용신청, so the
     # property, weather, airport, health and culture veins all ride on it.
     # Harvested here alongside everything else, once per run, though nothing
@@ -6349,6 +6444,9 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += culture_facts(gov_key)
     pool += tour_facts(gov_key)
     pool += rescue_facts(gov_key)
+    # KOPIS issues its own key too, on application; the performances card is
+    # silent without it.
+    pool += kopis_facts(kopis_key)
     # KOFIC issues its own key, like HRFCO: not a data.go.kr one.
     pool += boxoffice_facts(kobis_key)
     return pool
@@ -6382,6 +6480,7 @@ Rules:
 - "weather" lines are published readings from Seoul's official weather station: the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the then-and-now monthly set OR the season-to-date set (never blend the two). A season-to-date post is built around the swelter tally ("Days of 33°C or more, June 1–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, and the arrangement carries the half-century — never point it out. ℹ️ Python owns the LAYOUT of these cards: it groups the lines by metric, draws each metric once as a subhead, and puts the newer year first in every group, so you do not have to order them and cannot get the two pairs out of step. Choose a coherent set of complete pairs and leave the rest alone. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
 - "wxday" lines are YESTERDAY's published readings at Seoul's reference weather station: the high, the low, the average and the rain (a rain value of "None" means none was recorded, and it is a reading, not a gap) — own post, never mixed with any other category, including "weather". All the lines offered are compulsory, in that order. Its opener is FIXED and written by Python ("Seoul's weather yesterday"), so whatever opener you write for this card is replaced; the dateline carries the date. Never call the day hot, cold, wet or dry, and never compare it with anything.
 - "rescue" lines are ONE WEEK of rescue notices filed by Seoul's districts on the national animal protection register: every animal, then cats, dogs and other animals — own post, never mixed with any other category. All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Animals rescued in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote says who files the notices. Never call the week busy or quiet, never remark on the split between cats and dogs, and never mention shelters, adoption or what became of any animal.
+- "kopis" lines are ONE WEEK on Seoul's stages from the national box-office register: productions, productions that opened, performances given, tickets sold and box office — own post, never mixed with any other category, including "boxoffice" (that is cinema). All FIVE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("On stage in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote names the register. Never call the week busy or quiet, never name a show, and never compare the figures with anything.
 - "tourism" lines are one month's visitor counts at named paid-admission Seoul attractions (the palaces, Lotte World, Seoul Sky…). Own post; ONE frame per post — total visitors OR foreign visitors, never both; the month rides on the card automatically. The pairs are the point: a dead heat or the widest gap between two named attractions.
 - "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and nothing more, e.g. "Water and air in Seoul" (ℹ️ whatever you write here is REPLACED in compose(): the opener names air or water first to match whichever the sort puts on the top line, which is a fact about the readings rather than a choice of words) — the same case as the world, traffic and books lines. ⚠️ Do NOT put the hour, the time or the words "one hour" in the opener: the reading hour rides on the card automatically as its dateline, and an opener repeating it spends the line saying nothing. Do NOT write "right now" either: that hour can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
 - "level" lines appear ONLY when the Han is running high, and they are one gauge (잠수교) set against its own published flood-warning tiers: the level right now, then the 관심/주의/경계/심각 levels. Build them into their own post, never mixed with any other category, and include the current level plus at least two tiers — the arrangement IS the story, which is how far the river is from each tier. The opener must name the river and the gauge, e.g. "The Han at Jamsu Bridge". ⚠️ NEVER write or imply that the bridge is closed, submerged, flooded or about to be: these are flood-WARNING tiers set by 한강홍수통제소, not the level at which the walkway goes under, and the two are different things. Do not add alarm, urgency or commentary of any kind — state the levels and stop. Never call the situation dangerous.
@@ -7762,6 +7861,8 @@ def compose(sel, pool):
             opener_emoji = RANKED_CARD_INFO.get('wxday', {}).get('emoji') or '🌤'
         elif fid.startswith('rescue'):
             opener_emoji = '🐾'
+        elif fid.startswith('kopis'):
+            opener_emoji = '🎭'
         else:
             opener_emoji = '🚗'
 
@@ -7848,7 +7949,7 @@ def compose(sel, pool):
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
                  'health', 'healthcost', 'culture', 'tourism', 'level', 'boxoffice',
                  'boxhist', 'incheon', 'rail', 'railstations', 'seoulstation', 'wxday',
-                 'rescue'}
+                 'rescue', 'kopis'}
     uses_seoul = any(c not in non_seoul for c in cats)
     uses_kosis = 'national' in cats
     # The library "1 in N" divides by KOSIS's registered population, so a card
@@ -7878,6 +7979,7 @@ def compose(sel, pool):
     uses_kobis = bool({'boxoffice', 'boxhist'} & cats)
     # The rescue register is the quarantine agency's, served through data.go.kr.
     uses_apqa = 'rescue' in cats
+    uses_kopis = 'kopis' in cats
     srcs = (['data.seoul.go.kr'] if uses_seoul else []) + \
            (['kosis.kr'] if uses_kosis or lib_ratio else []) + \
            ([OECD_DOMAIN] if uses_oecd else []) + \
@@ -7892,6 +7994,7 @@ def compose(sel, pool):
            (['hrfco.go.kr'] if 'level' in cats else []) + \
            (['kobis.or.kr'] if uses_kobis else []) + \
            (['animal.go.kr'] if uses_apqa else []) + \
+           (['kopis.or.kr'] if uses_kopis else []) + \
            ([WB_DOMAIN] if uses_wb else [])
     if not srcs:
         srcs = ['data.seoul.go.kr']
@@ -7949,6 +8052,9 @@ def compose(sel, pool):
     if uses_apqa:
         src_en += ' · Animal and Plant Quarantine Agency'
         src_ko += ' · 농림축산검역본부'
+    if uses_kopis:
+        src_en += ' · KOPIS, Korea Arts Management Service'
+        src_ko += ' · 공연예술통합전산망, 예술경영지원센터'
     if uses_kma:
         # Which station the readings come from is a key to the figures, so
         # it rides on the card; the labels already carry their months.
@@ -8746,6 +8852,7 @@ LINK_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                 ('hrfco.go.kr', 'https://www.hrfco.go.kr'),
                 ('kobis.or.kr', 'https://www.kobis.or.kr'),
                 ('animal.go.kr', 'https://www.animal.go.kr'),
+                ('kopis.or.kr', 'https://www.kopis.or.kr'),
                 (WB_DOMAIN, f'https://{WB_DOMAIN}')]
 
 
@@ -8929,6 +9036,7 @@ def main():
     # KOFIC issues its own key too (kobis.or.kr, not data.go.kr); the box
     # office vein is silent without it.
     kobis_key = config.get('kobis_key')
+    kopis_key = config.get('kopis_key')
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
 
     # Inspect the cross-vein collisions the detector finds for the live pool,
@@ -8936,7 +9044,7 @@ def main():
     # selector will be offered (unlike a --dry-run, whose picks the model makes).
     if SHOW_CROSS:
         pool = build_pool(api_key, state, kosis_key, gov_key, hrfco_key,
-                          kobis_key)
+                          kobis_key, kopis_key)
         elig = [f for f in pool if f.get('unit')]
         print(f'{len(pool)} facts, {len(elig)} collidable:')
         for f in sorted(elig, key=lambda f: (f['unit'], -f['num'])):
@@ -8994,7 +9102,7 @@ def main():
 
     if not want_spotlight:
         pool = build_pool(api_key, state, kosis_key, gov_key, hrfco_key,
-                          kobis_key)
+                          kobis_key, kopis_key)
         if len(pool) < 5:
             sys.exit(f'Pool too small ({len(pool)} facts) — data sources may be down.')
 
@@ -9039,6 +9147,8 @@ def main():
                               WXDAY_COOLDOWN_DAYS, 'Weather day')
         pool = apply_cooldown(pool, state, 'last_rescue_at', 'rescue',
                               RESCUE_COOLDOWN_DAYS, 'Rescued animals')
+        pool = apply_cooldown(pool, state, 'last_kopis_at', 'kopis',
+                              KOPIS_COOLDOWN_DAYS, 'Performances')
         pool = apply_holds(pool)
 
         # The floor under the veins the selector never reaches for. Applied
@@ -9357,6 +9467,8 @@ def main():
         state['last_wxday_at'] = state['last_success_at']
     if primary == 'rescue':
         state['last_rescue_at'] = state['last_success_at']
+    if primary == 'kopis':
+        state['last_kopis_at'] = state['last_success_at']
     write_json_atomic(STATE, state, ensure_ascii=False, indent=2)
 
     log_card(c, sel, primary, posted_uri, handle, fallback=cards is None)
