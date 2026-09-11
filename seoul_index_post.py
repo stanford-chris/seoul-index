@@ -1167,9 +1167,11 @@ def air_facts(api_key):
         # run dropped "live" (실시간) and the label check put the English
         # line on the Korean card. The wording is the selector's own from a
         # run it got right.
-        return [fact('air_monitors', 'air', 'Air-quality monitors reporting live across Seoul',
+        # "across Seoul" dropped 11 September 2026, his call: the opener names
+        # the city, so the line need not (feedback_no_word_the_title_already_carries).
+        return [fact('air_monitors', 'air', 'Air-quality monitors reporting live',
                      str(len(vals)), str(len(vals)), pin=True,
-                     label_ko='서울 전역에서 실시간으로 보고하는 대기질 측정소'),
+                     label_ko='실시간으로 보고하는 대기질 측정소'),
                 fact('air_worst', 'air',
                      f'Worst PM2.5 right now ({en_name(worst[0], "districts")})',
                      f'{worst[1]:.0f} µg/m³', f'{worst[1]:.0f} µg/m³', pin=True,
