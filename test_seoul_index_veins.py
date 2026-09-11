@@ -2274,9 +2274,9 @@ class HeldVeins(unittest.TestCase):
         # busstops held and released the same day, 11 September, once its
         # wording was settled; railstations likewise, held and released the same
         # day; seoulstation and stationgap likewise; air and wxday held for
-        # the mock-ups and released the same day; rescue held for its
-        # mock-up on 11 September.
-        self.assertEqual(self._held, {'rescue'})
+        # the mock-ups and released the same day; rescue likewise, held for
+        # its mock-up and released on 11 September. Nothing is held.
+        self.assertEqual(self._held, set())
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
