@@ -2662,7 +2662,7 @@ class BusStopsVein(unittest.TestCase):
         self.assertIn('Hongik University Station', info['map_alt'])
         self.assertNotIn('map_routes', info)
         # The map says what it is: title and caption, not just the date.
-        self.assertEqual(info['map_title'], f"Bus stops, {info['day_en']}")
+        self.assertEqual(info['map_title'], f"Bus boardings for {info['day_en']}")
         self.assertEqual(info['map_caption'], 'The map is composed of gray dots that represent '
                                               'each of Seoul’s 11 bus stops.')
         self.assertIn('gray dots', info['map_alt'])

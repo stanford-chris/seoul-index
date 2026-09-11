@@ -1410,7 +1410,7 @@ def bus_stops_facts(c, d, d_ko):
         # legend lines ending "Station" it read as the subway map (his
         # observation, 11 Sep 2026). The caption describes the drawing, his
         # wording; the busier-side rule stays on the card, one post above.
-        'map_title': f'Bus stops, {d}',
+        'map_title': f'Bus boardings for {d}',   # his wording, 11 Sep 2026
         'map_caption': (f'The map is composed of gray dots that represent each of '
                         f'Seoul’s {grouped(c.get("seoul_stop_count") or 0)} bus stops.'),
         # The pins are the stations map's own shape, drawn by the same renderer.
