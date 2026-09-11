@@ -2656,7 +2656,7 @@ class BusStopsVein(unittest.TestCase):
         self.assertEqual(info['opener_en'], 'Seoul’s bus stops')
         # His wording, 11 Sep 2026, with the registered-stop count read live:
         # STOPS holds 12 rows, 11 of them Seoul ('1') ids.
-        self.assertEqual(info['note_en'], 'There are 11 bus stops inside Seoul. '
+        self.assertEqual(info['note_en'], 'There are 11 bus stops in Seoul. '
                                           'Where two stops share a name, the busier is shown.')
         self.assertEqual(info['note_ko'], '서울 시내 버스 정류장은 11곳. 같은 이름의 정류장이 둘이면 승차가 많은 쪽을 표시.')
         self.assertIn('Hongik University Station', info['map_alt'])
@@ -2748,7 +2748,7 @@ class BusStopsCard(unittest.TestCase):
 
     def test_the_footnote_is_his_two_sentences_with_the_live_count(self):
         c = self._card()
-        self.assertEqual(c['note_en'], 'There are 11,236 bus stops inside Seoul. '
+        self.assertEqual(c['note_en'], 'There are 11,236 bus stops in Seoul. '
                                        'Where two stops share a name, the busier is shown.')
         self.assertEqual(c['note_ko'], '서울 시내 버스 정류장은 11,236곳. 같은 이름의 정류장이 둘이면 승차가 많은 쪽을 표시.')
 

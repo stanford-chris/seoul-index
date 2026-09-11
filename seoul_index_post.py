@@ -1296,7 +1296,7 @@ BUSSTOP_OPENER_KO = '서울의 버스 정류장'
 
 
 def busstop_note(n_stops):
-    return (f'There are {grouped(n_stops)} bus stops inside Seoul. '
+    return (f'There are {grouped(n_stops)} bus stops in Seoul. '
             f'Where two stops share a name, the busier is shown.',
             f'서울 시내 버스 정류장은 {grouped(n_stops)}곳. 같은 이름의 정류장이 둘이면 승차가 많은 쪽을 표시.')
 
