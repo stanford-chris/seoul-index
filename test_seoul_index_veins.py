@@ -2836,7 +2836,12 @@ class RailStationsCard(unittest.TestCase):
         self.assertEqual(info['dateline_en'], 'Intercity rail boardings on September 8')
         self.assertEqual(info['dateline_ko'], '9월 8일 열차 승차')
         self.assertEqual(info['day_en'], 'September 8')
-        self.assertEqual(info['note_en'], S.RAILSTATIONS_NOTE_EN)
+        self.assertEqual(info['note_en'], 'The four busiest of Seoul’s 8 Korail stations. '
+                                          'Korail trains only, KTX to Mugunghwa; SRT is a separate operator.')
+        self.assertEqual(info['note_ko'], '서울의 코레일 역 8곳 중 승차가 많은 네 곳. '
+                                          '코레일 열차 기준(KTX~무궁화호), SRT는 별도 운영사.')
+        # The count is the roster's, whether or not every station had service.
+        self.assertEqual(len(S.KORAIL_SEOUL_STATIONS), 8)
         self.assertNotIn('map_pins', info); self.assertNotIn('map_routes', info)
 
     def test_fewer_than_three_seoul_stations_withholds(self):

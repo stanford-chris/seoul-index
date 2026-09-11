@@ -4566,8 +4566,13 @@ KORAIL_DAY_ROWS = 2000
 KORAIL_SEOUL_STATIONS = ('서울', '용산', '청량리', '영등포', '상봉', '왕십리', '옥수', '양원')
 RAILSTATIONS_OPENER_EN = 'Seoul’s railway stations'
 RAILSTATIONS_OPENER_KO = '서울의 기차역'
-RAILSTATIONS_NOTE_EN = 'Korail’s own trains, KTX to Mugunghwa. SRT is a separate operator.'
-RAILSTATIONS_NOTE_KO = '코레일 열차 기준(KTX~무궁화호). SRT는 별도 운영사.'
+# The footnote is his wording, 11 September 2026, and its count is the
+# ROSTER's, not the day's rows: "if there are 8 stations there are 8
+# stations, regardless of whether there's service" (his call, same day).
+RAILSTATIONS_NOTE_EN = (f'The four busiest of Seoul’s {len(KORAIL_SEOUL_STATIONS)} Korail stations. '
+                        f'Korail trains only, KTX to Mugunghwa; SRT is a separate operator.')
+RAILSTATIONS_NOTE_KO = (f'서울의 코레일 역 {len(KORAIL_SEOUL_STATIONS)}곳 중 승차가 많은 네 곳. '
+                        f'코레일 열차 기준(KTX~무궁화호), SRT는 별도 운영사.')
 
 
 def rail_station_en(ko_name):
