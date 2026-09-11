@@ -1406,14 +1406,18 @@ def bus_stops_facts(c, d, d_ko):
         'dateline_en': f'Bus boardings on {d}', 'dateline_ko': f'{d_ko} 버스 승차',
         'note_en': note_en, 'note_ko': note_ko,
         'map_day': c['date'],
-        'map_caption': 'One stop per name: the busier side of the road; Seoul stops only',
+        # The map says "bus stops" in its title and carries the card's own
+        # footnote as its caption: with the bare date and legend lines ending
+        # "Station" it read as the subway map (his observation, 11 Sep 2026).
+        'map_title': f'Bus stops, {d}',
+        'map_caption': note_en,
         # The pins are the stations map's own shape, drawn by the same renderer.
         'map_pins': [(f'{ranks[i][0]}: {en}', MAP_COLOURS[i], tuple(coords[sid]))
                      for i, (sid, _, _, en) in enumerate(chosen)],
         'map_alt': (f'Map of the three busiest Seoul bus stops on {d}: '
                     + ', '.join(f'{ranks[i][0].lower()} ({en})' for i, (_, _, _, en) in enumerate(chosen))
-                    + ', each marked and named over a faint backdrop of every Seoul bus '
-                      'stop. One stop per name, the busier side of the road; Seoul stops only.')}
+                    + f', each marked and named over a faint backdrop of every Seoul bus '
+                      f'stop. {note_en}')}
     facts = []
     for i, (sid, name, v, en) in enumerate(chosen):
         rank_en, rank_ko = ranks[i]
@@ -8563,7 +8567,8 @@ def main():
                         pins = [(label, colour, tuple(xy)) for label, colour, xy in info['map_pins']]
                         _, map_size = render_station_map(
                             pins, seoul_bus_stop_coords(api_key), map_path,
-                            title=info['day_en'], caption=info['map_caption'])
+                            title=info.get('map_title') or info['day_en'],
+                            caption=info['map_caption'])
                         map_alt = info['map_alt']
                     else:
                         nos = [no for _, _, no in info['map_routes']]

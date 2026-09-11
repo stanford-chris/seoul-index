@@ -2661,6 +2661,10 @@ class BusStopsVein(unittest.TestCase):
         self.assertEqual(info['note_ko'], '서울 시내 버스 정류장은 11곳. 같은 이름의 정류장이 둘이면 승차가 많은 쪽을 표시.')
         self.assertIn('Hongik University Station', info['map_alt'])
         self.assertNotIn('map_routes', info)
+        # The map says what it is: title and caption, not just the date.
+        self.assertEqual(info['map_title'], f"Bus stops, {info['day_en']}")
+        self.assertEqual(info['map_caption'], info['note_en'])
+        self.assertIn(info['note_en'], info['map_alt'])
 
     def test_a_same_day_cache_without_the_stop_rule_is_refetched(self):
         with Stub({'CardSubwayStatsNew': ok('CardSubwayStatsNew', self.SUB_ROWS)}):
