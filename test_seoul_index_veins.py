@@ -2276,8 +2276,9 @@ class HeldVeins(unittest.TestCase):
         # day; seoulstation and stationgap likewise; air and wxday held for
         # the mock-ups and released the same day; rescue likewise, held for
         # its mock-up and released on 11 September; kopis likewise, the
-        # same afternoon. Nothing is held.
-        self.assertEqual(self._held, set())
+        # same afternoon; kepco and kepcohist held for their mock-ups that
+        # evening.
+        self.assertEqual(self._held, {'kepco', 'kepcohist'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
@@ -3496,6 +3497,131 @@ class KopisCard(unittest.TestCase):
         self.assertIn("('kopis.or.kr', 'https://www.kopis.or.kr')", src)
         self.assertIn("pool += kopis_facts(kopis_key)", src)
         self.assertIn("kopis_key = config.get('kopis_key')", src)
+
+
+class KepcoCards(unittest.TestCase):
+    """One month of Seoul's electricity, and the same month twenty years
+    earlier. What would ship it wrong: an unpublished month read as a
+    quiet one (it answers 404 with errCd), a partial month summed as a
+    whole one, a per-household figure we computed, and the then-and-now
+    pairs missing the head/period fields that make compose() group them."""
+
+    def rows(self, n_kwh):
+        out = []
+        for city in ('강남구', '도봉구'):
+            for cntr, cust, kwh, bill in (('주택용', 100, n_kwh, 10), ('일반용', 10, 2 * n_kwh, 20),
+                                          ('가로등', 5, 1, 1), ('심 야', 1, 1, 1)):
+                out.append({'year': '2026', 'month': '06', 'metro': '서울특별시', 'city': city,
+                            'cntr': cntr, 'custCnt': cust, 'powerUsage': kwh, 'bill': bill,
+                            'unitCost': 1.0, 'cntrPwr': 1})
+        return out
+
+    def run_with(self, by_month):
+        """by_month: {(y, m): rows or an error dict}. Unlisted months 404."""
+        import subprocess as real_subprocess
+        calls = []
+
+        def run(cmd, **kw):
+            url = cmd[-1]
+            y = int(url.split('year=')[1][:4]); m = int(url.split('month=')[1][:2])
+            calls.append((y, m))
+            v = by_month.get((y, m), {'errCd': '404', 'errMsg': 'no data'})
+            body = {'data': v} if isinstance(v, list) else v
+            return types.SimpleNamespace(stdout=json.dumps(body, ensure_ascii=False), returncode=0)
+        S.subprocess.run = run
+        S._KEPCO_CACHE.clear()
+        S.KEPCO_MIN_ROWS = 8
+        try:
+            return S.kepco_facts('KEY'), S.kepco_hist_facts('KEY'), calls
+        finally:
+            S.subprocess.run = real_subprocess.run
+            S.KEPCO_MIN_ROWS = 150
+
+    def tearDown(self):
+        S.RANKED_CARD_INFO.pop('kepco', None)
+        S.RANKED_CARD_INFO.pop('kepcohist', None)
+        S._KEPCO_CACHE.clear()
+
+    def newest(self):
+        first = S.datetime.now(S.SEOUL_TZ).date().replace(day=1)
+        last = (first - S.timedelta(days=1)).replace(day=1)
+        return last.year, last.month
+
+    def test_the_month_card_sums_the_rows_in_a_fixed_order(self):
+        y, m = self.newest()
+        facts, _, calls = self.run_with({(y, m): self.rows(500_000_000)})
+        self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
+                         [('Customers', '232'), ('Electricity used', '3,000 GWh'), ('Households', '1,000 GWh'),
+                          ('Shops and offices', '2,000 GWh'), ('Billed', '₩64')])
+        self.assertEqual(facts[2]['label_ko'], '가정')
+        self.assertEqual((facts[-1]['num'], facts[-1]['unit']), (64, 'won'))
+        info = S.RANKED_CARD_INFO['kepco']
+        self.assertEqual(info['dateline_en'], f'{S.MONTHS_EN[m - 1]} {y}')
+        self.assertEqual(info['opener_en'], 'Electricity in Seoul')
+        self.assertEqual(calls[0], (y, m))
+        self.assertNotIn('per household', ' '.join(f['label_en'] for f in facts).lower())
+
+    def test_the_newest_month_is_found_by_walking_back_and_a_404_is_not_a_month(self):
+        y, m = self.newest()
+        y2, m2 = (y, m - 2) if m > 2 else (y - 1, m + 10)
+        facts, _, calls = self.run_with({(y2, m2): self.rows(500_000_000)})
+        self.assertEqual(facts[0]['value_en'], '232')
+        self.assertEqual(S.RANKED_CARD_INFO['kepco']['dateline_en'], f'{S.MONTHS_EN[m2 - 1]} {y2}')
+        self.assertEqual(len([c for c in calls if c[0] > y2 or (c[0] == y2 and c[1] > m2)]), 2)
+
+    def test_a_partial_month_and_a_bad_row_withhold(self):
+        y, m = self.newest()
+        facts, hist, _ = self.run_with({(y, m): self.rows(1)[:3]})
+        self.assertEqual((facts, hist), ([], []))
+        bad = self.rows(1); bad[0]['powerUsage'] = 'n/a'
+        facts, hist, _ = self.run_with({(y, m): bad})
+        self.assertEqual((facts, hist), ([], []))
+        self.assertNotIn('kepco', S.RANKED_CARD_INFO)
+        self.assertEqual(S.kepco_facts(None), [])
+
+    def test_the_then_and_now_card_pairs_three_metrics_twenty_years_apart(self):
+        y, m = self.newest()
+        _, hist, calls = self.run_with({(y, m): self.rows(500_000_000),
+                                        (y - 20, m): self.rows(400_000_000)})
+        self.assertEqual(len(hist), 6)
+        self.assertEqual([f['head_en'] for f in hist],
+                         ['Electricity used', 'Electricity used', 'Billed', 'Billed', 'Customers', 'Customers'])
+        self.assertEqual([f['period_en'] for f in hist][:2],
+                         [f'{S.MONTHS_EN[m - 1]} {y}', f'{S.MONTHS_EN[m - 1]} {y - 20}'])
+        self.assertEqual([f['value_en'] for f in hist][:2], ['3,000 GWh', '2,400 GWh'])
+        self.assertEqual(hist[0]['pair'], hist[1]['pair'])
+        self.assertTrue(all(f['pin'] for f in hist))
+        self.assertEqual(calls.count((y, m)), 1)          # one fetch feeds both cards
+        self.assertEqual(S.RANKED_CARD_INFO['kepcohist']['opener_en'], 'Seoul’s electricity, twenty years apart')
+        self.assertNotIn('dateline_en', S.RANKED_CARD_INFO['kepcohist'])   # the periods are in the groups
+
+    def test_no_twenty_year_old_month_withholds_only_the_history_card(self):
+        y, m = self.newest()
+        facts, hist, _ = self.run_with({(y, m): self.rows(500_000_000)})
+        self.assertEqual(len(facts), 5)
+        self.assertEqual(hist, [])
+
+    def test_gwh_formatting(self):
+        self.assertEqual(S.gwh(4_155_959_477), '4,156 GWh')
+        self.assertEqual(S.gwh(18_801_140), '18.8 GWh')
+        self.assertEqual(S.gwh(100_000_000), '100 GWh')
+
+    def test_the_veins_are_wired_everywhere_the_other_ranked_cards_are(self):
+        for c in ('kepco', 'kepcohist'):
+            self.assertIn(c, S.RANKED_CATS)
+            self.assertIn(c, S.WON_CATS)
+        self.assertIn('kepco', S.ORDERED_CATS)
+        self.assertNotIn('kepcohist', S.ORDERED_CATS)   # compose() orders the pairs by metric, newest first
+        src = open(S.__file__, encoding='utf-8').read()
+        for needle in ("'last_kepco_at', 'kepco'", "'last_kepcohist_at', 'kepcohist'",
+                       "state['last_kepco_at'] = state['last_success_at']",
+                       "state['last_kepcohist_at'] = state['last_success_at']",
+                       '- "kepco" lines are', '- "kepcohist" lines set',
+                       "uses_kepco = bool({'kepco', 'kepcohist'} & cats)",
+                       "('bigdata.kepco.co.kr', 'https://bigdata.kepco.co.kr')",
+                       "pool += kepco_facts(kepco_key)", "pool += kepco_hist_facts(kepco_key)",
+                       "kepco_key = config.get('kepco_key')"):
+            self.assertIn(needle, src)
 
 
 if __name__ == '__main__':

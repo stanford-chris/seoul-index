@@ -274,7 +274,7 @@ SEVERE_STARVE_DAYS = STARVE_DAYS * 2
 # the top-to-bottom rank of the three routes above it.
 ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist', 'busroutes', 'stations',
                 'busmovers', 'nightbus', 'busweekend', 'busstops', 'railstations', 'seoulstation',
-                'stationgap', 'wxday', 'rescue', 'kopis'}
+                'stationgap', 'wxday', 'rescue', 'kopis', 'kepco'}
 
 # Every vein's lines are all-or-nothing on emoji, not just a chosen few: a
 # partial set reads as an oversight rather than a judgement, whatever the
@@ -488,7 +488,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # --dry-run for a preview, or --force past the six-hour guard), since that is
 # how a decision gets made. Empty the set to release a vein; nothing else
 # needs touching. Empty since 11 September 2026.
-HELD_CATS = set()   # kopis, rescue, air and wxday each held for a mock-up and released 11 Sep 2026
+HELD_CATS = {'kepco', 'kepcohist'}   # held for the mock-ups, 11 Sep 2026; kopis, rescue, air and wxday released that day
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -635,7 +635,7 @@ def won_en(amount):
 
 # Categories that ever post a won_en() value. compose() reads this to decide
 # whether a card needs the "$1 ≈ ₩N" footnote at all.
-WON_CATS = {'price', 'spending', 'avgbill', 'property', 'healthcost', 'kopis'}
+WON_CATS = {'price', 'spending', 'avgbill', 'property', 'healthcost', 'kopis', 'kepco', 'kepcohist'}
 
 # Set once per run by refresh_usd_rate(), read by compose() for the footnote.
 # ⚠️ Deliberately a single rate on the FOOTNOTE, not a per-value "(~$18.3M)"
@@ -1783,7 +1783,8 @@ BUSWEEKEND_COOLDOWN_DAYS = 7
 # 'map_routes': [(label, colour, route_no)], 'map_caption'}}. Reset every run.
 RANKED_CARD_INFO = {}
 RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend', 'busstops',
-               'railstations', 'seoulstation', 'stationgap', 'wxday', 'rescue', 'kopis')
+               'railstations', 'seoulstation', 'stationgap', 'wxday', 'rescue', 'kopis',
+               'kepco', 'kepcohist')
 # The veins whose card is TWO lines by design: rush (one station at two
 # hours) and, since 11 September 2026, busmovers (one rise, one fall) and
 # busweekend (one holds up best, one falls most). Every other vein needs
@@ -4932,6 +4933,179 @@ def kopis_facts(key):
                  num=row['amount'], unit='won')]
 
 
+# --- Electricity (KEPCO, 전력데이터 개방 포털) --------------------------------
+# Korea Electric Power Corporation's monthly sales by district and contract
+# type, from its own data portal (bigdata.kepco.co.kr): its own key, issued
+# on the spot on 11 September 2026 after an EN:TER 개인 회원가입 with phone
+# 본인인증, so not a data.go.kr one. One call per month: 25 districts × 7
+# contract types (주택용 households, 일반용 shops and offices, 산업용, 교육용,
+# 심야 off-peak, 가로등 street lighting, 농사용), each with customers,
+# kWh, the bill in won, the average price and contracted capacity.
+# Counting, not modelling: every line is a sum of the portal's own rows.
+# ⚠️ About two months behind (June was newest on 11 September 2026), and an
+# unpublished month answers HTTP 404 with {errCd, errMsg}, so the newest
+# month is found by walking back from last month. History runs to 2002
+# (173-175 rows for June of every year sampled) and stops before 2000,
+# which is what makes the twenty-year card possible.
+# ⚠️ Per-household kWh is NOT on either card: dividing the 주택용 kWh by its
+# customers is our arithmetic, not a published figure (the editorial test).
+# KEPCO's separate 가구평균 API publishes that number itself.
+KEPCO_BASE = ('https://bigdata.kepco.co.kr/openapi/v1/powerUsage/contractType.do'
+              '?year={y}&month={m:02d}&metroCd=11&apiKey={key}&returnType=json')
+KEPCO_LOOKBACK_MONTHS = 5     # how far back from last month to look for the newest
+KEPCO_YEARS_BACK = 20
+KEPCO_COOLDOWN_DAYS = 28      # a new month arrives monthly, like the infra counts
+KEPCO_MIN_ROWS = 150          # 25 districts × 7 types is 173-175; a short answer is a partial month
+KEPCO_OPENER_EN = 'Electricity in Seoul'
+KEPCO_OPENER_KO = '서울의 전기'
+KEPCO_HIST_OPENER_EN = 'Seoul’s electricity, twenty years apart'
+KEPCO_HIST_OPENER_KO = '서울의 전기, 20년 전과 지금'
+KEPCO_NOTE_EN = ('Korea Electric Power Corporation’s billing for the month, all contract '
+                 'types; households are its residential tariff, shops and offices its '
+                 'general one')
+KEPCO_NOTE_KO = '한국전력 월별 판매 실적, 전체 계약종별 합계; 가정은 주택용, 상가·사무실은 일반용'
+KEPCO_HIST_NOTE_EN = 'Korea Electric Power Corporation’s billing for the month, all contract types'
+KEPCO_HIST_NOTE_KO = '한국전력 월별 판매 실적, 전체 계약종별 합계'
+_KEPCO_CACHE = {}
+
+
+def gwh(kwh):
+    """kWh -> a GWh string, both languages: 4,155,959,477 -> '4,156 GWh';
+    18,801,140 -> '18.8 GWh'. Whole numbers from 100 GWh up."""
+    g = kwh / 1e6
+    return f'{g:,.0f} GWh' if g >= 100 else f'{g:,.1f} GWh'
+
+
+def _kepco_rows(key, y, m):
+    """The month's Seoul rows, or None: a failed call, an unpublished month
+    (404 with errCd), or fewer rows than a whole month has."""
+    if (y, m) in _KEPCO_CACHE:
+        return _KEPCO_CACHE[(y, m)]
+    url = KEPCO_BASE.format(key=key, y=y, m=m)
+    r = subprocess.run(['curl', '-s', '-L', '--max-time', '30', '-A', MOLIT_UA, url],
+                       capture_output=True, text=True)
+    try:
+        d = json.loads(r.stdout)
+        rows = d['data']
+    except (ValueError, KeyError, TypeError):
+        _KEPCO_CACHE[(y, m)] = None
+        return None
+    if not isinstance(rows, list) or len(rows) < KEPCO_MIN_ROWS:
+        _KEPCO_CACHE[(y, m)] = None
+        return None
+    _KEPCO_CACHE[(y, m)] = rows
+    return rows
+
+
+def _kepco_totals(rows):
+    """Sum the month: {'cust', 'kwh', 'bill', 'house_kwh', 'general_kwh'},
+    or None when a row's numbers do not parse."""
+    t = {'cust': 0, 'kwh': 0, 'bill': 0, 'house_kwh': 0, 'general_kwh': 0}
+    for r in rows:
+        try:
+            c, u, b = int(r['custCnt']), int(r['powerUsage']), int(r['bill'])
+        except (KeyError, TypeError, ValueError):
+            return None
+        t['cust'] += c
+        t['kwh'] += u
+        t['bill'] += b
+        k = (r.get('cntr') or '').replace(' ', '')
+        if k == '주택용':
+            t['house_kwh'] += u
+        elif k == '일반용':
+            t['general_kwh'] += u
+    return t if t['kwh'] else None
+
+
+def _kepco_newest(key):
+    """(year, month, rows) for the newest published month, walking back from
+    last month, or None."""
+    first = datetime.now(SEOUL_TZ).date().replace(day=1)
+    for _ in range(KEPCO_LOOKBACK_MONTHS):
+        first = (first - timedelta(days=1)).replace(day=1)
+        rows = _kepco_rows(key, first.year, first.month)
+        if rows:
+            return first.year, first.month, rows
+    return None
+
+
+def kepco_facts(key):
+    """The kepco card: the newest month's electricity in Seoul, five lines.
+    Fills RANKED_CARD_INFO when built; prints why when withheld."""
+    RANKED_CARD_INFO.pop('kepco', None)
+    if not key:
+        return []
+    got = _kepco_newest(key)
+    if not got:
+        print('Electricity card withheld: no month could be read from KEPCO.')
+        return []
+    y, m, rows = got
+    t = _kepco_totals(rows)
+    if not t:
+        print(f'Electricity card withheld: the rows for {y}-{m:02d} did not sum.')
+        return []
+    per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
+    RANKED_CARD_INFO['kepco'] = {
+        'day_en': per_en, 'day_ko': per_ko,
+        'opener_en': KEPCO_OPENER_EN, 'opener_ko': KEPCO_OPENER_KO,
+        'dateline_en': per_en, 'dateline_ko': per_ko,
+        'note_en': KEPCO_NOTE_EN, 'note_ko': KEPCO_NOTE_KO,
+        'line_emoji': {'Customers': '🔌', 'Electricity used': '⚡️', 'Households': '🏠',
+                       'Shops and offices': '🏢', 'Billed': '💰'},
+        'emoji': '⚡️'}
+    return [fact('kepco_cust', 'kepco', 'Customers', grouped(t['cust']), grouped(t['cust']),
+                 pin=True, label_ko='고객 호수'),
+            fact('kepco_kwh', 'kepco', 'Electricity used', gwh(t['kwh']), gwh(t['kwh']),
+                 pin=True, label_ko='전력 사용량'),
+            fact('kepco_house', 'kepco', 'Households', gwh(t['house_kwh']), gwh(t['house_kwh']),
+                 pin=True, label_ko='가정'),
+            fact('kepco_general', 'kepco', 'Shops and offices', gwh(t['general_kwh']),
+                 gwh(t['general_kwh']), pin=True, label_ko='상가·사무실'),
+            fact('kepco_bill', 'kepco', 'Billed', won_en(t['bill']), won_ko(t['bill']),
+                 pin=True, label_ko='전기 요금', num=t['bill'], unit='won')]
+
+
+def kepco_hist_facts(key):
+    """The kepcohist card: the newest month against the same month twenty
+    years earlier, three metrics as period pairs (compose() groups them by
+    metric and bolds the periods, the fifty-year weather card's shape)."""
+    RANKED_CARD_INFO.pop('kepcohist', None)
+    if not key:
+        return []
+    got = _kepco_newest(key)
+    if not got:
+        return []
+    y, m, rows = got
+    then_rows = _kepco_rows(key, y - KEPCO_YEARS_BACK, m)
+    if not then_rows:
+        print(f'Electricity then-and-now withheld: no rows for {y - KEPCO_YEARS_BACK}-{m:02d}.')
+        return []
+    now, then = _kepco_totals(rows), _kepco_totals(then_rows)
+    if not now or not then:
+        return []
+    RANKED_CARD_INFO['kepcohist'] = {
+        'opener_en': KEPCO_HIST_OPENER_EN, 'opener_ko': KEPCO_HIST_OPENER_KO,
+        'note_en': KEPCO_HIST_NOTE_EN, 'note_ko': KEPCO_HIST_NOTE_KO,
+        'emoji': '⚡️'}
+    mon_en = MONTHS_EN[m - 1]
+    facts = []
+    for head_en, head_ko, fid, fmt_en, fmt_ko, unit in (
+            ('Electricity used', '전력 사용량', 'kwh', gwh, gwh, None),
+            ('Billed', '전기 요금', 'bill', won_en, won_ko, 'won'),
+            ('Customers', '고객 호수', 'cust', grouped, grouped, None)):
+        for side, t, yy in (('now', now, y), ('then', then, y - KEPCO_YEARS_BACK)):
+            per_en, per_ko = f'{mon_en} {yy}', f'{yy}년 {m}월'
+            v = t['kwh' if fid == 'kwh' else fid]
+            facts.append(fact(f'kepcohist_{fid}_{side}', 'kepcohist',
+                              f'{head_en}, {per_en}', fmt_en(v), fmt_ko(v),
+                              pair=f'kepcohist_{fid}_then', pin=True,
+                              label_ko=f'{head_ko}, {per_ko}',
+                              head_en=head_en, head_ko=head_ko,
+                              period_en=per_en, period_ko=per_ko,
+                              num=v if unit else None, unit=unit))
+    return facts
+
+
 # --- Korea by rail (KORAIL) --------------------------------------------------
 # 한국철도공사's ticketing/movement-type statistics via data.go.kr (자동승인,
 # approved 2 Sep 2026): ten operations, covering intercity trains (간선열차:
@@ -6391,7 +6565,7 @@ def worldbank_facts(state, kosis_key):
 # --- selection + composition ----------------------------------------------
 
 def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
-               kobis_key=None, kopis_key=None):
+               kobis_key=None, kopis_key=None, kepco_key=None):
     # gov_key is the shared data.go.kr key: one key, per-API 활용신청, so the
     # property, weather, airport, health and culture veins all ride on it.
     # Harvested here alongside everything else, once per run, though nothing
@@ -6447,6 +6621,11 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     # KOPIS issues its own key too, on application; the performances card is
     # silent without it.
     pool += kopis_facts(kopis_key)
+    # KEPCO's own key as well (bigdata.kepco.co.kr); both electricity cards
+    # are silent without it. One fetch per month per run, cached.
+    _KEPCO_CACHE.clear()
+    pool += kepco_facts(kepco_key)
+    pool += kepco_hist_facts(kepco_key)
     # KOFIC issues its own key, like HRFCO: not a data.go.kr one.
     pool += boxoffice_facts(kobis_key)
     return pool
@@ -6481,6 +6660,8 @@ Rules:
 - "wxday" lines are YESTERDAY's published readings at Seoul's reference weather station: the high, the low, the average and the rain (a rain value of "None" means none was recorded, and it is a reading, not a gap) — own post, never mixed with any other category, including "weather". All the lines offered are compulsory, in that order. Its opener is FIXED and written by Python ("Seoul's weather yesterday"), so whatever opener you write for this card is replaced; the dateline carries the date. Never call the day hot, cold, wet or dry, and never compare it with anything.
 - "rescue" lines are ONE WEEK of rescue notices filed by Seoul's districts on the national animal protection register: every animal, then cats, dogs and other animals — own post, never mixed with any other category. All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Animals rescued in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote says who files the notices. Never call the week busy or quiet, never remark on the split between cats and dogs, and never mention shelters, adoption or what became of any animal.
 - "kopis" lines are ONE WEEK on Seoul's stages from the national box-office register: productions, productions that opened, performances given, tickets sold and box office — own post, never mixed with any other category, including "boxoffice" (that is cinema). All FIVE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("On stage in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote names the register. Never call the week busy or quiet, never name a show, and never compare the figures with anything.
+- "kepco" lines are ONE MONTH of electricity in Seoul from Korea Electric Power Corporation: customers, electricity used, the households' share, the shops-and-offices share, and the bill — own post, never mixed with any other category, including "kepcohist". All FIVE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Electricity in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the month and the footnote says which tariffs the two shares are. Never call the month heavy or light, and never compare it with anything.
+- "kepcohist" lines set ONE MONTH of Seoul's electricity against the SAME month TWENTY YEARS earlier: electricity used, the bill and customers, each as a pair (each label already carries its month and year — do not reword those labels) — own post, never mixed with any other category, including "kepco". Use ALL SIX lines, every pair with BOTH its sides. Its opener is FIXED and written by Python, so whatever you write is replaced. The arrangement carries the twenty years — never point out that the bill rose faster than the use, or that anything rose or fell at all.
 - "tourism" lines are one month's visitor counts at named paid-admission Seoul attractions (the palaces, Lotte World, Seoul Sky…). Own post; ONE frame per post — total visitors OR foreign visitors, never both; the month rides on the card automatically. The pairs are the point: a dead heat or the widest gap between two named attractions.
 - "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and nothing more, e.g. "Water and air in Seoul" (ℹ️ whatever you write here is REPLACED in compose(): the opener names air or water first to match whichever the sort puts on the top line, which is a fact about the readings rather than a choice of words) — the same case as the world, traffic and books lines. ⚠️ Do NOT put the hour, the time or the words "one hour" in the opener: the reading hour rides on the card automatically as its dateline, and an opener repeating it spends the line saying nothing. Do NOT write "right now" either: that hour can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
 - "level" lines appear ONLY when the Han is running high, and they are one gauge (잠수교) set against its own published flood-warning tiers: the level right now, then the 관심/주의/경계/심각 levels. Build them into their own post, never mixed with any other category, and include the current level plus at least two tiers — the arrangement IS the story, which is how far the river is from each tier. The opener must name the river and the gauge, e.g. "The Han at Jamsu Bridge". ⚠️ NEVER write or imply that the bridge is closed, submerged, flooded or about to be: these are flood-WARNING tiers set by 한강홍수통제소, not the level at which the walkway goes under, and the two are different things. Do not add alarm, urgency or commentary of any kind — state the levels and stop. Never call the situation dangerous.
@@ -7863,6 +8044,8 @@ def compose(sel, pool):
             opener_emoji = '🐾'
         elif fid.startswith('kopis'):
             opener_emoji = '🎭'
+        elif fid.startswith('kepco'):
+            opener_emoji = '⚡️'
         else:
             opener_emoji = '🚗'
 
@@ -7949,7 +8132,7 @@ def compose(sel, pool):
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
                  'health', 'healthcost', 'culture', 'tourism', 'level', 'boxoffice',
                  'boxhist', 'incheon', 'rail', 'railstations', 'seoulstation', 'wxday',
-                 'rescue', 'kopis'}
+                 'rescue', 'kopis', 'kepco', 'kepcohist'}
     uses_seoul = any(c not in non_seoul for c in cats)
     uses_kosis = 'national' in cats
     # The library "1 in N" divides by KOSIS's registered population, so a card
@@ -7980,6 +8163,7 @@ def compose(sel, pool):
     # The rescue register is the quarantine agency's, served through data.go.kr.
     uses_apqa = 'rescue' in cats
     uses_kopis = 'kopis' in cats
+    uses_kepco = bool({'kepco', 'kepcohist'} & cats)
     srcs = (['data.seoul.go.kr'] if uses_seoul else []) + \
            (['kosis.kr'] if uses_kosis or lib_ratio else []) + \
            ([OECD_DOMAIN] if uses_oecd else []) + \
@@ -7995,6 +8179,7 @@ def compose(sel, pool):
            (['kobis.or.kr'] if uses_kobis else []) + \
            (['animal.go.kr'] if uses_apqa else []) + \
            (['kopis.or.kr'] if uses_kopis else []) + \
+           (['bigdata.kepco.co.kr'] if uses_kepco else []) + \
            ([WB_DOMAIN] if uses_wb else [])
     if not srcs:
         srcs = ['data.seoul.go.kr']
@@ -8055,6 +8240,9 @@ def compose(sel, pool):
     if uses_kopis:
         src_en += ' · KOPIS, Korea Arts Management Service'
         src_ko += ' · 공연예술통합전산망, 예술경영지원센터'
+    if uses_kepco:
+        src_en += ' · Korea Electric Power Corporation'
+        src_ko += ' · 한국전력공사'
     if uses_kma:
         # Which station the readings come from is a key to the figures, so
         # it rides on the card; the labels already carry their months.
@@ -8853,6 +9041,7 @@ LINK_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                 ('kobis.or.kr', 'https://www.kobis.or.kr'),
                 ('animal.go.kr', 'https://www.animal.go.kr'),
                 ('kopis.or.kr', 'https://www.kopis.or.kr'),
+                ('bigdata.kepco.co.kr', 'https://bigdata.kepco.co.kr'),
                 (WB_DOMAIN, f'https://{WB_DOMAIN}')]
 
 
@@ -9037,6 +9226,7 @@ def main():
     # office vein is silent without it.
     kobis_key = config.get('kobis_key')
     kopis_key = config.get('kopis_key')
+    kepco_key = config.get('kepco_key')
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
 
     # Inspect the cross-vein collisions the detector finds for the live pool,
@@ -9044,7 +9234,7 @@ def main():
     # selector will be offered (unlike a --dry-run, whose picks the model makes).
     if SHOW_CROSS:
         pool = build_pool(api_key, state, kosis_key, gov_key, hrfco_key,
-                          kobis_key, kopis_key)
+                          kobis_key, kopis_key, kepco_key)
         elig = [f for f in pool if f.get('unit')]
         print(f'{len(pool)} facts, {len(elig)} collidable:')
         for f in sorted(elig, key=lambda f: (f['unit'], -f['num'])):
@@ -9102,7 +9292,7 @@ def main():
 
     if not want_spotlight:
         pool = build_pool(api_key, state, kosis_key, gov_key, hrfco_key,
-                          kobis_key, kopis_key)
+                          kobis_key, kopis_key, kepco_key)
         if len(pool) < 5:
             sys.exit(f'Pool too small ({len(pool)} facts) — data sources may be down.')
 
@@ -9149,6 +9339,10 @@ def main():
                               RESCUE_COOLDOWN_DAYS, 'Rescued animals')
         pool = apply_cooldown(pool, state, 'last_kopis_at', 'kopis',
                               KOPIS_COOLDOWN_DAYS, 'Performances')
+        pool = apply_cooldown(pool, state, 'last_kepco_at', 'kepco',
+                              KEPCO_COOLDOWN_DAYS, 'Electricity')
+        pool = apply_cooldown(pool, state, 'last_kepcohist_at', 'kepcohist',
+                              KEPCO_COOLDOWN_DAYS, 'Electricity then-and-now')
         pool = apply_holds(pool)
 
         # The floor under the veins the selector never reaches for. Applied
@@ -9469,6 +9663,10 @@ def main():
         state['last_rescue_at'] = state['last_success_at']
     if primary == 'kopis':
         state['last_kopis_at'] = state['last_success_at']
+    if primary == 'kepco':
+        state['last_kepco_at'] = state['last_success_at']
+    if primary == 'kepcohist':
+        state['last_kepcohist_at'] = state['last_success_at']
     write_json_atomic(STATE, state, ensure_ascii=False, indent=2)
 
     log_card(c, sel, primary, posted_uri, handle, fallback=cards is None)
