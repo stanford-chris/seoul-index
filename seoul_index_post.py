@@ -268,7 +268,7 @@ SEVERE_STARVE_DAYS = STARVE_DAYS * 2
 # total (in the millions) would jump to the top of a card whose whole point is
 # the top-to-bottom rank of the three routes above it.
 ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist', 'busroutes', 'stations',
-                'busmovers', 'nightbus', 'busweekend', 'busstops', 'railstations'}
+                'busmovers', 'nightbus', 'busweekend', 'busstops', 'railstations', 'seoulstation'}
 
 # Every vein's lines are all-or-nothing on emoji, not just a chosen few: a
 # partial set reads as an oversight rather than a judgement, whatever the
@@ -482,7 +482,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # --dry-run for a preview, or --force past the six-hour guard), since that is
 # how a decision gets made. Empty the set to release a vein; nothing else
 # needs touching. Empty since 11 September 2026.
-HELD_CATS = set()   # railstations held and released 11 Sep 2026 once its footnote was settled
+HELD_CATS = {'seoulstation'}   # held 11 Sep 2026 until he has seen the card
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -1617,7 +1617,7 @@ BUSWEEKEND_COOLDOWN_DAYS = 7
 # 'map_routes': [(label, colour, route_no)], 'map_caption'}}. Reset every run.
 RANKED_CARD_INFO = {}
 RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend', 'busstops',
-               'railstations')
+               'railstations', 'seoulstation')
 # The veins whose card is TWO lines by design: rush (one station at two
 # hours) and, since 11 September 2026, busmovers (one rise, one fall) and
 # busweekend (one holds up best, one falls most). Every other vein needs
@@ -4510,10 +4510,10 @@ KORAIL_LINE_EN = {
 }
 
 
-def _korail_fetch(key, op, numofrows):
+def _korail_fetch(key, op, numofrows, page=1):
     """One page of one Korail operation, as its item list, or []."""
     url = (KORAIL_BASE.format(op=op) +
-           f'?serviceKey={key}&pageNo=1&numOfRows={numofrows}&type=json')
+           f'?serviceKey={key}&pageNo={page}&numOfRows={numofrows}&type=json')
     r = subprocess.run(['curl', '-s', '--max-time', '45', '-A', MOLIT_UA, url],
                        capture_output=True, text=True)
     try:
@@ -4539,6 +4539,83 @@ def _korail_newest_rows(key, op, numofrows):
     return _korail_newest(_korail_fetch(key, op, numofrows), 'run_ym')
 
 
+# --- Korail per-station history -------------------------------------------------
+# His call, 11 September 2026 ("Can we start saving data so we have more
+# than a year's worth?"): the feed prunes at about a year, so anything older
+# exists nowhere unless kept here. korail_station_history.json holds every
+# station's boardings and alightings for every day the bot has seen,
+# {'days': {'YYYYMMDD': {'서울': [ride, goff], ...}}}, about 2.5 MB a year.
+# Gitignored like crowd_history.jsonl (public data, but not source), and
+# swept to the NAS and C2 nightly with the rest of ~/Projects. Once per run
+# the bot fetches KORAIL_FETCH_PAGES pages (about 77 days) and folds them
+# in, the feed's value winning for any day it still serves, so a month of
+# missed runs heals itself; korail_station_history_backfill.py pages the
+# whole feed for the initial fill. ⚠️ Both Korail station cards read the
+# NEWEST day from what was FETCHED this run, never from the file: a failed
+# fetch withholds them rather than posting the file's last day as new.
+KORAIL_HISTORY = Path(__file__).with_name('korail_station_history.json')
+KORAIL_FETCH_PAGES = 4
+KORAIL_PAGE_ROWS = 5000
+_KORAIL_RUN = {}     # one fetch per process: {'history': days, 'fetched': days}
+
+
+def load_korail_history():
+    try:
+        h = json.loads(KORAIL_HISTORY.read_text())
+    except (OSError, ValueError):
+        h = {}
+    h.setdefault('days', {})
+    return h
+
+
+def save_korail_history(h):
+    write_json_atomic(KORAIL_HISTORY, h, ensure_ascii=False)
+
+
+def korail_days_from_rows(items):
+    """{day: {station: [ride, goff]}} from mainLineStationPer rows."""
+    out = {}
+    for x in items:
+        day, name = x.get('opr_ymd') or '', (x.get('stn_nm') or '').strip()
+        if len(day) != 8 or not name:
+            continue
+        try:
+            out.setdefault(day, {})[name] = [int(x.get('ride_nope') or 0), int(x.get('goff_nope') or 0)]
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def korail_history_add(h, days):
+    """Fold fetched days into the history; the feed wins for a day it still
+    serves (a revised figure replaces the stored one). True if anything changed."""
+    changed = False
+    for day, stations in days.items():
+        if h['days'].get(day) != stations:
+            h['days'][day] = stations
+            changed = True
+    return changed
+
+
+def korail_station_days(key):
+    """(history days, fetched days), fetching once per process. fetched is
+    {} when nothing came back, and both station cards withhold on that."""
+    if 'history' in _KORAIL_RUN:
+        return _KORAIL_RUN['history'], _KORAIL_RUN['fetched']
+    items = []
+    for page in range(1, KORAIL_FETCH_PAGES + 1):
+        got = _korail_fetch(key, 'mainLineStationPer', KORAIL_PAGE_ROWS, page)
+        if not got:
+            break
+        items += got
+    fetched = korail_days_from_rows(items)
+    h = load_korail_history()
+    if fetched and korail_history_add(h, fetched):
+        save_korail_history(h)
+    _KORAIL_RUN['history'], _KORAIL_RUN['fetched'] = h['days'], fetched
+    return h['days'], fetched
+
+
 # --- the rail stations card ---------------------------------------------------
 # His call, 11 September 2026 ("Now the Korail per-station card"), the
 # second of the two Korail operations this bot reads that carry Seoul by
@@ -4546,8 +4623,8 @@ def _korail_newest_rows(key, op, numofrows):
 # day, boardings (ride_nope) and alightings (goff_nope), station names in
 # the row, about 258 stations a day, newest day first, roughly a year of
 # history and no date parameter (93,814 rows on 11 September 2026, back to
-# 10 September 2025). The newest day was three days back. KORAIL_DAY_ROWS
-# covers about eight days, so the newest day is complete whatever the order.
+# 10 September 2025). The newest day was three days back. The rows come
+# through korail_station_days() above, shared with the Seoul Station card.
 #
 # ⚠️ WHICH STATIONS ARE IN SEOUL WAS MEASURED, NOT ASSUMED. The 258 names on
 # 8 September 2026 were matched to subwayStationMaster and passed through
@@ -4562,7 +4639,6 @@ def _korail_newest_rows(key, op, numofrows):
 # English is the station table's, tried with 역 first so 서울 reads "Seoul
 # Station" and not "Seoul", the city: a bare "Seoul: 49,068" on a card
 # about stations would say the wrong thing.
-KORAIL_DAY_ROWS = 2000
 KORAIL_SEOUL_STATIONS = ('서울', '용산', '청량리', '영등포', '상봉', '왕십리', '옥수', '양원')
 RAILSTATIONS_OPENER_EN = 'Seoul’s railway stations'
 RAILSTATIONS_OPENER_KO = '서울의 기차역'
@@ -4573,6 +4649,81 @@ RAILSTATIONS_NOTE_EN = (f'The four busiest of Seoul’s {len(KORAIL_SEOUL_STATIO
                         f'Korail trains only, KTX to Mugunghwa; SRT is a separate operator.')
 RAILSTATIONS_NOTE_KO = (f'서울의 코레일 역 {len(KORAIL_SEOUL_STATIONS)}곳 중 승차가 많은 네 곳. '
                         f'코레일 열차 기준(KTX~무궁화호), SRT는 별도 운영사.')
+
+
+# --- the Seoul Station card ---------------------------------------------------
+# His call, 11 September 2026, a separate vein from the rail stations card
+# above: one station, its passengers that day, and something to read the
+# figure against. Measured over the 364 days the feed held that morning:
+# 서울 led every one of them, in Seoul and nationally, so the vein never has
+# to ask which station. Its median day is about 113,000 boardings and
+# alightings together, but Monday to Wednesday run near 100,000 and Friday
+# to Sunday near 135,000, so the comparison is the SAME WEEKDAY, as the
+# movers card does: the median of the previous SEOULSTATION_MAX_PRIOR such
+# days, at least SEOULSTATION_MIN_PRIOR. Boardings and alightings are two
+# lines rather than one, because they part only around the holidays and
+# then carry the whole story: 14 February 2026, the Saturday before
+# Seollal, 76,119 boarded and 44,605 got off; on the 18th it reversed,
+# 43,102 against 78,103. On an ordinary day the two are within a few
+# hundred. Rejected as the comparison: a year ago (the feed holds exactly a
+# year, so that day sits on the edge and drops out), the nation's share
+# (a computed share, which the pinned card says this account does not
+# publish), and the year's busiest day (it would repeat until beaten).
+#
+# The baseline reads korail_station_history.json (see KORAIL_HISTORY), so
+# it outlives the feed's year; the day itself is always this run's fetch. A
+# holiday is not excluded from the day or the baseline: the median absorbs
+# one or two among eight, and a holiday IS the day worth comparing.
+SEOULSTATION_NAME = '서울'
+SEOULSTATION_MIN_PRIOR = 3
+SEOULSTATION_MAX_PRIOR = 8
+SEOULSTATION_COOLDOWN_DAYS = 7
+
+
+def seoul_station_facts(key):
+    """The seoulstation card: boarded, got off, passengers, and a typical
+    same weekday, for the newest fetched day, the baseline from the history
+    file. Fills RANKED_CARD_INFO when built; prints why when withheld."""
+    RANKED_CARD_INFO.pop('seoulstation', None)
+    if not key:
+        return []
+    history, fetched = korail_station_days(key)
+    if not fetched:
+        return []
+    day = max(fetched)
+    if SEOULSTATION_NAME not in fetched[day]:
+        print(f'Seoul Station card withheld: no {SEOULSTATION_NAME} row for {day}.')
+        return []
+    ride, goff = fetched[day][SEOULSTATION_NAME]
+    series = {k: v[SEOULSTATION_NAME] for k, v in history.items() if SEOULSTATION_NAME in v}
+    dt = _day_dt(day)
+    d, d_ko = en_date(dt), f'{dt.month}월 {dt.day}일'
+    wd = dt.weekday()
+    prior = sorted(k for k in series if k < day and _day_dt(k).weekday() == wd)[-SEOULSTATION_MAX_PRIOR:]
+    if len(prior) < SEOULSTATION_MIN_PRIOR:
+        print(f'Seoul Station card withheld for {d}: only {len(prior)} prior '
+              f'{WEEKDAY_EN[wd]}s in the feed, need {SEOULSTATION_MIN_PRIOR}.')
+        return []
+    typical = round(statistics.median(series[k][0] + series[k][1] for k in prior))
+    wd_en, wd_ko = WEEKDAY_EN[wd], WEEKDAY_KO[wd]
+    n = len(prior)
+    RANKED_CARD_INFO['seoulstation'] = {
+        'day_en': d, 'day_ko': d_ko,
+        'opener_en': 'Seoul Station', 'opener_ko': '서울역',
+        'dateline_en': d, 'dateline_ko': d_ko,
+        'note_en': (f'Typical: the median of the previous {n} {wd_en}s. '
+                    f'Korail trains only; SRT is a separate operator.'),
+        'note_ko': f'평소: 이전 {wd_ko} {n}회의 중앙값. 코레일 열차 기준, SRT는 별도 운영사.'}
+    return [
+        fact('railss_boarded', 'seoulstation', 'Boarded', grouped(ride), grouped(ride), pin=True,
+             label_ko='승차', num=ride, unit='people'),
+        fact('railss_alighted', 'seoulstation', 'Got off', grouped(goff), grouped(goff), pin=True,
+             label_ko='하차', num=goff, unit='people'),
+        fact('railss_total', 'seoulstation', 'Passengers', grouped(ride + goff), grouped(ride + goff),
+             pin=True, label_ko='이용객', num=ride + goff, unit='people'),
+        fact('railss_typical', 'seoulstation', f'A typical {wd_en}', grouped(typical), grouped(typical),
+             pin=True, label_ko=f'평소 {wd_ko}', num=typical, unit='people'),
+    ]
 
 
 def rail_station_en(ko_name):
@@ -4588,18 +4739,11 @@ def rail_stations_facts(key):
     RANKED_CARD_INFO.pop('railstations', None)
     if not key:
         return []
-    rows, day = _korail_newest(_korail_fetch(key, 'mainLineStationPer', KORAIL_DAY_ROWS), 'opr_ymd')
-    if not rows or not day or len(day) != 8:
+    _, fetched = korail_station_days(key)
+    if not fetched:
         return []
-    seoul = []
-    for x in rows:
-        name = (x.get('stn_nm') or '').strip()
-        if name not in KORAIL_SEOUL_STATIONS:
-            continue
-        try:
-            seoul.append((name, int(x.get('ride_nope') or 0)))
-        except (TypeError, ValueError):
-            continue
+    day = max(fetched)
+    seoul = [(name, v[0]) for name, v in fetched[day].items() if name in KORAIL_SEOUL_STATIONS]
     seoul.sort(key=lambda t: (-t[1], t[0]))
     top = seoul[:4]
     dt = _day_dt(day)
@@ -5817,6 +5961,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += iiac_facts(gov_key)
     pool += rail_facts(gov_key)
     pool += rail_stations_facts(gov_key)
+    pool += seoul_station_facts(gov_key)
     pool += hira_facts(gov_key)
     pool += hira_cost_facts(gov_key)
     pool += culture_facts(gov_key)
@@ -5869,6 +6014,7 @@ Rules:
 - "stations" lines are that day's busiest, second-busiest and quietest Seoul SUBWAY stations by official English name ("Busiest: Seoul Station"), plus the day's total subway boardings — own post, never mixed with any other category, including "transport" and "busroutes" above. Exactly the same rules as "busroutes": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the opener MUST name the subway or its stations, because the lines carry BARE STATION NAMES with no "station" word ("Busiest: Seoul Station", "Quietest: Dorimcheon"), e.g. "Seoul's subway, station by station", "Through the turnstiles", and it MUST NOT settle on one wording; never call a station busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines.
 - "busstops" lines are that day's busiest, second-busiest and third-busiest Seoul BUS STOPS ("Busiest: Hongik University Station", one stop per name, the busier side of the road), plus how many stops took at least one boarding that day — own post, never mixed with any other category, including "transport", "busroutes" and "stations" above. Exactly the same rules as "stations": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the lines carry BARE STOP NAMES with no "stop" word, and a stop named after a station reads as the station unless the title says these are bus stops, so like "busmovers" its opener is FIXED and written by Python ("Seoul's bus stops") and whatever opener you write for this card is replaced; never call a stop busy, quiet, packed or empty, and never remark on the gap between the lines. There is no quietest line on this card, by design.
 - "railstations" lines are the four busiest of Seoul's Korail stations by boardings on one day ("Seoul Station", "Yongsan"), from the Korea Railroad Corporation — own post, never mixed with any other category, including "rail" and "stations" above (the subway card is a different thing). All FOUR lines are compulsory, used together, in that order; the dateline carries the date and the footnote the operator note, so do NOT put either in the opener. The lines are BARE STATION NAMES, so like "busmovers" its opener is FIXED and written by Python ("Seoul's railway stations") and whatever opener you write for this card is replaced. Never call a station busy or quiet, and never remark on the gap between the lines.
+- "seoulstation" lines are ONE station, Seoul Station, on one day: how many boarded Korail trains there, how many got off, the two together ("Passengers"), and "A typical Tuesday", the median of the previous same weekdays — own post, never mixed with any other category, including "rail", "railstations" and "stations". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Seoul Station"), so whatever opener you write for this card is replaced; the dateline carries the date and the footnote says what typical means. Never guess WHY the day differs from a typical one, and never call the station busy or quiet.
 - "busmovers" lines are the day's biggest RISE and biggest FALL in bus boardings, route by route, each against that route's own typical figure for the same weekday ("Up the most: 5511, 16,571 boardings" with a value of "+40%"). Own post, never mixed with any other category. BOTH lines are compulsory, in that order (up, then down): this is a two-line card by design, like "rush". Like "rush", its opener is FIXED and written by Python ("Seoul's bus routes, against their usual Monday"), so whatever opener you write for this card is replaced; the dateline carries the date and the footnote the comparison. Never guess WHY a route rose or fell.
 - "nightbus" lines are the day's busiest, second-busiest and quietest NIGHT bus routes (Seoul's N routes, which run through the small hours) plus the night total — own post, exactly the "busroutes" rules: all FOUR lines, in order, no date in the opener, the opener MUST name night buses, since the lines carry BARE ROUTE NUMBERS ("Seoul after midnight, by bus", "The night buses"), never "busy" or "quiet" as adjectives.
 - "busweekend" lines are the two routes whose boardings changed MOST between weekdays and the weekend over one week: the one that holds up best at the weekend and the one that falls most ("Holds up best: Route 271, 9,880 a day" with a value of "+3%" or "−12%"). Own post, BOTH lines in that order: a two-line card by design, like "rush"; the dateline carries the week and the footnote the comparison. Like "rush" and "busmovers", its opener is FIXED and written by Python ("Seoul's bus routes, weekend against weekday"), so whatever opener you write for this card is replaced. Never guess why.
@@ -7310,7 +7456,7 @@ def compose(sel, pool):
     # from Seoul's own portal (SeoulLibraryBookRentNumInfo), not data4library.
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
                  'health', 'healthcost', 'culture', 'tourism', 'level', 'boxoffice',
-                 'boxhist', 'incheon', 'rail', 'railstations'}
+                 'boxhist', 'incheon', 'rail', 'railstations', 'seoulstation'}
     uses_seoul = any(c not in non_seoul for c in cats)
     uses_kosis = 'national' in cats
     # The library "1 in N" divides by KOSIS's registered population, so a card
@@ -7326,7 +7472,7 @@ def compose(sel, pool):
     uses_kma = 'weather' in cats or 'river' in cats
     uses_kac = 'airport' in cats
     uses_iiac = 'incheon' in cats
-    uses_korail = bool({'rail', 'railstations'} & cats)
+    uses_korail = bool({'rail', 'railstations', 'seoulstation'} & cats)
     uses_hira = 'health' in cats
     # A different HIRA dataset from uses_hira above (cost, not patient
     # counts — see hira_cost_facts()), but the same providing agency, so it
@@ -8474,6 +8620,8 @@ def main():
                               BUSSTOPS_COOLDOWN_DAYS, 'Bus stops')
         pool = apply_cooldown(pool, state, 'last_railstations_at', 'railstations',
                               RAILSTATIONS_COOLDOWN_DAYS, 'Rail stations')
+        pool = apply_cooldown(pool, state, 'last_seoulstation_at', 'seoulstation',
+                              SEOULSTATION_COOLDOWN_DAYS, 'Seoul Station')
         pool = apply_holds(pool)
 
         # The floor under the veins the selector never reaches for. Applied
@@ -8774,6 +8922,8 @@ def main():
         state['last_busstops_at'] = state['last_success_at']
     if primary == 'railstations':
         state['last_railstations_at'] = state['last_success_at']
+    if primary == 'seoulstation':
+        state['last_seoulstation_at'] = state['last_success_at']
     write_json_atomic(STATE, state, ensure_ascii=False, indent=2)
 
     log_card(c, sel, primary, posted_uri, handle, fallback=cards is None)

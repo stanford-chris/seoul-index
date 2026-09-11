@@ -20,6 +20,7 @@ import tempfile as _tempfile
 from pathlib import Path as _Path
 # transport_facts() writes the per-route history file; never the real one from a test.
 S.BUS_HISTORY = _Path(_tempfile.mkdtemp()) / 'bus_route_history.json'
+S.KORAIL_HISTORY = _Path(_tempfile.mkdtemp()) / 'korail_station_history.json'
 
 # ⚠️ compose() ends by checking its labels against the pool's own with a model
 # call (see check_labels). These tests promise no network and no model call, so
@@ -2271,8 +2272,9 @@ class HeldVeins(unittest.TestCase):
         # Pins the current instruction; change this test when he decides.
         # busroutes was held 10-11 September 2026 and released on the 11th;
         # busstops held and released the same day, 11 September, once its
-        # wording was settled; railstations likewise, held and released the same day.
-        self.assertEqual(self._held, set())
+        # wording was settled; railstations likewise, held and released the same
+        # day; seoulstation held from 11 September until he has seen it.
+        self.assertEqual(self._held, {'seoulstation'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
@@ -2801,20 +2803,15 @@ class RailStationsCard(unittest.TestCase):
             _row.__func__('20260907', '청량리', 90000, 1), _row.__func__('20260907', '서울', 1, 1)]
 
     def facts(self, rows=None):
-        import subprocess as real_subprocess
+        return korail_run(lambda: S.rail_stations_facts('KEY'), self.ROWS if rows is None else rows)
 
-        def run(cmd, **kw):
-            items = list(self.ROWS if rows is None else rows) if 'mainLineStationPer' in cmd[-1] else []
-            return types.SimpleNamespace(stdout=json.dumps({'response': {'body': {'items': {'item': items}}}}),
-                                         returncode=0)
-        S.subprocess.run = run
-        try:
-            return S.rail_stations_facts('KEY')
-        finally:
-            S.subprocess.run = real_subprocess.run
+    def setUp(self):
+        S.KORAIL_HISTORY = _Path(_tempfile.mkdtemp()) / 'korail_station_history.json'
+        S._KORAIL_RUN.clear()
 
     def tearDown(self):
         S.RANKED_CARD_INFO.pop('railstations', None)
+        S._KORAIL_RUN.clear()
 
     def test_the_four_busiest_seoul_stations_on_the_newest_day_only(self):
         facts = self.facts()
@@ -2851,6 +2848,7 @@ class RailStationsCard(unittest.TestCase):
 
     def test_an_empty_or_broken_feed_withholds_quietly(self):
         self.assertEqual(self.facts([]), [])
+        S._KORAIL_RUN.clear()
         self.assertEqual(self.facts([{'stn_nm': '서울', 'ride_nope': '1'}]), [])   # no day at all
 
     def test_seoul_is_the_station_not_the_city(self):
@@ -2878,7 +2876,133 @@ class RailStationsCard(unittest.TestCase):
         self.assertIn("'last_railstations_at', 'railstations'", src)
         self.assertIn("state['last_railstations_at'] = state['last_success_at']", src)
         self.assertIn('- "railstations" lines are', src)
-        self.assertIn("uses_korail = bool({'rail', 'railstations'} & cats)", src)
+        self.assertIn("uses_korail = bool({'rail', 'railstations', 'seoulstation'} & cats)", src)
+
+
+def korail_run(fn, rows, calls=None):
+    """Run fn() with subprocess.run stubbed to serve `rows` for page 1 of
+    mainLineStationPer and nothing for any other page or operation."""
+    import subprocess as real_subprocess
+
+    def run(cmd, **kw):
+        url = cmd[-1]
+        if calls is not None:
+            calls.append(url)
+        items = list(rows) if ('mainLineStationPer' in url and 'pageNo=1&' in url) else []
+        return types.SimpleNamespace(stdout=json.dumps({'response': {'body': {'items': {'item': items}}}}),
+                                     returncode=0)
+    S.subprocess.run = run
+    try:
+        return fn()
+    finally:
+        S.subprocess.run = real_subprocess.run
+
+
+class SeoulStationCard(unittest.TestCase):
+    """One station, one day, against its own typical same weekday, with the
+    baseline read from korail_station_history.json so it outlives the
+    feed's year. What would ship it wrong: a baseline of the wrong weekday,
+    a stale day from the file posted as new after a failed fetch, and a
+    history that never learns a day the feed revised."""
+
+    @staticmethod
+    def _row(day, name, ride, goff):
+        return {'opr_ymd': day, 'stn_nm': name, 'ride_nope': str(ride), 'goff_nope': str(goff)}
+
+    # The feed: Tuesday 8 September plus the two Tuesdays before it and a
+    # Wednesday that must not enter the baseline.
+    ROWS = [_row.__func__('20260908', '서울', 49068, 48364), _row.__func__('20260908', '용산', 1, 1),
+            _row.__func__('20260901', '서울', 50000, 50000), _row.__func__('20260825', '서울', 54000, 54000),
+            _row.__func__('20260902', '서울', 90000, 90000)]
+    # The file: four older Tuesdays the feed no longer serves, and a stale
+    # value for 25 August that the feed's 108,000 must replace.
+    FILE = {'days': {'20260818': {'서울': [60000, 60000]}, '20260811': {'서울': [61000, 61000]},
+                     '20260804': {'서울': [62000, 62000]}, '20260728': {'서울': [63000, 63000]},
+                     '20260825': {'서울': [1, 1]}}}
+
+    def setUp(self):
+        S.KORAIL_HISTORY = _Path(_tempfile.mkdtemp()) / 'korail_station_history.json'
+        S.KORAIL_HISTORY.write_text(json.dumps(self.FILE))
+        S._KORAIL_RUN.clear()
+
+    def tearDown(self):
+        S.RANKED_CARD_INFO.pop('seoulstation', None)
+        S._KORAIL_RUN.clear()
+
+    def facts(self, rows=None, calls=None):
+        return korail_run(lambda: S.seoul_station_facts('KEY'), self.ROWS if rows is None else rows, calls)
+
+    def test_the_four_lines_and_the_typical_tuesday_from_file_and_feed_together(self):
+        facts = self.facts()
+        self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
+                         [('Boarded', '49,068'), ('Got off', '48,364'), ('Passengers', '97,432'),
+                          ('A typical Tuesday', '121,000')])
+        # Six prior Tuesdays: 100,000 and 108,000 from the feed, 120,000,
+        # 122,000, 124,000 and 126,000 from the file; the Wednesday is out.
+        # Median of the six is 121,000; of the feed's two alone, 104,000.
+        self.assertEqual([f['label_ko'] for f in facts], ['승차', '하차', '이용객', '평소 화요일'])
+        for f in facts:
+            self.assertEqual(f['cat'], 'seoulstation'); self.assertTrue(f['pin'])
+
+    def test_the_registry_carries_the_fixed_opener_the_day_and_the_note(self):
+        self.facts()
+        info = S.RANKED_CARD_INFO['seoulstation']
+        self.assertEqual(info['opener_en'], 'Seoul Station')
+        self.assertEqual(info['dateline_en'], 'September 8')
+        self.assertEqual(info['note_en'], 'Typical: the median of the previous 6 Tuesdays. '
+                                          'Korail trains only; SRT is a separate operator.')
+        self.assertEqual(info['note_ko'], '평소: 이전 화요일 6회의 중앙값. 코레일 열차 기준, SRT는 별도 운영사.')
+
+    def test_the_feed_wins_and_the_file_learns_the_day(self):
+        self.facts()
+        h = json.loads(S.KORAIL_HISTORY.read_text())['days']
+        self.assertEqual(h['20260825']['서울'], [54000, 54000])   # revised over the stale 1
+        self.assertEqual(h['20260908']['용산'], [1, 1])           # every station is kept
+        self.assertEqual(h['20260728']['서울'], [63000, 63000])   # older days untouched
+
+    def test_a_failed_fetch_withholds_even_with_a_full_file(self):
+        before = S.KORAIL_HISTORY.read_text()
+        self.assertEqual(self.facts(rows=[]), [])
+        self.assertNotIn('seoulstation', S.RANKED_CARD_INFO)
+        self.assertEqual(S.KORAIL_HISTORY.read_text(), before)   # nothing written on a failed fetch
+
+    def test_too_few_prior_same_weekdays_withholds(self):
+        S.KORAIL_HISTORY.write_text('{}')
+        S._KORAIL_RUN.clear()
+        self.assertEqual(self.facts(), [])   # only the feed's two Tuesdays
+
+    def test_one_fetch_serves_both_korail_station_cards(self):
+        calls = []
+        korail_run(lambda: (S.rail_stations_facts('KEY'), S.seoul_station_facts('KEY')), self.ROWS, calls)
+        # Page 1 serves rows and page 2 comes back empty, so one fetch is
+        # two calls; a second fetch for the second card would make it four.
+        self.assertEqual(sum('mainLineStationPer' in c for c in calls), 2)
+
+    def test_the_card_composes_bold_labels_no_line_emoji_and_the_train(self):
+        pool = self.facts()
+        sel = {'opener_en': 'x', 'opener_ko': 'x', 'opener_emoji': '🚗',
+               'picks': [{'id': f['id']} for f in pool]}
+        c = S.compose(sel, pool)
+        self.assertTrue(all(l['emoji'] == '' for l in c['lines']))
+        self.assertTrue(all(l.get('bold') for l in c['lines']))
+        self.assertEqual([l['label_en'] for l in c['lines']],
+                         ['Boarded', 'Got off', 'Passengers', 'A typical Tuesday'])
+        self.assertEqual(c['dateline_en'], 'September 8')
+        self.assertEqual(c['opener']['emoji'], '🚆')
+        self.assertIn('korail.com', c['src_en'])
+
+    def test_the_vein_is_wired_everywhere_the_other_ranked_cards_are(self):
+        self.assertIn('seoulstation', S.RANKED_CATS)
+        self.assertIn('seoulstation', S.ORDERED_CATS)
+        self.assertGreaterEqual(S.SEOULSTATION_COOLDOWN_DAYS, 7)
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertIn("'last_seoulstation_at', 'seoulstation'", src)
+        self.assertIn("state['last_seoulstation_at'] = state['last_success_at']", src)
+        self.assertIn('- "seoulstation" lines are', src)
+        self.assertIn("'seoulstation'} & cats", src)
+
+    def test_the_live_hold_is_the_seoul_station_card(self):
+        self.assertEqual(S.HELD_CATS, {'seoulstation'})
 
 
 if __name__ == '__main__':

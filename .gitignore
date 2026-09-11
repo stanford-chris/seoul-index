@@ -62,3 +62,8 @@ feeds_history.jsonl.bak-*
 
 # Per-route daily bus totals, regenerable by bus_route_history_backfill.py
 bus_route_history.json
+
+# Every Korail station's daily boardings and alightings, for as long as the
+# bot has run: the feed prunes at about a year, so older days exist only
+# here (and on the NAS). Initial fill by korail_station_history_backfill.py.
+korail_station_history.json
