@@ -1740,24 +1740,30 @@ class BusRoutesVein(unittest.TestCase):
         second = self.by_id(facts, 'bus_second_route')
         self.assertIsNotNone(second, 'busroutes withheld')
         # 250 boardings over 10 stops across both RTE_IDs: 25 a stop.
-        self.assertEqual(second['label_en'], '2nd-busiest: 1129, 10 stops')
+        self.assertEqual(second['label_en'], '2nd-busiest: 1129')
         self.assertEqual(second['value_en'], '25')
         self.assertEqual(second['cat'], 'busroutes'); self.assertTrue(second['pin'])
 
     def test_ranked_by_boardings_per_stop_with_the_average_as_fourth_line(self):
         facts = self._facts(self.FIVE_ROUTES)
         top = self.by_id(facts, 'bus_busiest_route')
-        self.assertEqual(top['label_en'], 'Busiest: 100, 10 stops')
+        self.assertEqual(top['label_en'], 'Busiest: 100')
         self.assertEqual(top['value_en'], '30')
-        self.assertEqual(top['label_ko'], '가장 붐빔: 100번, 정류장 10곳')
+        self.assertEqual(top['label_ko'], '가장 붐빔: 100번')
+        # The stop counts ride the footnote, and the measure the dateline
+        # (his layout, 11 September 2026).
+        info = S.RANKED_CARD_INFO['busroutes']
+        self.assertTrue(info['dateline_en'].startswith('Boardings per stop served on '), info['dateline_en'])
+        self.assertIn('Number of stops: Route 100 (10), 1129 (10), 7719 (10).', info['note_en'])
+        self.assertTrue(info['note_en'].startswith('Trunk and branch routes with 10 or more stops. '))
         quiet = self.by_id(facts, 'bus_quietest_route')
-        self.assertEqual(quiet['label_en'], 'Quietest: 7719, 10 stops')
+        self.assertEqual(quiet['label_en'], 'Quietest: 7719')
         self.assertEqual(quiet['value_en'], '1')
         avg = self.by_id(facts, 'bus_route_total')
         self.assertEqual(avg['label_en'], 'Average per stop, all routes')
         self.assertEqual(avg['value_en'], '16')      # 668 boardings over 42 stops
         info = S.RANKED_CARD_INFO['busroutes']
-        self.assertTrue(info['note_en'].startswith('Boardings per stop served'))
+        self.assertTrue(info['note_en'].startswith('Trunk and branch routes with 10 or more stops.'))
         self.assertEqual([no for _, _, no in info['map_routes']], ['100', '1129', '7719'])
 
     def test_hangul_tailored_night_and_express_routes_never_rank(self):
@@ -1767,7 +1773,7 @@ class BusRoutesVein(unittest.TestCase):
         for no, per in (('마포01', 1000), ('8442퇴근', 1000), ('8641', 500), ('N13', 500), ('9401', 400)):
             rows = rows + self._rows(no, no, per, 12)
         facts = self._facts(rows)
-        self.assertEqual(self.by_id(facts, 'bus_busiest_route')['label_en'], 'Busiest: 100, 10 stops')
+        self.assertEqual(self.by_id(facts, 'bus_busiest_route')['label_en'], 'Busiest: 100')
         for f in facts:
             self.assertNotIn('마포', f['label_en']); self.assertNotIn('퇴근', f['label_en'])
         # The average is over ranked routes only, so it is unchanged too.
@@ -1777,7 +1783,7 @@ class BusRoutesVein(unittest.TestCase):
         # 150 at 1 a stop on 5 stops would be the quietest if counted.
         rows = self.FIVE_ROUTES + self._rows('150', '9', 1, 5)
         facts = self._facts(rows)
-        self.assertEqual(self.by_id(facts, 'bus_quietest_route')['label_en'], 'Quietest: 7719, 10 stops')
+        self.assertEqual(self.by_id(facts, 'bus_quietest_route')['label_en'], 'Quietest: 7719')
 
     def test_no_bus_data_at_all_withholds_the_whole_ranking(self):
         facts = self._facts([])
@@ -1800,7 +1806,7 @@ class BusRoutesVein(unittest.TestCase):
         rows = self.FIVE_ROUTES + self._rows('100', '11110001', 30, 10)   # same STOPS_IDs again
         facts = self._facts(rows)
         top = self.by_id(facts, 'bus_busiest_route')
-        self.assertEqual(top['label_en'], 'Busiest: 100, 10 stops')
+        self.assertEqual(top['label_en'], 'Busiest: 100')
         self.assertEqual(top['value_en'], '60')      # 600 over 10, not 20 rows
 
     def test_a_history_stamped_with_an_older_stop_rule_drops_its_stop_counts(self):
@@ -2286,7 +2292,7 @@ class BusRouteStreak(unittest.TestCase):
         top, td, bottom, bd, rec, first = S.bus_rank_streaks(h, '20260907')
         self.assertEqual((top, td, bottom, bd, rec, first), ('143', 5, '1226', 5, 5, '20260903'))
         en, ko = S._streak_note(h, '20260907')
-        self.assertEqual(en, '143 busiest and 1226 quietest on every day recorded, 5 since September 3')
+        self.assertEqual(en, 'Route 143 was the busiest and Route 1226 the quietest on every day recorded, 5 since September 3.')
         self.assertIn('기록된 5일(9월 3일부터) 내내', ko)
 
     def test_a_broken_streak_counts_only_the_run(self):
@@ -2294,7 +2300,7 @@ class BusRouteStreak(unittest.TestCase):
         top, td, bottom, bd, rec, first = S.bus_rank_streaks(h, '20260907')
         self.assertEqual((td, bd, rec), (5, 6, 6))
         en, _ = S._streak_note(h, '20260907')
-        self.assertEqual(en, '143 has led for the past 5 days · 1226 quietest on every day recorded, 6 since September 2')
+        self.assertEqual(en, 'Route 143 has led for the past 5 days. Route 1226 was the quietest on every day recorded, 6 since September 2.')
 
     def test_a_short_streak_says_nothing(self):
         h = self._hist(3, ['160', '160', '143'], ['1226', '1226', '7719'])
@@ -2322,14 +2328,14 @@ class BusRoutesCard(unittest.TestCase):
 
     def _pool(self):
         return [
-            S.fact('bus_busiest_route', 'busroutes', 'Busiest: 2211, 40 stops',
-                   '455', '455', pin=True, label_ko='가장 붐빔: 2211번, 정류장 40곳',
+            S.fact('bus_busiest_route', 'busroutes', 'Busiest: 2211',
+                   '455', '455', pin=True, label_ko='가장 붐빔: 2211번',
                    place_en='Busiest', place_ko='가장 붐빔'),
-            S.fact('bus_second_route', 'busroutes', '2nd-busiest: 5515, 33 stops',
-                   '392', '392', pin=True, label_ko='두 번째로 붐빔: 5515번, 정류장 33곳',
+            S.fact('bus_second_route', 'busroutes', '2nd-busiest: 5515',
+                   '392', '392', pin=True, label_ko='두 번째로 붐빔: 5515번',
                    place_en='2nd-busiest', place_ko='두 번째로 붐빔'),
-            S.fact('bus_quietest_route', 'busroutes', 'Quietest: 1226, 20 stops',
-                   '21', '21', pin=True, label_ko='가장 한산함: 1226번, 정류장 20곳',
+            S.fact('bus_quietest_route', 'busroutes', 'Quietest: 1226',
+                   '21', '21', pin=True, label_ko='가장 한산함: 1226번',
                    place_en='Quietest', place_ko='가장 한산함'),
             S.fact('bus_route_total', 'busroutes', 'Average per stop, all routes',
                    '158', '158', pin=True, label_ko='정류장당 평균, 전체 노선'),
@@ -2342,7 +2348,7 @@ class BusRoutesCard(unittest.TestCase):
                'picks': [{'id': i} for i in ids]}
         return S.compose(sel, pool)
 
-    NOTE = 'Boardings per stop served · trunk and branch routes with 10 or more stops'
+    NOTE = 'Trunk and branch routes with 10 or more stops. Number of stops: Route 2211 (40), 5515 (33), 1226 (20).'
 
     def setUp(self):
         S.RANKED_CARD_INFO.pop('busroutes', None)
@@ -2350,8 +2356,8 @@ class BusRoutesCard(unittest.TestCase):
     def _info(self, note_extra=''):
         S.RANKED_CARD_INFO['busroutes'] = {
             'day_en': '6 September', 'day_ko': '9월 6일',
-            'note_en': ' · '.join(x for x in (self.NOTE, note_extra) if x),
-            'note_ko': '정류장 1곳당 승차 인원 · 정류장 10곳 이상 간선·지선'}
+            'note_en': ' '.join(x for x in (self.NOTE, note_extra) if x),
+            'note_ko': '정류장 10곳 이상 간선·지선.'}
 
     def test_no_line_carries_an_emoji(self):
         c = self._card()
@@ -2397,12 +2403,12 @@ class BusRoutesCard(unittest.TestCase):
         c = self._card()
         self.assertEqual(c['dateline_en'], '6 September')
         self.assertEqual(c['note_en'], self.NOTE)
-        self.assertEqual(c['note_ko'], '정류장 1곳당 승차 인원 · 정류장 10곳 이상 간선·지선')
+        self.assertEqual(c['note_ko'], '정류장 10곳 이상 간선·지선.')
 
     def test_a_streak_note_rides_the_footnote_after_the_measure(self):
-        self._info('2211 has led for the past 10 days')
+        self._info('Route 2211 has led for the past 10 days.')
         c = self._card()
-        self.assertEqual(c['note_en'], self.NOTE + ' · 2211 has led for the past 10 days')
+        self.assertEqual(c['note_en'], self.NOTE + ' Route 2211 has led for the past 10 days.')
         self.assertEqual(c['dateline_en'], '6 September')
 
     def test_without_registry_info_the_card_still_composes_with_no_dateline(self):

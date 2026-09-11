@@ -1178,8 +1178,11 @@ BUS_ROUTE_STREAK_MIN = 3
 # two never changed. Letter-suffixed routes never came within six of the
 # bottom, so excluding them changed no result.
 _RANKED_ROUTE_RE = re.compile(r'^[1-7]\d{2,3}$')
-BUS_ROUTE_CAVEAT_EN = 'Boardings per stop served · trunk and branch routes with 10 or more stops'
-BUS_ROUTE_CAVEAT_KO = '정류장 1곳당 승차 인원 · 정류장 10곳 이상 간선·지선'
+# The measure itself ("Boardings per stop served") moved up to the dateline
+# on 11 September 2026, his layout: the footnote keeps the eligibility rule,
+# then the stop counts, then any streak, as sentences.
+BUS_ROUTE_CAVEAT_EN = 'Trunk and branch routes with 10 or more stops.'
+BUS_ROUTE_CAVEAT_KO = '정류장 10곳 이상 간선·지선.'
 # Stamped into transport_cache; a same-day cache stamped with another rule
 # (or none) is refetched rather than served with a route the current rule
 # would not rank at the bottom.
@@ -1731,25 +1734,28 @@ def _streak_note(h, day):
     top, td, bottom, bd, recorded, first = st
     fd = datetime.strptime(first, '%Y%m%d')
     first_en, first_ko = en_date(fd), f'{fd.month}월 {fd.day}일'
+    # Sentences, with "Route" on them (the footnote has no opener to lean
+    # on): his wording, 11 September 2026.
     if td >= BUS_ROUTE_STREAK_MIN and bd >= BUS_ROUTE_STREAK_MIN and td == bd == recorded:
-        return (f'{top} busiest and {bottom} quietest on every day recorded, {recorded} since {first_en}',
-                f'기록된 {recorded}일({first_ko}부터) 내내 {top}번이 1위, {bottom}번이 최하위')
+        return (f'Route {top} was the busiest and Route {bottom} the quietest on every day '
+                f'recorded, {recorded} since {first_en}.',
+                f'기록된 {recorded}일({first_ko}부터) 내내 {top}번이 1위, {bottom}번이 최하위.')
     en, ko = [], []
     if td >= BUS_ROUTE_STREAK_MIN:
         if td == recorded:
-            en.append(f'{top} has led on every day recorded, {recorded} since {first_en}')
-            ko.append(f'{top}번은 기록된 {recorded}일({first_ko}부터) 내내 1위')
+            en.append(f'Route {top} has led on every day recorded, {recorded} since {first_en}.')
+            ko.append(f'{top}번은 기록된 {recorded}일({first_ko}부터) 내내 1위.')
         else:
-            en.append(f'{top} has led for the past {td} days')
-            ko.append(f'{top}번은 최근 {td}일간 매일 1위')
+            en.append(f'Route {top} has led for the past {td} days.')
+            ko.append(f'{top}번은 최근 {td}일간 매일 1위.')
     if bd >= BUS_ROUTE_STREAK_MIN:
         if bd == recorded:
-            en.append(f'{bottom} quietest on every day recorded, {recorded} since {first_en}')
-            ko.append(f'{bottom}번은 기록된 {recorded}일({first_ko}부터) 내내 최하위')
+            en.append(f'Route {bottom} was the quietest on every day recorded, {recorded} since {first_en}.')
+            ko.append(f'{bottom}번은 기록된 {recorded}일({first_ko}부터) 내내 최하위.')
         else:
-            en.append(f'{bottom} quietest for the past {bd} days')
-            ko.append(f'{bottom}번은 최근 {bd}일간 매일 최하위')
-    return ' · '.join(en), ' · '.join(ko)
+            en.append(f'Route {bottom} was the quietest for the past {bd} days.')
+            ko.append(f'{bottom}번은 최근 {bd}일간 매일 최하위.')
+    return ' '.join(en), ' '.join(ko)
 
 
 def bus_routes_facts(h, day, d, d_ko):
@@ -1764,10 +1770,19 @@ def bus_routes_facts(h, day, d, d_ko):
         return []
     top, second, bottom = r['ranked'][0], r['ranked'][1], r['ranked'][-1]
     streak_en, streak_ko = _streak_note(h, day)
+    # His layout, 11 September 2026: the measure rides the dateline, the
+    # rows are bare, and the stop counts go to the footnote as one sentence
+    # between the eligibility rule and any streak. day_en stays the bare
+    # date for the map's title and alt.
+    stops_en = (f'Number of stops: Route {top[0]} ({top[3]}), {second[0]} ({second[3]}), '
+                f'{bottom[0]} ({bottom[3]}).')
+    stops_ko = f'정류장 수: {top[0]}번 ({top[3]}), {second[0]}번 ({second[3]}), {bottom[0]}번 ({bottom[3]}).'
     RANKED_CARD_INFO['busroutes'] = {
         'day_en': d, 'day_ko': d_ko,
-        'note_en': ' · '.join(x for x in (BUS_ROUTE_CAVEAT_EN, streak_en) if x),
-        'note_ko': ' · '.join(x for x in (BUS_ROUTE_CAVEAT_KO, streak_ko) if x),
+        'dateline_en': f'Boardings per stop served on {d}',
+        'dateline_ko': f'{d_ko} 정류장 1곳당 승차 인원',
+        'note_en': ' '.join(x for x in (BUS_ROUTE_CAVEAT_EN, stops_en, streak_en) if x),
+        'note_ko': ' '.join(x for x in (BUS_ROUTE_CAVEAT_KO, stops_ko, streak_ko) if x),
         'map_day': day,
         'map_caption': f'Stops where each route saw a boarding, {d}: not necessarily its full path',
         'map_routes': [(f'Busiest: Route {top[0]}', MAP_COLOURS[0], top[0]),
@@ -1775,14 +1790,15 @@ def bus_routes_facts(h, day, d, d_ko):
                        (f'Quietest: Route {bottom[0]}', MAP_COLOURS[2], bottom[0])]}
     # Bare route numbers, no "Route" on the line: his instruction, 10
     # September 2026, since the opener already says these are bus routes.
-    # The stop count rides the label so a 16-stop route leading on this
-    # measure explains itself. The map legends keep "Route", having no
-    # opener to lean on; the selector rule REQUIRES an opener naming buses.
+    # The stop count rode the label until 11 September 2026 and now sits in
+    # the footnote, his call: it qualified every row where it belongs to
+    # the method. The map legends keep "Route", having no opener to lean
+    # on; the selector rule REQUIRES an opener naming buses.
     def line(fid, rank_en, rank_ko, row):
         no, per, tot, n = row
-        return fact(fid, 'busroutes', f'{rank_en}: {no}, {n} stops',
+        return fact(fid, 'busroutes', f'{rank_en}: {no}',
                     grouped(round(per)), grouped(round(per)), pin=True,
-                    label_ko=f'{rank_ko}: {no}번, 정류장 {n}곳',
+                    label_ko=f'{rank_ko}: {no}번',
                     place_en=rank_en, place_ko=rank_ko)
     return [line('bus_busiest_route', 'Busiest', '가장 붐빔', top),
             line('bus_second_route', '2nd-busiest', '두 번째로 붐빔', second),
