@@ -488,7 +488,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # --dry-run for a preview, or --force past the six-hour guard), since that is
 # how a decision gets made. Empty the set to release a vein; nothing else
 # needs touching. Empty since 11 September 2026.
-HELD_CATS = set()   # stationgap held and released 11 Sep 2026 once he had seen it
+HELD_CATS = {'air', 'wxday'}   # held 11 Sep 2026: mock-ups of five additions await his choice
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -1133,6 +1133,11 @@ def kma_now(key):
     return out or None
 
 
+# The air title's glyph: KMA's index colours, the worst grade present.
+AIR_GRADE_EMOJI = {'좋음': '🟢', '보통': '🟡', '나쁨': '🟠', '매우나쁨': '🔴'}
+AIR_NOW = {'emoji': None}
+
+
 def air_facts(api_key):
     """Four live lines. Two facts until 11 September 2026, which kept the vein
     under STARVE_MIN_FACTS: it could ride along on another card but never
@@ -1156,6 +1161,13 @@ def air_facts(api_key):
         best = min(vals, key=lambda t: t[1])
         graded = [x for x in rows if (x.get('CAI_GRD') or '').strip()]
         good = sum(1 for x in graded if x['CAI_GRD'].strip() == '좋음')
+        bad = sum(1 for x in graded if x['CAI_GRD'].strip() in ('나쁨', '매우나쁨'))
+        pm10 = [(x.get('MSRSTN_NM'), float(x['PM'])) for x in rows
+                if str(x.get('PM', '')).replace('.', '', 1).isdigit()]
+        # The title glyph is KMA's own index colour for the WORST grade any
+        # district is in right now, his call, 11 September 2026.
+        AIR_NOW['emoji'] = next((AIR_GRADE_EMOJI[g] for g in ('매우나쁨', '나쁨', '보통', '좋음')
+                                 if any(x['CAI_GRD'].strip() == g for x in graded)), None)
         # FPM is PM2.5, not PM10. The service documents its measured values as
         # 미세먼지(PM-10), 오존, 이산화질소, 일산화탄소, 아황산가스, and OZON/NTDX/CBMX/SPDX
         # take four of those, leaving PM as the documented PM-10 and FPM as the
@@ -1185,7 +1197,18 @@ def air_facts(api_key):
                 # leader; the first wording did, on the first render).
                 fact('air_good', 'air', 'Districts with “good” air right now',
                      f'{good} of {len(graded)}', f'{len(graded)}곳 중 {good}곳', pin=True,
-                     label_ko='지금 대기질 등급이 “좋음”인 자치구')] if graded else [])
+                     label_ko='지금 대기질 등급이 “좋음”인 자치구')] if graded else []) + ([
+                # Only when there is one: the line people look up on a dust day.
+                fact('air_bad', 'air', 'Districts with “bad” or worse air right now',
+                     f'{bad} of {len(graded)}', f'{len(graded)}곳 중 {bad}곳', pin=True,
+                     label_ko='지금 대기질 등급이 “나쁨” 이상인 자치구')] if bad else []) + ([
+                # Yellow-dust days are PM10 events, which PM2.5 alone would miss.
+                fact('air_pm10', 'air',
+                     f'Worst PM10 right now ({en_name(max(pm10, key=lambda t: t[1])[0], "districts")})',
+                     f'{max(v for _, v in pm10):.0f} µg/m³', f'{max(v for _, v in pm10):.0f} µg/m³',
+                     pin=True,
+                     label_ko=f'지금 미세먼지가 가장 심한 곳 ({max(pm10, key=lambda t: t[1])[0]})')]
+                if pm10 else [])
     except (RuntimeError, KeyError, IndexError, ValueError):
         return []
 
@@ -4332,7 +4355,8 @@ def wx_day_facts(key):
         # One glyph per line, his call; the rain line keeps its glyph on a
         # dry day, since the line is still about rain. The title's is the
         # day's own weather (wx_day_emoji), also his call.
-        'line_emoji': {'High': '🔺', 'Low': '🔻', 'Average': '🌡', 'Rain': '🌧'},
+        'line_emoji': {'High': '🔺', 'Low': '🔻', 'Average': '🌡', 'Rain': '🌧',
+                       'Sunshine': '🌞', 'Snow': '❄️'},
         'emoji': wx_day_emoji(r)}
     facts = [fact('wxday_hi', 'wxday', 'High', to_f(hi), f'{hi:.1f}°C', pin=True, label_ko='최고기온'),
              fact('wxday_lo', 'wxday', 'Low', to_f(lo), f'{lo:.1f}°C', pin=True, label_ko='최저기온')]
@@ -4341,6 +4365,17 @@ def wx_day_facts(key):
                           pin=True, label_ko='평균기온'))
     rain_en, rain_ko = (f'{rn:.1f}mm', f'{rn:.1f}mm') if rn is not None else ('None', '없음')
     facts.append(fact('wxday_rain', 'wxday', 'Rain', rain_en, rain_ko, pin=True, label_ko='강수량'))
+    # Sunshine hours, his call, 11 September 2026: on a dry day it says what
+    # "Rain: None" cannot (3 September 11.0 hours, 10 September 0.2). And
+    # fresh snow, only on a day it fell, the seasonal-line pattern.
+    ss = _wx_num(r, 'sumSsHr')
+    if ss is not None:
+        facts.append(fact('wxday_sun', 'wxday', 'Sunshine', f'{ss:.1f} hours', f'{ss:.1f}시간',
+                          pin=True, label_ko='일조시간'))
+    sn = _wx_num(r, 'ddMefs')
+    if sn:
+        facts.append(fact('wxday_snow', 'wxday', 'Snow', f'{sn:.1f}cm', f'{sn:.1f}cm',
+                          pin=True, label_ko='신적설'))
     return facts
 
 
@@ -8913,6 +8948,8 @@ def main():
     for cat, (op_en, op_ko) in FIXED_OPENERS.items():
         if sel.get('picks') and all(by_cat.get(p.get('id')) == cat for p in sel['picks']):
             sel['opener_en'], sel['opener_ko'] = op_en, op_ko
+            if cat == 'air' and AIR_NOW['emoji']:
+                sel['opener_emoji'] = AIR_NOW['emoji']
     # A ranked card whose registry entry carries an opener (busmovers, since
     # 11 September 2026) is the same arrangement: Python's words, not the
     # selector's. The weekday in it changes with the day.

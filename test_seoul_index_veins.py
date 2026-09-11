@@ -2273,9 +2273,9 @@ class HeldVeins(unittest.TestCase):
         # busroutes was held 10-11 September 2026 and released on the 11th;
         # busstops held and released the same day, 11 September, once its
         # wording was settled; railstations likewise, held and released the same
-        # day; seoulstation and stationgap likewise, each held and released
-        # on 11 September.
-        self.assertEqual(self._held, set())
+        # day; seoulstation and stationgap likewise. air and wxday held from
+        # 11 September while he chooses among five mocked-up additions.
+        self.assertEqual(self._held, {'air', 'wxday'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
@@ -3148,10 +3148,10 @@ class AirVeinFourLines(unittest.TestCase):
     count, and a feed with no grades printing a count of nothing."""
 
     def rows(self):
-        return [{'MSRSTN_NM': '종로구', 'FPM': '7', 'CAI_GRD': '좋음'},
-                {'MSRSTN_NM': '강남구', 'FPM': '12', 'CAI_GRD': '보통'},
-                {'MSRSTN_NM': '마포구', 'FPM': '2', 'CAI_GRD': '좋음'},
-                {'MSRSTN_NM': '송파구', 'FPM': '점검중', 'CAI_GRD': ''}]
+        return [{'MSRSTN_NM': '종로구', 'FPM': '7', 'PM': '17', 'CAI_GRD': '좋음'},
+                {'MSRSTN_NM': '강남구', 'FPM': '12', 'PM': '30', 'CAI_GRD': '보통'},
+                {'MSRSTN_NM': '마포구', 'FPM': '2', 'PM': '9', 'CAI_GRD': '좋음'},
+                {'MSRSTN_NM': '송파구', 'FPM': '점검중', 'PM': '점검중', 'CAI_GRD': ''}]
 
     def facts(self, rows=None):
         with Stub({'ListAirQualityByDistrictService': ok('ListAirQualityByDistrictService',
@@ -3160,7 +3160,10 @@ class AirVeinFourLines(unittest.TestCase):
 
     def test_four_lines_from_one_fetch(self):
         by = self.facts()
-        self.assertEqual(set(by), {'air_monitors', 'air_worst', 'air_best', 'air_good'})
+        self.assertEqual(set(by), {'air_monitors', 'air_worst', 'air_best', 'air_good', 'air_pm10'})
+        self.assertEqual(by['air_pm10']['label_en'], 'Worst PM10 right now (Gangnam-gu)')
+        self.assertEqual(by['air_pm10']['value_en'], '30 µg/m³')
+        self.assertEqual(S.AIR_NOW['emoji'], '🟡')          # the worst grade present is 보통
         self.assertGreaterEqual(len(by), S.STARVE_MIN_FACTS)
         self.assertEqual(by['air_monitors']['value_en'], '3')          # 점검중 is not reporting
         self.assertEqual(by['air_worst']['label_en'], 'Worst PM2.5 right now (Gangnam-gu)')
@@ -3173,6 +3176,19 @@ class AirVeinFourLines(unittest.TestCase):
         self.assertEqual(by['air_good']['value_en'], '2 of 3')     # the ungraded monitor is out of both
         self.assertEqual(by['air_good']['value_ko'], '3곳 중 2곳')
         self.assertTrue(by['air_good']['pin'])
+
+    def test_a_bad_day_adds_the_bad_count_and_turns_the_title_orange_or_red(self):
+        rows = self.rows()
+        rows[1]['CAI_GRD'] = '나쁨'
+        by = self.facts(rows)
+        self.assertEqual(by['air_bad']['value_en'], '1 of 3')
+        self.assertEqual(by['air_bad']['label_ko'], '지금 대기질 등급이 “나쁨” 이상인 자치구')
+        self.assertEqual(S.AIR_NOW['emoji'], '🟠')
+        rows[0]['CAI_GRD'] = '매우나쁨'
+        by = self.facts(rows)
+        self.assertEqual(by['air_bad']['value_en'], '2 of 3')
+        self.assertEqual(S.AIR_NOW['emoji'], '🔴')
+        self.assertNotIn('air_bad', self.facts())       # a clean day carries no bad line
 
     def test_no_grades_means_no_count_line(self):
         rows = [{k: v for k, v in r.items() if k != 'CAI_GRD'} for r in self.rows()]
@@ -3223,10 +3239,22 @@ class WxDayCard(unittest.TestCase):
         facts = self.wx({'tm': '2026-09-10', 'maxTa': '21.5', 'minTa': '15.8', 'avgTa': '18.4', 'sumRn': ''})
         self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
                          [('High', '21.5°C (71°F)'), ('Low', '15.8°C (60°F)'),
-                          ('Average', '18.4°C (65°F)'), ('Rain', 'None')])
+                          ('Average', '18.4°C (65°F)'), ('Rain', 'None')])   # no sunshine field: no line
         self.assertEqual([(f['label_ko'], f['value_ko']) for f in facts],
                          [('최고기온', '21.5°C'), ('최저기온', '15.8°C'), ('평균기온', '18.4°C'), ('강수량', '없음')])
         self.assertTrue(all(f['pin'] and f['cat'] == 'wxday' for f in facts))
+
+    def test_sunshine_always_and_snow_only_when_it_fell(self):
+        facts = self.wx({'tm': 'x', 'maxTa': '-2.1', 'minTa': '-8.4', 'avgTa': '-5.0', 'sumRn': '4.2',
+                         'sumSsHr': '1.3', 'ddMefs': '3.5', 'avgTca': '9.5'})
+        self.assertEqual([(f['label_en'], f['value_en']) for f in facts[3:]],
+                         [('Rain', '4.2mm'), ('Sunshine', '1.3 hours'), ('Snow', '3.5cm')])
+        self.assertEqual([(f['label_ko'], f['value_ko']) for f in facts[4:]],
+                         [('일조시간', '1.3시간'), ('신적설', '3.5cm')])
+        self.assertEqual(S.RANKED_CARD_INFO['wxday']['emoji'], '🌨')
+        facts = self.wx({'tm': 'x', 'maxTa': '21.5', 'minTa': '15.8', 'avgTa': '18.4', 'sumRn': '',
+                         'sumSsHr': '11.0', 'ddMefs': ''})
+        self.assertEqual([f['label_en'] for f in facts], ['High', 'Low', 'Average', 'Rain', 'Sunshine'])
 
     def test_a_wet_day_carries_the_millimetres(self):
         facts = self.wx({'tm': '2026-09-01', 'maxTa': '27.0', 'minTa': '21.0', 'avgTa': '23.5', 'sumRn': '23.1'})
