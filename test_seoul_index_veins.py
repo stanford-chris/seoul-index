@@ -2274,8 +2274,9 @@ class HeldVeins(unittest.TestCase):
         # busstops held and released the same day, 11 September, once its
         # wording was settled; railstations likewise, held and released the same
         # day; seoulstation and stationgap likewise; air and wxday held for
-        # the mock-ups and released the same day. Nothing is held.
-        self.assertEqual(self._held, set())
+        # the mock-ups and released the same day; rescue held for its
+        # mock-up on 11 September.
+        self.assertEqual(self._held, {'rescue'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
@@ -3322,6 +3323,100 @@ class WxDayCard(unittest.TestCase):
         self.assertIn("state['last_wxday_at'] = state['last_success_at']", src)
         self.assertIn('- "wxday" lines are', src)
         self.assertIn("uses_kma = bool({'weather', 'river', 'wxday'} & cats)", src)
+
+
+class RescueCard(unittest.TestCase):
+    """One week of Seoul's rescue notices, the total and the species split.
+    What would ship it wrong: a window that ends yesterday (notices lag the
+    rescue by a day or more), an empty answer read as a quiet week, a short
+    page read as the whole week, and a species the register never used
+    before dropping out of the total."""
+
+    def rescue(self, pages, total=None):
+        import subprocess as real_subprocess
+        calls = []
+
+        def run(cmd, **kw):
+            url = cmd[-1]
+            calls.append(url)
+            page = int(url.split('pageNo=')[1].split('&')[0])
+            items = pages[page - 1] if page - 1 < len(pages) else []
+            n = sum(len(pg) for pg in pages) if total is None else total
+            body = {'response': {'body': {'totalCount': n, 'numOfRows': 1000, 'pageNo': page,
+                                          'items': {'item': items} if items else ''}}}
+            return types.SimpleNamespace(stdout=json.dumps(body), returncode=0)
+        S.subprocess.run = run
+        try:
+            return S.rescue_facts('KEY'), calls
+        finally:
+            S.subprocess.run = real_subprocess.run
+
+    def tearDown(self):
+        S.RANKED_CARD_INFO.pop('rescue', None)
+
+    @staticmethod
+    def rows(*kinds):
+        return [{'upKindNm': k, 'happenDt': '20260901'} for k in kinds]
+
+    def test_the_total_and_the_split_in_a_fixed_order(self):
+        facts, calls = self.rescue([self.rows('고양이', '고양이', '개', '기타', '고양이')])
+        self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
+                         [('All animals', '5'), ('Cats', '3'), ('Dogs', '1'), ('Other', '1')])
+        self.assertEqual([(f['label_ko'], f['value_ko']) for f in facts],
+                         [('전체', '5'), ('고양이', '3'), ('개', '1'), ('그 밖의 동물', '1')])
+        self.assertTrue(all(f['pin'] and f['cat'] == 'rescue' for f in facts))
+        self.assertEqual(len(calls), 1)
+        self.assertIn('upr_cd=6110000', calls[0])
+
+    def test_a_species_with_no_rows_still_reads_zero(self):
+        facts, _ = self.rescue([self.rows('개', '개')])
+        self.assertEqual([f['value_en'] for f in facts], ['2', '0', '2', '0'])
+
+    def test_the_window_ends_three_days_ago_and_runs_a_week(self):
+        _, calls = self.rescue([self.rows('개')])
+        end = S.datetime.now(S.SEOUL_TZ).date() - S.timedelta(days=S.RESCUE_LAG_DAYS)
+        start = end - S.timedelta(days=6)
+        self.assertIn(f'bgnde={start:%Y%m%d}&endde={end:%Y%m%d}', calls[0])
+        info = S.RANKED_CARD_INFO['rescue']
+        self.assertEqual(info['dateline_en'], S._span_en(f'{start:%Y%m%d}', f'{end:%Y%m%d}'))
+        self.assertEqual(info['opener_en'], 'Animals rescued in Seoul')
+        self.assertIn('25 districts', info['note_en'])
+        self.assertEqual(info['line_emoji']['Cats'], '🐈')
+        self.assertGreaterEqual(S.RESCUE_LAG_DAYS, 3)   # 94% of notices are filed within three days
+
+    def test_empty_or_unreadable_withholds(self):
+        self.assertEqual(self.rescue([[]])[0], [])
+        self.assertNotIn('rescue', S.RANKED_CARD_INFO)
+        import subprocess as real_subprocess
+        S.subprocess.run = lambda cmd, **kw: types.SimpleNamespace(stdout='<html>', returncode=0)
+        try:
+            self.assertEqual(S.rescue_facts('KEY'), [])
+        finally:
+            S.subprocess.run = real_subprocess.run
+        self.assertEqual(S.rescue_facts(None), [])
+
+    def test_a_short_page_is_paged_and_a_short_answer_is_refused(self):
+        facts, calls = self.rescue([self.rows('개', '개'), self.rows('고양이')])
+        self.assertEqual(facts[0]['value_en'], '3')
+        self.assertEqual(len(calls), 2)
+        # The register says 5 rows and serves 3 across every page: not a week.
+        facts, _ = self.rescue([self.rows('개', '개'), self.rows('고양이')], total=5)
+        self.assertEqual(facts, [])
+
+    def test_an_unknown_species_is_counted_as_other_not_dropped(self):
+        facts, _ = self.rescue([self.rows('개', '조류')])
+        self.assertEqual([f['value_en'] for f in facts], ['2', '0', '1', '1'])
+
+    def test_the_vein_is_wired_everywhere_the_other_ranked_cards_are(self):
+        self.assertIn('rescue', S.RANKED_CATS)
+        self.assertIn('rescue', S.ORDERED_CATS)
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertIn("'last_rescue_at', 'rescue'", src)
+        self.assertIn("state['last_rescue_at'] = state['last_success_at']", src)
+        self.assertIn('- "rescue" lines are', src)
+        self.assertIn("uses_apqa = 'rescue' in cats", src)
+        self.assertIn("('animal.go.kr', 'https://www.animal.go.kr')", src)
+        self.assertIn("pool += rescue_facts(gov_key)", src)
 
 
 if __name__ == '__main__':

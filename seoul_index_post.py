@@ -274,7 +274,7 @@ SEVERE_STARVE_DAYS = STARVE_DAYS * 2
 # the top-to-bottom rank of the three routes above it.
 ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist', 'busroutes', 'stations',
                 'busmovers', 'nightbus', 'busweekend', 'busstops', 'railstations', 'seoulstation',
-                'stationgap', 'wxday'}
+                'stationgap', 'wxday', 'rescue'}
 
 # Every vein's lines are all-or-nothing on emoji, not just a chosen few: a
 # partial set reads as an oversight rather than a judgement, whatever the
@@ -488,7 +488,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # --dry-run for a preview, or --force past the six-hour guard), since that is
 # how a decision gets made. Empty the set to release a vein; nothing else
 # needs touching. Empty since 11 September 2026.
-HELD_CATS = set()   # air and wxday held for the mock-ups and released 11 Sep 2026
+HELD_CATS = {'rescue'}   # held for the mock-up, 11 Sep 2026; air and wxday released the same day
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -1783,7 +1783,7 @@ BUSWEEKEND_COOLDOWN_DAYS = 7
 # 'map_routes': [(label, colour, route_no)], 'map_caption'}}. Reset every run.
 RANKED_CARD_INFO = {}
 RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend', 'busstops',
-               'railstations', 'seoulstation', 'stationgap', 'wxday')
+               'railstations', 'seoulstation', 'stationgap', 'wxday', 'rescue')
 # The veins whose card is TWO lines by design: rush (one station at two
 # hours) and, since 11 September 2026, busmovers (one rise, one fall) and
 # busweekend (one holds up best, one falls most). Every other vein needs
@@ -4723,6 +4723,120 @@ def iiac_facts(key):
     return facts
 
 
+# --- Rescued animals (국가동물보호정보시스템) --------------------------------
+# The Animal and Plant Quarantine Agency's rescue-animal register via
+# data.go.kr (15098931, 자동승인, approved 11 September 2026): one row per
+# rescue notice, with the rescue date (happenDt), the species (upKindNm: 개,
+# 고양이 or 기타), the district that filed it and what became of the animal.
+# Counting, not modelling: the card is a straight count of Seoul's rows
+# over one week, split by species.
+#
+# ⚠️ A notice lags its rescue. Measured on 349 Seoul rows for 12 August to
+# 10 September 2026: 20% are filed the same day, 54% the next, 15% two days
+# on, and the tail runs to a week (94% within three days). A week ending
+# yesterday would undercount its last days on every card, so the window
+# ends RESCUE_LAG_DAYS ago and the count is what the register held on the
+# day the card was built. Rolling seven days rather than Monday-to-Sunday,
+# so the card is never nine days stale on a Monday; the cooldown stops two
+# cards overlapping.
+# ⚠️ The Seoul filter is upr_cd=6110000, the register's own code for the
+# city (sido_v2), and bgnde/endde filter on happenDt, the rescue date, not
+# the notice date (measured: the happenDt range of a window is exactly the
+# window; noticeSdt spills past its end).
+# ⚠️ A zero-row week is an outage, not a quiet week: the smallest weekly
+# count in six weeks of history was 31, so an empty answer withholds.
+RESCUE_BASE = ('https://apis.data.go.kr/1543061/abandonmentPublicService_v2/'
+               'abandonmentPublic_v2?serviceKey={key}&_type=json&numOfRows=1000'
+               '&pageNo={page}&upr_cd=6110000&bgnde={a}&endde={b}')
+RESCUE_SEOUL_CODE = '6110000'
+RESCUE_LAG_DAYS = 3
+RESCUE_WINDOW_DAYS = 7
+RESCUE_COOLDOWN_DAYS = 7
+RESCUE_MAX_PAGES = 5
+RESCUE_OPENER_EN = 'Animals rescued in Seoul'
+RESCUE_OPENER_KO = '서울에서 구조된 동물'
+RESCUE_NOTE_EN = ('Rescue notices filed by Seoul’s 25 districts on the national '
+                  'animal protection register, counted by the day of rescue')
+RESCUE_NOTE_KO = '서울 25개 자치구가 국가동물보호정보시스템에 올린 구조 공고, 구조일 기준'
+RESCUE_SPECIES = [('고양이', 'Cats', '고양이', '🐈'),
+                  ('개', 'Dogs', '개', '🐕'),
+                  ('기타', 'Other', '그 밖의 동물', '🐢')]
+
+
+def _rescue_rows(key, a, b):
+    """Every Seoul row rescued between a and b (YYYYMMDD, inclusive), paged
+    to the register's own totalCount, or None when the read could not be
+    trusted: a failed call, a short page, or more pages than RESCUE_MAX_PAGES
+    (a week is under a hundred rows; five pages is five thousand)."""
+    rows, total = [], None
+    for page in range(1, RESCUE_MAX_PAGES + 1):
+        url = RESCUE_BASE.format(key=key, page=page, a=a, b=b)
+        r = subprocess.run(['curl', '-s', '--max-time', '30', '-A', MOLIT_UA, url],
+                           capture_output=True, text=True)
+        try:
+            body = json.loads(r.stdout)['response']['body']
+            total = int(body['totalCount'])
+            items = body['items']['item'] if body.get('items') else []
+        except (ValueError, KeyError, TypeError):
+            return None
+        if not isinstance(items, list):
+            return None
+        rows += items
+        if len(rows) >= total:
+            break
+    else:
+        return None
+    if total is None or len(rows) != total:
+        return None
+    return rows
+
+
+def rescue_facts(key):
+    """The rescue card: one week of Seoul's rescue notices, the total and
+    the split by species. Fills RANKED_CARD_INFO when built; prints why
+    when withheld."""
+    RANKED_CARD_INFO.pop('rescue', None)
+    if not key:
+        return []
+    end = datetime.now(SEOUL_TZ).date() - timedelta(days=RESCUE_LAG_DAYS)
+    start = end - timedelta(days=RESCUE_WINDOW_DAYS - 1)
+    a, b = f'{start:%Y%m%d}', f'{end:%Y%m%d}'
+    rows = _rescue_rows(key, a, b)
+    if rows is None:
+        print(f'Rescue card withheld: the register could not be read for {a}-{b}.')
+        return []
+    if not rows:
+        print(f'Rescue card withheld: zero rows for {a}-{b}, which reads as an outage.')
+        return []
+    by_kind = {}
+    for r in rows:
+        k = (r.get('upKindNm') or '').strip()
+        by_kind[k] = by_kind.get(k, 0) + 1
+    known = {k for k, _, _, _ in RESCUE_SPECIES}
+    stray = {k: n for k, n in by_kind.items() if k not in known}
+    if stray:
+        # A species the register never used before is folded into Other
+        # rather than dropped, and said so: the total must still be the sum
+        # of the lines under it.
+        print(f'Rescue card: unexpected upKindNm {stray} counted as Other.')
+        by_kind['기타'] = by_kind.get('기타', 0) + sum(stray.values())
+    span_en, span_ko = _span_en(a, b), _span_ko(a, b)
+    RANKED_CARD_INFO['rescue'] = {
+        'day_en': span_en, 'day_ko': span_ko,
+        'opener_en': RESCUE_OPENER_EN, 'opener_ko': RESCUE_OPENER_KO,
+        'dateline_en': span_en, 'dateline_ko': span_ko,
+        'note_en': RESCUE_NOTE_EN, 'note_ko': RESCUE_NOTE_KO,
+        'line_emoji': {'All animals': '🐾', **{en: e for _, en, _, e in RESCUE_SPECIES}},
+        'emoji': '🐾'}
+    facts = [fact('rescue_total', 'rescue', 'All animals', grouped(len(rows)),
+                  grouped(len(rows)), pin=True, label_ko='전체')]
+    for ko_key, en, ko, _ in RESCUE_SPECIES:
+        n = by_kind.get(ko_key, 0)
+        facts.append(fact(f'rescue_{en.lower()}', 'rescue', en, grouped(n), grouped(n),
+                          pin=True, label_ko=ko))
+    return facts
+
+
 # --- Korea by rail (KORAIL) --------------------------------------------------
 # 한국철도공사's ticketing/movement-type statistics via data.go.kr (자동승인,
 # approved 2 Sep 2026): ten operations, covering intercity trains (간선열차:
@@ -6234,6 +6348,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += hira_cost_facts(gov_key)
     pool += culture_facts(gov_key)
     pool += tour_facts(gov_key)
+    pool += rescue_facts(gov_key)
     # KOFIC issues its own key, like HRFCO: not a data.go.kr one.
     pool += boxoffice_facts(kobis_key)
     return pool
@@ -6266,6 +6381,7 @@ Rules:
 - "property" lines are one month's apartment-market filings from the national land ministry: actual sale prices (the dearest and cheapest single sales), a record jeonse deposit, and counts of filings. Build them into their own post — never alongside a live "right now" line, a spending line, a national line or a world line. The pairs are the point: the price gap (dearest vs cheapest sale) or the jeonse/monthly-rent split. Never put a month or date in a property label — the filing month rides on the card automatically.
 - "weather" lines are published readings from Seoul's official weather station: the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the then-and-now monthly set OR the season-to-date set (never blend the two). A season-to-date post is built around the swelter tally ("Days of 33°C or more, June 1–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, and the arrangement carries the half-century — never point it out. ℹ️ Python owns the LAYOUT of these cards: it groups the lines by metric, draws each metric once as a subhead, and puts the newer year first in every group, so you do not have to order them and cannot get the two pairs out of step. Choose a coherent set of complete pairs and leave the rest alone. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
 - "wxday" lines are YESTERDAY's published readings at Seoul's reference weather station: the high, the low, the average and the rain (a rain value of "None" means none was recorded, and it is a reading, not a gap) — own post, never mixed with any other category, including "weather". All the lines offered are compulsory, in that order. Its opener is FIXED and written by Python ("Seoul's weather yesterday"), so whatever opener you write for this card is replaced; the dateline carries the date. Never call the day hot, cold, wet or dry, and never compare it with anything.
+- "rescue" lines are ONE WEEK of rescue notices filed by Seoul's districts on the national animal protection register: every animal, then cats, dogs and other animals — own post, never mixed with any other category. All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Animals rescued in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote says who files the notices. Never call the week busy or quiet, never remark on the split between cats and dogs, and never mention shelters, adoption or what became of any animal.
 - "tourism" lines are one month's visitor counts at named paid-admission Seoul attractions (the palaces, Lotte World, Seoul Sky…). Own post; ONE frame per post — total visitors OR foreign visitors, never both; the month rides on the card automatically. The pairs are the point: a dead heat or the widest gap between two named attractions.
 - "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and nothing more, e.g. "Water and air in Seoul" (ℹ️ whatever you write here is REPLACED in compose(): the opener names air or water first to match whichever the sort puts on the top line, which is a fact about the readings rather than a choice of words) — the same case as the world, traffic and books lines. ⚠️ Do NOT put the hour, the time or the words "one hour" in the opener: the reading hour rides on the card automatically as its dateline, and an opener repeating it spends the line saying nothing. Do NOT write "right now" either: that hour can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
 - "level" lines appear ONLY when the Han is running high, and they are one gauge (잠수교) set against its own published flood-warning tiers: the level right now, then the 관심/주의/경계/심각 levels. Build them into their own post, never mixed with any other category, and include the current level plus at least two tiers — the arrangement IS the story, which is how far the river is from each tier. The opener must name the river and the gauge, e.g. "The Han at Jamsu Bridge". ⚠️ NEVER write or imply that the bridge is closed, submerged, flooded or about to be: these are flood-WARNING tiers set by 한강홍수통제소, not the level at which the walkway goes under, and the two are different things. Do not add alarm, urgency or commentary of any kind — state the levels and stop. Never call the situation dangerous.
@@ -7644,6 +7760,8 @@ def compose(sel, pool):
         elif fid.startswith('wx'):
             # The day's own weather, read off the row (see wx_day_emoji).
             opener_emoji = RANKED_CARD_INFO.get('wxday', {}).get('emoji') or '🌤'
+        elif fid.startswith('rescue'):
+            opener_emoji = '🐾'
         else:
             opener_emoji = '🚗'
 
@@ -7729,7 +7847,8 @@ def compose(sel, pool):
     # from Seoul's own portal (SeoulLibraryBookRentNumInfo), not data4library.
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
                  'health', 'healthcost', 'culture', 'tourism', 'level', 'boxoffice',
-                 'boxhist', 'incheon', 'rail', 'railstations', 'seoulstation', 'wxday'}
+                 'boxhist', 'incheon', 'rail', 'railstations', 'seoulstation', 'wxday',
+                 'rescue'}
     uses_seoul = any(c not in non_seoul for c in cats)
     uses_kosis = 'national' in cats
     # The library "1 in N" divides by KOSIS's registered population, so a card
@@ -7757,6 +7876,8 @@ def compose(sel, pool):
     uses_tour = 'tourism' in cats
     uses_books = 'books' in cats
     uses_kobis = bool({'boxoffice', 'boxhist'} & cats)
+    # The rescue register is the quarantine agency's, served through data.go.kr.
+    uses_apqa = 'rescue' in cats
     srcs = (['data.seoul.go.kr'] if uses_seoul else []) + \
            (['kosis.kr'] if uses_kosis or lib_ratio else []) + \
            ([OECD_DOMAIN] if uses_oecd else []) + \
@@ -7770,6 +7891,7 @@ def compose(sel, pool):
            (['know.tour.go.kr'] if uses_tour else []) + \
            (['hrfco.go.kr'] if 'level' in cats else []) + \
            (['kobis.or.kr'] if uses_kobis else []) + \
+           (['animal.go.kr'] if uses_apqa else []) + \
            ([WB_DOMAIN] if uses_wb else [])
     if not srcs:
         srcs = ['data.seoul.go.kr']
@@ -7824,6 +7946,9 @@ def compose(sel, pool):
         if MOLIT_M['en']:
             scope_en.append(('Apartment filings', MOLIT_M['en']))
             scope_ko.append(('아파트 실거래 신고', MOLIT_M['ko']))
+    if uses_apqa:
+        src_en += ' · Animal and Plant Quarantine Agency'
+        src_ko += ' · 농림축산검역본부'
     if uses_kma:
         # Which station the readings come from is a key to the figures, so
         # it rides on the card; the labels already carry their months.
@@ -8620,6 +8745,7 @@ LINK_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                 ('know.tour.go.kr', 'https://know.tour.go.kr'),
                 ('hrfco.go.kr', 'https://www.hrfco.go.kr'),
                 ('kobis.or.kr', 'https://www.kobis.or.kr'),
+                ('animal.go.kr', 'https://www.animal.go.kr'),
                 (WB_DOMAIN, f'https://{WB_DOMAIN}')]
 
 
@@ -8911,6 +9037,8 @@ def main():
                               STATIONGAP_COOLDOWN_DAYS, 'Station gap')
         pool = apply_cooldown(pool, state, 'last_wxday_at', 'wxday',
                               WXDAY_COOLDOWN_DAYS, 'Weather day')
+        pool = apply_cooldown(pool, state, 'last_rescue_at', 'rescue',
+                              RESCUE_COOLDOWN_DAYS, 'Rescued animals')
         pool = apply_holds(pool)
 
         # The floor under the veins the selector never reaches for. Applied
@@ -9227,6 +9355,8 @@ def main():
         state['last_stationgap_at'] = state['last_success_at']
     if primary == 'wxday':
         state['last_wxday_at'] = state['last_success_at']
+    if primary == 'rescue':
+        state['last_rescue_at'] = state['last_success_at']
     write_json_atomic(STATE, state, ensure_ascii=False, indent=2)
 
     log_card(c, sel, primary, posted_uri, handle, fallback=cards is None)
