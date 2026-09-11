@@ -467,13 +467,15 @@ TOURISM_COOLDOWN_DAYS = 3
 # part that actually varies day to day.
 BUSROUTES_COOLDOWN_DAYS = 3
 # Veins held out of the pool entirely, by his instruction, until he decides:
-# busroutes since 10 September 2026 (the per-stop rebuild, previewed but not
-# yet approved for the feed). Applied after the cooldowns and BEFORE the vein
-# floor, so a held vein can be neither selected nor promoted as starved. A
-# hand-run --only=<cat> still shows it (with --dry-run for a preview, or
-# --force past the six-hour guard), since that is how a decision gets made.
-# Empty the set to release a vein; nothing else needs touching.
-HELD_CATS = {'busroutes'}
+# busroutes from 10 to 11 September 2026 (the per-stop rebuild, previewed
+# for a day and released once the layout was settled: measure on the
+# dateline, bare rows, stop counts in the footnote). Applied after the
+# cooldowns and BEFORE the vein floor, so a held vein can be neither selected
+# nor promoted as starved. A hand-run --only=<cat> still shows it (with
+# --dry-run for a preview, or --force past the six-hour guard), since that is
+# how a decision gets made. Empty the set to release a vein; nothing else
+# needs touching. Empty since 11 September 2026.
+HELD_CATS = set()
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.

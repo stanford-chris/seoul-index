@@ -2266,7 +2266,8 @@ class HeldVeins(unittest.TestCase):
 
     def test_the_live_hold_is_the_one_he_asked_for(self):
         # Pins the current instruction; change this test when he decides.
-        self.assertEqual(self._held, {'busroutes'})
+        # busroutes was held 10-11 September 2026 and released on the 11th.
+        self.assertEqual(self._held, set())
 
 class BusRouteStreak(unittest.TestCase):
     """bus_rank_streaks() reads both streaks straight from the history —
