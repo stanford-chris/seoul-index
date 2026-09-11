@@ -1586,6 +1586,28 @@ def kr_holidays(h, year):
     return set(dates)
 
 
+def kr_holiday_names(h, year):
+    """{'YYYYMMDD': (local name, English name)} for `year`'s public holidays,
+    from the history file's cache or nager.at; None when it cannot be had.
+    Kept beside kr_holidays()'s date list rather than folded into it, so
+    that list's shape (which the movers and weekend cards read as a set)
+    never changes. The Seoul Station card's dateline reads it: "September 25
+    was a holiday, Chuseok" / "9월 25일 추석", his wording, 11 Sep 2026."""
+    cache = h.setdefault('holiday_names', {})
+    if str(year) in cache:
+        return {d: tuple(v) for d, v in cache[str(year)].items()}
+    try:
+        rows = http_get_json(HOLIDAYS_URL.format(year=year))
+        names = {r['date'].replace('-', ''): [r.get('localName') or '', r.get('name') or '']
+                 for r in rows if r.get('date')}
+    except (RuntimeError, KeyError, TypeError, AttributeError):
+        return None
+    if not names:
+        return None
+    cache[str(year)] = names
+    return {d: tuple(v) for d, v in names.items()}
+
+
 WEEKDAY_EN = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 WEEKDAY_KO = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일']
 
@@ -4707,10 +4729,26 @@ def seoul_station_facts(key):
     typical = round(statistics.median(series[k][0] + series[k][1] for k in prior))
     wd_en, wd_ko = WEEKDAY_EN[wd], WEEKDAY_KO[wd]
     n = len(prior)
+    # A public holiday is named on the dateline, his wording, 11 September
+    # 2026. Only the official day: the Saturday before Seollal carried the
+    # year's biggest outbound swing and was not one, so it reads bare and
+    # the boarded/got-off split speaks for itself. A lookup that cannot be
+    # made leaves the plain date; it is a note, not a figure.
+    dateline_en, dateline_ko = d, d_ko
+    hist = load_bus_history()
+    before = json.dumps(hist.get('holiday_names', {}), sort_keys=True)
+    names = kr_holiday_names(hist, dt.year)
+    if json.dumps(hist.get('holiday_names', {}), sort_keys=True) != before:
+        save_bus_history(hist)
+    if names is None:
+        print(f'Seoul Station card: holiday table unavailable, {d} shown as a plain date.')
+    elif day in names and all(names[day]):
+        dateline_en = f'{d} was a holiday, {names[day][1]}'
+        dateline_ko = f'{d_ko} {names[day][0]}'
     RANKED_CARD_INFO['seoulstation'] = {
         'day_en': d, 'day_ko': d_ko,
         'opener_en': 'Seoul Station', 'opener_ko': '서울역',
-        'dateline_en': d, 'dateline_ko': d_ko,
+        'dateline_en': dateline_en, 'dateline_ko': dateline_ko,
         'note_en': (f'Typical: the median of the previous {n} {wd_en}s. '
                     f'Korail trains only; SRT is a separate operator.'),
         'note_ko': f'평소: 이전 {wd_ko} {n}회의 중앙값. 코레일 열차 기준, SRT는 별도 운영사.'}

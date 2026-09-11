@@ -2924,10 +2924,17 @@ class SeoulStationCard(unittest.TestCase):
         S.KORAIL_HISTORY = _Path(_tempfile.mkdtemp()) / 'korail_station_history.json'
         S.KORAIL_HISTORY.write_text(json.dumps(self.FILE))
         S._KORAIL_RUN.clear()
+        # The holiday names live in the bus history file's cache; a fresh
+        # one per test, seeded so no test reaches nager.at.
+        self._bus_history = S.BUS_HISTORY
+        S.BUS_HISTORY = _Path(_tempfile.mkdtemp()) / 'bus_route_history.json'
+        S.BUS_HISTORY.write_text(json.dumps({'holiday_names': {'2026': {
+            '20260925': ['추석', 'Chuseok'], '20260817': ['광복절', 'Liberation Day']}}}))
 
     def tearDown(self):
         S.RANKED_CARD_INFO.pop('seoulstation', None)
         S._KORAIL_RUN.clear()
+        S.BUS_HISTORY = self._bus_history
 
     def facts(self, rows=None, calls=None):
         return korail_run(lambda: S.seoul_station_facts('KEY'), self.ROWS if rows is None else rows, calls)
@@ -3000,6 +3007,29 @@ class SeoulStationCard(unittest.TestCase):
         self.assertIn("state['last_seoulstation_at'] = state['last_success_at']", src)
         self.assertIn('- "seoulstation" lines are', src)
         self.assertIn("'seoulstation'} & cats", src)
+
+    def test_a_holiday_is_named_on_the_dateline_in_his_wording(self):
+        # Friday 25 September 2026, Chuseok, with three prior Fridays.
+        rows = [self._row('20260925', '서울', 76119, 44605), self._row('20260918', '서울', 1, 1),
+                self._row('20260911', '서울', 1, 1), self._row('20260904', '서울', 1, 1)]
+        self.facts(rows=rows)
+        info = S.RANKED_CARD_INFO['seoulstation']
+        self.assertEqual(info['dateline_en'], 'September 25 was a holiday, Chuseok')
+        self.assertEqual(info['dateline_ko'], '9월 25일 추석')
+        self.assertEqual(info['day_en'], 'September 25')   # the bare day stays for the registry
+        c = S.compose({'opener_en': 'x', 'opener_ko': 'x', 'picks': [{'id': f'railss_{k}'} for k in
+                       ('boarded', 'alighted', 'total', 'typical')]}, self.facts(rows=rows))
+        self.assertEqual(c['dateline_en'], 'September 25 was a holiday, Chuseok')
+        self.assertEqual(c['dateline_ko'], '9월 25일 추석')
+
+    def test_an_ordinary_day_and_a_failed_holiday_lookup_both_show_the_plain_date(self):
+        self.facts()
+        self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['dateline_en'], 'September 8')
+        S._KORAIL_RUN.clear()
+        S.BUS_HISTORY.write_text('{}')     # no cache; the stubbed curl serves no holiday rows
+        self.facts()
+        self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['dateline_en'], 'September 8')
+        self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['dateline_ko'], '9월 8일')
 
     def test_the_live_hold_is_the_seoul_station_card(self):
         self.assertEqual(S.HELD_CATS, {'seoulstation'})
