@@ -6908,6 +6908,23 @@ def promote_starved(pool, state):
     return [f for f in pool if f['cat'] == cat], cat
 
 
+# ⚠️⚠️ Both `claude -p` calls in this file (the selector below and _ask_json,
+# the label check) carry these flags, since 11 September 2026: no tools at
+# all. They are text in, JSON out, and need none; unconfined, `claude -p` is
+# an AGENT with Bash in this Mac's home directory, fed a prompt built from
+# public-data labels four times a day. Found in everygeorgia's transcriber
+# that day: on a hard image it cropped and enlarged the file through a dozen
+# tool calls (60-280 s each), and on one page it ran `find ~ -iname clips.py`,
+# read that project's own code, executed it on three other pages and returned
+# a progress report as the answer. --restricted also ignores the user's
+# settings files, so no hook fires from inside a scheduled post. The calls
+# pass stdin=DEVNULL because the CLI otherwise waits three seconds for stdin
+# on every hand-run call. Verified the same day: `--tools ""` is accepted by
+# the Mini's CLI under the bots' own Keychain token, and a real selection
+# comes back as the same JSON.
+CONFINED = ['--restricted', '--tools', '']
+
+
 def select(pool, state):
     avoid = state.get('recent_ids', [])[-RECENT_IDS_KEEP:]
     slim = [{'id': f['id'], 'cat': f['cat'], 'label_en': f['label_en'],
@@ -6927,9 +6944,9 @@ def select(pool, state):
     while True:
         last = attempt == attempts - 1
         try:
-            r = subprocess.run(['claude', '-p', '--model', CLAUDE_MODEL, prompt],
+            r = subprocess.run(['claude', '-p', *CONFINED, '--model', CLAUDE_MODEL, prompt],
                                capture_output=True, text=True, env=claude_env(),
-                               timeout=CLAUDE_TIMEOUT)
+                               stdin=subprocess.DEVNULL, timeout=CLAUDE_TIMEOUT)
         except subprocess.TimeoutExpired:
             if last:
                 raise RuntimeError(
@@ -7433,9 +7450,9 @@ def _ask_json(prompt, model=CLAUDE_MODEL):
     hours for a quota to clear so a second opinion can be had would turn a
     best-effort check into the thing that delayed the post.
     """
-    r = subprocess.run(['claude', '-p', '--model', model, prompt],
+    r = subprocess.run(['claude', '-p', *CONFINED, '--model', model, prompt],
                        capture_output=True, text=True, env=claude_env(),
-                       timeout=CLAUDE_TIMEOUT)
+                       stdin=subprocess.DEVNULL, timeout=CLAUDE_TIMEOUT)
     if r.returncode != 0:
         raise RuntimeError(((r.stderr or r.stdout or '').strip() or
                             '(no output)')[:200])
