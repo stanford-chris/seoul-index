@@ -3592,7 +3592,7 @@ class KepcoCards(unittest.TestCase):
         self.assertEqual(hist[0]['pair'], hist[1]['pair'])
         self.assertTrue(all(f['pin'] for f in hist))
         self.assertEqual(calls.count((y, m)), 1)          # one fetch feeds both cards
-        self.assertEqual(S.RANKED_CARD_INFO['kepcohist']['opener_en'], 'Seoul’s electricity, twenty years apart')
+        self.assertEqual(S.RANKED_CARD_INFO['kepcohist']['opener_en'], 'Seoul’s electricity, 20 years apart')
         self.assertNotIn('dateline_en', S.RANKED_CARD_INFO['kepcohist'])   # the periods are in the groups
 
     def test_no_twenty_year_old_month_withholds_only_the_history_card(self):

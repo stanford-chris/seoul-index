@@ -4958,7 +4958,7 @@ KEPCO_COOLDOWN_DAYS = 28      # a new month arrives monthly, like the infra coun
 KEPCO_MIN_ROWS = 150          # 25 districts × 7 types is 173-175; a short answer is a partial month
 KEPCO_OPENER_EN = 'Electricity in Seoul'
 KEPCO_OPENER_KO = '서울의 전기'
-KEPCO_HIST_OPENER_EN = 'Seoul’s electricity, twenty years apart'
+KEPCO_HIST_OPENER_EN = 'Seoul’s electricity, 20 years apart'
 KEPCO_HIST_OPENER_KO = '서울의 전기, 20년 전과 지금'
 KEPCO_NOTE_EN = ('Korea Electric Power Corporation’s billing for the month, all contract '
                  'types; households are its residential tariff, shops and offices its '
