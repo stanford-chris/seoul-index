@@ -1282,10 +1282,23 @@ STATION_RANK_RULE = 'seoul-summed-2'   # -2: the transport lines follow it too
 # qualifier the other language lacked. So the Korean shows the folded name
 # (stop_display_ko): the one-per-name rule already makes the name, not the
 # side of the road or the line prefix, the unit the card counts.
-BUSSTOP_RANK_RULE = 'seoul-per-stop-1'   # stamped into transport_cache
+BUSSTOP_RANK_RULE = 'seoul-per-stop-2'   # stamped into transport_cache; -2 added seoul_stop_count
 BUSSTOP_KEEP = 12                        # ranked stops kept in the day cache
-BUSSTOP_CAVEAT_EN = 'Stops inside Seoul, one per name: the busier side of the road'
-BUSSTOP_CAVEAT_KO = '서울 시내 정류장, 같은 이름은 승차가 많은 쪽 한 곳'
+# The footnote is his wording, 11 September 2026, with the count of Seoul's
+# registered stops (the coordinate feed's '1'-prefixed ids) read live. The
+# first draft ("Stops inside Seoul, one per name: the busier side of the
+# road") packed two rules into one clause and he found it hard to follow.
+# The opener and dateline are Python's too, so the card says "bus stops"
+# whatever the selector writes: the first dry run's "Where Seoul catches the
+# bus" left rows reading "... Station" under a title that never said stop.
+BUSSTOP_OPENER_EN = 'Seoul’s bus stops'
+BUSSTOP_OPENER_KO = '서울의 버스 정류장'
+
+
+def busstop_note(n_stops):
+    return (f'There are {grouped(n_stops)} bus stops inside Seoul. '
+            f'Where two stops share a name, the busier is shown.',
+            f'서울 시내 버스 정류장은 {grouped(n_stops)}곳. 같은 이름의 정류장이 둘이면 승차가 많은 쪽을 표시.')
 
 
 def stop_name(raw):
@@ -1386,10 +1399,12 @@ def bus_stops_facts(c, d, d_ko):
               f'{", ".join(repr(name) for sid, name, _, _ in chosen if sid not in coords)}.')
         return []
     ranks = (('Busiest', '가장 붐빔'), ('2nd-busiest', '두 번째로 붐빔'), ('3rd-busiest', '세 번째로 붐빔'))
+    note_en, note_ko = busstop_note(c.get('seoul_stop_count') or 0)
     RANKED_CARD_INFO['busstops'] = {
         'day_en': d, 'day_ko': d_ko,
-        'dateline_en': f'Boardings on {d}', 'dateline_ko': f'{d_ko} 승차',
-        'note_en': BUSSTOP_CAVEAT_EN, 'note_ko': BUSSTOP_CAVEAT_KO,
+        'opener_en': BUSSTOP_OPENER_EN, 'opener_ko': BUSSTOP_OPENER_KO,
+        'dateline_en': f'Bus boardings on {d}', 'dateline_ko': f'{d_ko} 버스 승차',
+        'note_en': note_en, 'note_ko': note_ko,
         'map_day': c['date'],
         'map_caption': 'One stop per name: the busier side of the road; Seoul stops only',
         # The pins are the stations map's own shape, drawn by the same renderer.
@@ -2114,6 +2129,7 @@ def transport_facts(api_key, state):
              'stop_ranked': stop_ranked,
              'stops_used': sum(1 for v in stop_sum.values() if v > 0),
              'stop_coords': {sid: stop_xy[sid] for sid, _, _ in stop_ranked if sid in stop_xy},
+             'seoul_stop_count': len(stop_xy),   # the footnote's "There are N bus stops"
              'stop_rule': BUSSTOP_RANK_RULE}
         state['transport_cache'] = c
 
@@ -5745,7 +5761,7 @@ Rules:
 - "transport" lines are Seoul's total subway and bus boardings for the most recently published day, plus that day's busiest and quietest subway stations. The subway and bus TOTAL labels already carry the date in the label itself ("Subway boardings on August 26", "Bus boardings the same day") — there is no separate dateline to lean on here, so do NOT put a date anywhere in the opener, and do NOT write a second, different date of your own: a neutral opener with no date at all is enough, e.g. "Through the turnstiles", "Seoul on the move". Never call a station busy, quiet, packed or empty — the four numbers say it.
 - "busroutes" lines are that day's busiest, second-busiest and quietest Seoul bus routes by plain route number ("Busiest: 143"), plus the day's total bus boardings — own post, never mixed with any other category, including "transport" above (that vein's own bus/subway totals are a different card). All FOUR lines are compulsory and must be used together, in that order: this is a complete small ranking, not a selection from it, the same rule "boxoffice" uses for its top four films. The dateline carries the date, so do NOT put a date anywhere in the opener and do NOT write a second one of your own — the opener MUST name buses or bus routes, because the lines carry BARE ROUTE NUMBERS with no "Route" word ("Busiest: 143"), e.g. "Seoul's buses", "On the buses today", and it MUST NOT settle on one wording, so write a fresh one each time. Never call a route busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines: the numbers say it. If the footnote already names a route's winning streak, do not repeat or rephrase that fact in the opener — it would say the same thing twice on one card.
 - "stations" lines are that day's busiest, second-busiest and quietest Seoul SUBWAY stations by official English name ("Busiest: Seoul Station"), plus the day's total subway boardings — own post, never mixed with any other category, including "transport" and "busroutes" above. Exactly the same rules as "busroutes": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the opener MUST name the subway or its stations, because the lines carry BARE STATION NAMES with no "station" word ("Busiest: Seoul Station", "Quietest: Dorimcheon"), e.g. "Seoul's subway, station by station", "Through the turnstiles", and it MUST NOT settle on one wording; never call a station busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines.
-- "busstops" lines are that day's busiest, second-busiest and third-busiest Seoul BUS STOPS ("Busiest: Hongik University Station", one stop per name, the busier side of the road), plus how many stops took at least one boarding that day — own post, never mixed with any other category, including "transport", "busroutes" and "stations" above. Exactly the same rules as "stations": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the opener MUST name bus stops, because the lines carry BARE STOP NAMES with no "stop" word, and a stop named after a station reads as the station unless the opener says these are bus stops ("Seoul's bus stops, one by one", "Where Seoul boards the bus"), and it MUST NOT settle on one wording; never call a stop busy, quiet, packed or empty, and never remark on the gap between the lines. There is no quietest line on this card, by design.
+- "busstops" lines are that day's busiest, second-busiest and third-busiest Seoul BUS STOPS ("Busiest: Hongik University Station", one stop per name, the busier side of the road), plus how many stops took at least one boarding that day — own post, never mixed with any other category, including "transport", "busroutes" and "stations" above. Exactly the same rules as "stations": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the lines carry BARE STOP NAMES with no "stop" word, and a stop named after a station reads as the station unless the title says these are bus stops, so like "busmovers" its opener is FIXED and written by Python ("Seoul's bus stops") and whatever opener you write for this card is replaced; never call a stop busy, quiet, packed or empty, and never remark on the gap between the lines. There is no quietest line on this card, by design.
 - "busmovers" lines are the day's biggest RISE and biggest FALL in bus boardings, route by route, each against that route's own typical figure for the same weekday ("Up the most: 5511, 16,571 boardings" with a value of "+40%"). Own post, never mixed with any other category. BOTH lines are compulsory, in that order (up, then down): this is a two-line card by design, like "rush". Like "rush", its opener is FIXED and written by Python ("Seoul's bus routes, against their usual Monday"), so whatever opener you write for this card is replaced; the dateline carries the date and the footnote the comparison. Never guess WHY a route rose or fell.
 - "nightbus" lines are the day's busiest, second-busiest and quietest NIGHT bus routes (Seoul's N routes, which run through the small hours) plus the night total — own post, exactly the "busroutes" rules: all FOUR lines, in order, no date in the opener, the opener MUST name night buses, since the lines carry BARE ROUTE NUMBERS ("Seoul after midnight, by bus", "The night buses"), never "busy" or "quiet" as adjectives.
 - "busweekend" lines are the two routes whose boardings changed MOST between weekdays and the weekend over one week: the one that holds up best at the weekend and the one that falls most ("Holds up best: Route 271, 9,880 a day" with a value of "+3%" or "−12%"). Own post, BOTH lines in that order: a two-line card by design, like "rush"; the dateline carries the week and the footnote the comparison. Like "rush" and "busmovers", its opener is FIXED and written by Python ("Seoul's bus routes, weekend against weekday"), so whatever opener you write for this card is replaced. Never guess why.

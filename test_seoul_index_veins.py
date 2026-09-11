@@ -2652,8 +2652,13 @@ class BusStopsVein(unittest.TestCase):
                          ['Busiest: Hongik University Station', '2nd-busiest: Express Bus Terminal',
                           '3rd-busiest: Gangnam Station'])
         self.assertEqual(info['map_pins'][0][2], (126.90, 37.50))
-        self.assertEqual(info['dateline_en'], f"Boardings on {info['day_en']}")
-        self.assertEqual(info['note_en'], S.BUSSTOP_CAVEAT_EN)
+        self.assertEqual(info['dateline_en'], f"Bus boardings on {info['day_en']}")
+        self.assertEqual(info['opener_en'], 'Seoul’s bus stops')
+        # His wording, 11 Sep 2026, with the registered-stop count read live:
+        # STOPS holds 12 rows, 11 of them Seoul ('1') ids.
+        self.assertEqual(info['note_en'], 'There are 11 bus stops inside Seoul. '
+                                          'Where two stops share a name, the busier is shown.')
+        self.assertEqual(info['note_ko'], '서울 시내 버스 정류장은 11곳. 같은 이름의 정류장이 둘이면 승차가 많은 쪽을 표시.')
         self.assertIn('Hongik University Station', info['map_alt'])
         self.assertNotIn('map_routes', info)
 
@@ -2721,8 +2726,9 @@ class BusStopsCard(unittest.TestCase):
         S.RANKED_CARD_INFO.clear()
         S.RANKED_CARD_INFO['busstops'] = {
             'day_en': '7 September', 'day_ko': '9월 7일',
-            'dateline_en': 'Boardings on 7 September', 'dateline_ko': '9월 7일 승차',
-            'note_en': S.BUSSTOP_CAVEAT_EN, 'note_ko': S.BUSSTOP_CAVEAT_KO,
+            'opener_en': S.BUSSTOP_OPENER_EN, 'opener_ko': S.BUSSTOP_OPENER_KO,
+            'dateline_en': 'Bus boardings on 7 September', 'dateline_ko': '9월 7일 버스 승차',
+            'note_en': S.busstop_note(11236)[0], 'note_ko': S.busstop_note(11236)[1],
             'map_day': '20260907', 'map_caption': 'x', 'map_pins': [], 'map_alt': ''}
 
     def tearDown(self):
@@ -2736,14 +2742,22 @@ class BusStopsCard(unittest.TestCase):
         self.assertEqual([l['label_en'] for l in c['lines']],
                          ['Busiest: Hongik University Station', '2nd-busiest: Guro Digital Complex Station',
                           '3rd-busiest: Gangnam Station', 'Stops with at least one boarding'])
-        self.assertEqual(c['dateline_en'], 'Boardings on 7 September')
-        self.assertEqual(c['dateline_ko'], '9월 7일 승차')
+        self.assertEqual(c['dateline_en'], 'Bus boardings on 7 September')
+        self.assertEqual(c['dateline_ko'], '9월 7일 버스 승차')
         self.assertEqual(c['opener']['emoji'], '🚌')     # the bus, whatever the selector chose
 
-    def test_the_footnote_says_one_stop_per_name(self):
+    def test_the_footnote_is_his_two_sentences_with_the_live_count(self):
         c = self._card()
-        self.assertEqual(c['note_en'], 'Stops inside Seoul, one per name: the busier side of the road')
-        self.assertEqual(c['note_ko'], '서울 시내 정류장, 같은 이름은 승차가 많은 쪽 한 곳')
+        self.assertEqual(c['note_en'], 'There are 11,236 bus stops inside Seoul. '
+                                       'Where two stops share a name, the busier is shown.')
+        self.assertEqual(c['note_ko'], '서울 시내 버스 정류장은 11,236곳. 같은 이름의 정류장이 둘이면 승차가 많은 쪽을 표시.')
+
+    def test_the_opener_is_pythons_not_the_selectors(self):
+        # Same arrangement as busmovers: the registry's opener replaces the
+        # selector's in main(). Pinned here on the registry and the prompt.
+        self.assertEqual(S.RANKED_CARD_INFO['busstops']['opener_en'], 'Seoul’s bus stops')
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertIn('its opener is FIXED and written by Python ("Seoul\'s bus stops")', src)
 
     def test_picking_two_of_four_completes_the_ranking(self):
         c = self._card(ids=['busstop_busiest', 'busstop_used'])
