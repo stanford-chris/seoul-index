@@ -1158,8 +1158,13 @@ def air_facts(api_key):
         # "PM-2.5" in its own right. So the Korean term is 초미세먼지; 미세먼지 would
         # be PM10, a different number. English names the standard outright rather
         # than saying "fine dust", which is the ambiguity that caused this.
+        # label_ko pinned since 11 September 2026: left to the selector, one
+        # run dropped "live" (실시간) and the label check put the English
+        # line on the Korean card. The wording is the selector's own from a
+        # run it got right.
         return [fact('air_monitors', 'air', 'Air-quality monitors reporting live across Seoul',
-                     str(len(vals)), str(len(vals)), pin=True),
+                     str(len(vals)), str(len(vals)), pin=True,
+                     label_ko='서울 전역에서 실시간으로 보고하는 대기질 측정소'),
                 fact('air_worst', 'air',
                      f'Worst PM2.5 right now ({en_name(worst[0], "districts")})',
                      f'{worst[1]:.0f} µg/m³', f'{worst[1]:.0f} µg/m³', pin=True,
