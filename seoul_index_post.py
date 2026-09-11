@@ -4838,7 +4838,7 @@ def rescue_facts(key):
 
 
 # --- Performances (KOPIS, 공연예술통합전산망) -----------------------------------
-# The national box-office register for the performing arts (theatre,
+# The national box-office register for the performing arts (theater,
 # musicals, classical, dance, circus…), run by 예술경영지원센터. Its own key,
 # issued on application through a public form (no account) on 11 September
 # 2026; not a data.go.kr one. One call: prfstsArea, one row per region for a
@@ -4863,7 +4863,7 @@ KOPIS_WINDOW_DAYS = 7
 KOPIS_COOLDOWN_DAYS = 7
 KOPIS_OPENER_EN = 'On stage in Seoul'
 KOPIS_OPENER_KO = '서울의 공연'
-KOPIS_NOTE_EN = ('Theatre, musicals, classical, dance and more, from the national '
+KOPIS_NOTE_EN = ('Theater, musicals, classical, dance and more, from the national '
                  'box-office register; tickets net of cancellations')
 KOPIS_NOTE_KO = '연극·뮤지컬·클래식·무용 등, 공연예술통합전산망 집계, 티켓은 취소분 제외'
 
