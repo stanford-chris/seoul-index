@@ -1560,7 +1560,14 @@ def history_bus_facts(h, day, d, d_ko):
             hol = None
             break
         hol |= got
-    caption = f'Stops where each route saw a boarding, {d}: not necessarily its full path'
+    # "Stops on each route", not "stops where each route saw a boarding":
+    # bus_route_map_stops() draws one direction's stops from the day's feed
+    # without filtering on boardings, so the old caption claimed a filter the
+    # map does not apply (5515: 33 boarded stops on the card, 31 drawn).
+    # Reworded 11 September 2026 rather than filtering, his call: a reader
+    # cannot count stops on a drawn line, and a boarded-only filter would
+    # only make a quiet route's path patchier.
+    caption = f'Stops on each route, {d}: not necessarily its full path'
 
     mv, why = bus_movers(h, day, hol)
     if mv is None:
@@ -1645,7 +1652,7 @@ def history_bus_facts(h, day, d, d_ko):
                         'trunk and branch routes over 1,000 weekday boardings'),
             'note_ko': '토·일 하루 평균 대 월~금 하루 평균 · 평일 승차 1,000명 이상 간선·지선',
             'map_day': week[5],
-            'map_caption': (f'Stops where each route saw a boarding on Saturday '
+            'map_caption': (f'Stops on each route on Saturday '
                             f'{en_date(_day_dt(week[5]))}: not necessarily its full path'),
             'map_routes': [(f'Holds up best: Route {no} ({_pct(r)})', MAP_COLOURS[i], no)
                            for i, (no, we, wk, r) in enumerate(ws['ups'])]
@@ -1786,7 +1793,8 @@ def bus_routes_facts(h, day, d, d_ko):
         'note_en': ' '.join(x for x in (BUS_ROUTE_CAVEAT_EN, stops_en, streak_en) if x),
         'note_ko': ' '.join(x for x in (BUS_ROUTE_CAVEAT_KO, stops_ko, streak_ko) if x),
         'map_day': day,
-        'map_caption': f'Stops where each route saw a boarding, {d}: not necessarily its full path',
+        # Same wording and reason as history_bus_facts()'s caption.
+        'map_caption': f'Stops on each route, {d}: not necessarily its full path',
         'map_routes': [(f'Busiest: Route {top[0]}', MAP_COLOURS[0], top[0]),
                        (f'2nd-busiest: Route {second[0]}', MAP_COLOURS[1], second[0]),
                        (f'Quietest: Route {bottom[0]}', MAP_COLOURS[2], bottom[0])]}
@@ -2013,6 +2021,11 @@ def bus_route_map_stops(api_key, day, route_nos):
     """{route_no: [(lon, lat), ...]} ordered stop coordinates for `route_nos`
     on `day`, plus every Seoul-prefixed stop's own coordinates for the map's
     background silhouette. Returns (routes, seoul_stops).
+
+    ⚠️ NOT filtered on boardings: every stop the day's feed lists for the
+    route's longest direction is drawn, boarded or not, so the count here is
+    not the card's "stops served" (distinct boarded stops, both directions).
+    The captions say "stops on each route" for that reason (11 Sept 2026).
 
     Fetched at POSTING time, not harvest time: transport_facts() already
     pages the whole day's CardBusStatisticsServiceNew once to find the day's
@@ -8322,7 +8335,7 @@ def main():
                         caption=info['map_caption'])
                     map_alt = (f'Map of {len(nos)} Seoul bus routes, {info["day_en"]}: '
                                + '; '.join(label for label, _, _ in info['map_routes'])
-                               + '. Drawn from the stops where each saw a boarding over a '
+                               + '. Drawn from each route’s stops in the day’s feed over a '
                                  'faint backdrop of every Seoul bus stop. Not necessarily '
                                  'each route’s full official path.')
                     map_ar = models.AppBskyEmbedDefs.AspectRatio(

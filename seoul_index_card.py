@@ -338,8 +338,8 @@ def render_bus_route_map(routes, seoul_stops, out_path, title='', caption=''):
     the background silhouette. `title` is the bold red masthead line;
     `caption` is the small muted line under the legend — this account's
     house style requires it read as a measurement, not the route's official
-    path (a quiet route's stops are only the ones that saw a boarding that
-    day, see the caption text busroutes_map_caption() builds).
+    path (the stops are the ones the day's feed lists for the route, one
+    direction, boarded or not; see the caption text the callers build).
 
     Returns (path, (w, h)), or raises CardRenderError — the caller (main())
     treats a failed map the same way a failed card render is already
