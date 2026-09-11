@@ -3161,15 +3161,15 @@ class AirVeinFourLines(unittest.TestCase):
     def test_four_lines_from_one_fetch(self):
         by = self.facts()
         self.assertEqual(set(by), {'air_monitors', 'air_worst', 'air_best', 'air_good', 'air_pm10'})
-        self.assertEqual(by['air_pm10']['label_en'], 'Worst PM10 right now (Gangnam-gu)')
+        self.assertEqual(by['air_pm10']['label_en'], 'Worst PM10 (Gangnam-gu)')
         self.assertEqual(by['air_pm10']['value_en'], '30 µg/m³')
         self.assertEqual(S.AIR_NOW['emoji'], '🟡')          # the worst grade present is 보통
         self.assertGreaterEqual(len(by), S.STARVE_MIN_FACTS)
         self.assertEqual(by['air_monitors']['value_en'], '3')          # 점검중 is not reporting
-        self.assertEqual(by['air_worst']['label_en'], 'Worst PM2.5 right now (Gangnam-gu)')
-        self.assertEqual(by['air_best']['label_en'], 'Cleanest PM2.5 right now (Mapo-gu)')
+        self.assertEqual(by['air_worst']['label_en'], 'Worst PM2.5 (Gangnam-gu)')
+        self.assertEqual(by['air_best']['label_en'], 'Cleanest PM2.5 (Mapo-gu)')
         self.assertEqual(by['air_best']['value_en'], '2 µg/m³')
-        self.assertEqual(by['air_best']['label_ko'], '지금 초미세먼지가 가장 낮은 곳 (마포구)')
+        self.assertEqual(by['air_best']['label_ko'], '초미세먼지가 가장 낮은 곳 (마포구)')
 
     def test_the_good_count_is_of_graded_districts_only(self):
         by = self.facts()
@@ -3182,7 +3182,7 @@ class AirVeinFourLines(unittest.TestCase):
         rows[1]['CAI_GRD'] = '나쁨'
         by = self.facts(rows)
         self.assertEqual(by['air_bad']['value_en'], '1 of 3')
-        self.assertEqual(by['air_bad']['label_ko'], '지금 대기질 등급이 “나쁨” 이상인 자치구')
+        self.assertEqual(by['air_bad']['label_ko'], '대기질 등급이 “나쁨” 이상인 자치구')
         self.assertEqual(S.AIR_NOW['emoji'], '🟠')
         rows[0]['CAI_GRD'] = '매우나쁨'
         by = self.facts(rows)

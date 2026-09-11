@@ -1179,35 +1179,36 @@ def air_facts(api_key):
         # run dropped "live" (실시간) and the label check put the English
         # line on the Korean card. The wording is the selector's own from a
         # run it got right.
-        # "across Seoul" dropped 11 September 2026, his call: the opener names
-        # the city, so the line need not (feedback_no_word_the_title_already_carries).
+        # "across Seoul" and then "right now" dropped 11 September 2026, his
+        # call: the opener names the city and the moment, so the lines need not
+        # (feedback_no_word_the_title_already_carries).
         return [fact('air_monitors', 'air', 'Air-quality monitors reporting live',
                      str(len(vals)), str(len(vals)), pin=True,
                      label_ko='실시간으로 보고하는 대기질 측정소'),
                 fact('air_worst', 'air',
-                     f'Worst PM2.5 right now ({en_name(worst[0], "districts")})',
+                     f'Worst PM2.5 ({en_name(worst[0], "districts")})',
                      f'{worst[1]:.0f} µg/m³', f'{worst[1]:.0f} µg/m³', pin=True,
-                     label_ko=f'지금 초미세먼지가 가장 심한 곳 ({worst[0]})'),
+                     label_ko=f'초미세먼지가 가장 심한 곳 ({worst[0]})'),
                 fact('air_best', 'air',
-                     f'Cleanest PM2.5 right now ({en_name(best[0], "districts")})',
+                     f'Cleanest PM2.5 ({en_name(best[0], "districts")})',
                      f'{best[1]:.0f} µg/m³', f'{best[1]:.0f} µg/m³', pin=True,
-                     label_ko=f'지금 초미세먼지가 가장 낮은 곳 ({best[0]})')] + ([
+                     label_ko=f'초미세먼지가 가장 낮은 곳 ({best[0]})')] + ([
                 # Short enough not to wrap against "19 of 22" (the row fits
                 # about 53 characters of label and value before it loses its
                 # leader; the first wording did, on the first render).
-                fact('air_good', 'air', 'Districts with “good” air right now',
+                fact('air_good', 'air', 'Districts with “good” air',
                      f'{good} of {len(graded)}', f'{len(graded)}곳 중 {good}곳', pin=True,
-                     label_ko='지금 대기질 등급이 “좋음”인 자치구')] if graded else []) + ([
+                     label_ko='대기질 등급이 “좋음”인 자치구')] if graded else []) + ([
                 # Only when there is one: the line people look up on a dust day.
-                fact('air_bad', 'air', 'Districts with “bad” or worse air right now',
+                fact('air_bad', 'air', 'Districts with “bad” or worse air',
                      f'{bad} of {len(graded)}', f'{len(graded)}곳 중 {bad}곳', pin=True,
-                     label_ko='지금 대기질 등급이 “나쁨” 이상인 자치구')] if bad else []) + ([
+                     label_ko='대기질 등급이 “나쁨” 이상인 자치구')] if bad else []) + ([
                 # Yellow-dust days are PM10 events, which PM2.5 alone would miss.
                 fact('air_pm10', 'air',
-                     f'Worst PM10 right now ({en_name(max(pm10, key=lambda t: t[1])[0], "districts")})',
+                     f'Worst PM10 ({en_name(max(pm10, key=lambda t: t[1])[0], "districts")})',
                      f'{max(v for _, v in pm10):.0f} µg/m³', f'{max(v for _, v in pm10):.0f} µg/m³',
                      pin=True,
-                     label_ko=f'지금 미세먼지가 가장 심한 곳 ({max(pm10, key=lambda t: t[1])[0]})')]
+                     label_ko=f'미세먼지가 가장 심한 곳 ({max(pm10, key=lambda t: t[1])[0]})')]
                 if pm10 else [])
     except (RuntimeError, KeyError, IndexError, ValueError):
         return []
