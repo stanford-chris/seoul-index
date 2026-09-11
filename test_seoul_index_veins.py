@@ -3246,6 +3246,18 @@ class WxDayCard(unittest.TestCase):
         self.assertEqual(self.wx({'tm': 'x', 'maxTa': '', 'minTa': '15.8', 'sumRn': '1.0'}), [])
         self.assertNotIn('wxday', S.RANKED_CARD_INFO)
 
+    def test_each_line_carries_its_own_emoji_and_no_other_ranked_card_does(self):
+        pool = self.wx({'tm': 'x', 'maxTa': '21.5', 'minTa': '15.8', 'avgTa': '18.4', 'sumRn': ''})
+        sel = {'opener_en': 'x', 'opener_ko': 'x', 'opener_emoji': '🚗',
+               'picks': [{'id': f['id'], 'emoji': '🎉'} for f in pool]}   # the selector's are ignored
+        c = S.compose(sel, pool)
+        self.assertEqual([l['emoji'] for l in c['lines']], ['🔺', '🔻', '🌡', '🌧'])
+        self.assertEqual(c['opener']['emoji'], '🌤')
+        # A registry entry without line_emoji still strips, as before.
+        S.RANKED_CARD_INFO['wxday'].pop('line_emoji')
+        c = S.compose(sel, pool)
+        self.assertEqual([l['emoji'] for l in c['lines']], ['', '', '', ''])
+
     def test_the_weather_vein_no_longer_offers_yesterday_lines(self):
         src = open(S.__file__, encoding='utf-8').read()
         self.assertNotIn("fact('wx_yday_hi'", src)

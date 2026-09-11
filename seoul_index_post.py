@@ -4309,7 +4309,10 @@ def wx_day_facts(key):
         'opener_en': WXDAY_OPENER_EN, 'opener_ko': WXDAY_OPENER_KO,
         'dateline_en': d, 'dateline_ko': d_ko,
         'note_en': f'Seoul’s reference station, observing since {WX_OBSERVING_SINCE}',
-        'note_ko': f'서울 대표 관측소, {WX_OBSERVING_SINCE}년 관측 개시'}
+        'note_ko': f'서울 대표 관측소, {WX_OBSERVING_SINCE}년 관측 개시',
+        # One glyph per line, his call; the rain line keeps its glyph on a
+        # dry day, since the line is still about rain.
+        'line_emoji': {'High': '🔺', 'Low': '🔻', 'Average': '🌡', 'Rain': '🌧'}}
     facts = [fact('wxday_hi', 'wxday', 'High', to_f(hi), f'{hi:.1f}°C', pin=True, label_ko='최고기온'),
              fact('wxday_lo', 'wxday', 'Low', to_f(lo), f'{lo:.1f}°C', pin=True, label_ko='최저기온')]
     if avg is not None:
@@ -7580,7 +7583,7 @@ def compose(sel, pool):
         elif fid.startswith('rail'):
             opener_emoji = '🚆'
         elif fid.startswith('wx'):
-            opener_emoji = '🌡'      # the weather-day card is a ranked card, not a transport one
+            opener_emoji = '🌤'      # the weather-day card is a ranked card, not a transport one
         else:
             opener_emoji = '🚗'
 
@@ -8442,9 +8445,14 @@ def compose(sel, pool):
     # busroutes line beside an emoji-carrying line from another vein, and
     # even_out_emoji() below already handles within-vein consistency on its
     # own; this only needs to zero out busroutes specifically.
+    # ⚠️ Except a ranked card whose registry entry names an emoji per line
+    # (wxday, his call, 11 September 2026: high, low, average and rain are
+    # four different things, unlike four routes), keyed on the pinned
+    # English label, so the selector's choice never reaches these lines.
     for l in lines:
         if l['cat'] in RANKED_CATS:
-            l['emoji'] = ''
+            per_line = RANKED_CARD_INFO.get(l['cat'], {}).get('line_emoji') or {}
+            l['emoji'] = _valid_emoji(per_line.get(l['label_en']))
 
     # The ordered elements the card draws, per language. A grouped cross pair puts
     # a date subhead over the dated lines and a "Right now" subhead over the live
