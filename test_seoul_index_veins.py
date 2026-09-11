@@ -2273,8 +2273,8 @@ class HeldVeins(unittest.TestCase):
         # busroutes was held 10-11 September 2026 and released on the 11th;
         # busstops held and released the same day, 11 September, once its
         # wording was settled; railstations likewise, held and released the same
-        # day; seoulstation held from 11 September until he has seen it.
-        self.assertEqual(self._held, {'seoulstation'})
+        # day; seoulstation likewise, held and released the same day.
+        self.assertEqual(self._held, set())
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
@@ -3031,8 +3031,9 @@ class SeoulStationCard(unittest.TestCase):
         self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['dateline_en'], 'September 8')
         self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['dateline_ko'], '9월 8일')
 
-    def test_the_live_hold_is_the_seoul_station_card(self):
-        self.assertEqual(S.HELD_CATS, {'seoulstation'})
+    def test_nothing_is_held(self):
+        # seoulstation was held and released on 11 September 2026.
+        self.assertEqual(S.HELD_CATS, set())
 
 
 if __name__ == '__main__':
