@@ -2271,8 +2271,8 @@ class HeldVeins(unittest.TestCase):
         # Pins the current instruction; change this test when he decides.
         # busroutes was held 10-11 September 2026 and released on the 11th;
         # busstops held and released the same day, 11 September, once its
-        # wording was settled.
-        self.assertEqual(self._held, set())
+        # wording was settled; railstations held from 11 September the same way.
+        self.assertEqual(self._held, {'railstations'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
@@ -2778,6 +2778,102 @@ class BusStopsCard(unittest.TestCase):
         self.assertIn("'last_busstops_at', 'busstops'", src)
         self.assertIn("state['last_busstops_at'] = state['last_success_at']", src)
         self.assertIn('- "busstops" lines are', src)
+
+
+class RailStationsCard(unittest.TestCase):
+    """Seoul's four busiest Korail stations on the newest published day,
+    from mainLineStationPer (daily, about a year of history, no date
+    filter, newest first but not guaranteed). What would ship it wrong:
+    an older day's rows folded in, a station outside Seoul (대전 outranks
+    every Seoul station but one) reaching the card, 서울 reading as the city
+    rather than the station, and an alighting figure taken for a boarding."""
+
+    @staticmethod
+    def _row(day, name, ride, goff):
+        return {'opr_ymd': day, 'stn_nm': name, 'ride_nope': str(ride), 'goff_nope': str(goff)}
+
+    ROWS = [_row.__func__('20260908', '서울', 49068, 48364), _row.__func__('20260908', '대전', 25167, 25000),
+            _row.__func__('20260908', '용산', 17925, 17050), _row.__func__('20260908', '청량리', 7549, 7887),
+            _row.__func__('20260908', '영등포', 7310, 6961), _row.__func__('20260908', '상봉', 381, 484),
+            _row.__func__('20260908', '옥수', 32, 39),
+            # The previous day, which must not leak in: it would put 청량리
+            # above 용산 if summed.
+            _row.__func__('20260907', '청량리', 90000, 1), _row.__func__('20260907', '서울', 1, 1)]
+
+    def facts(self, rows=None):
+        import subprocess as real_subprocess
+
+        def run(cmd, **kw):
+            items = list(self.ROWS if rows is None else rows) if 'mainLineStationPer' in cmd[-1] else []
+            return types.SimpleNamespace(stdout=json.dumps({'response': {'body': {'items': {'item': items}}}}),
+                                         returncode=0)
+        S.subprocess.run = run
+        try:
+            return S.rail_stations_facts('KEY')
+        finally:
+            S.subprocess.run = real_subprocess.run
+
+    def tearDown(self):
+        S.RANKED_CARD_INFO.pop('railstations', None)
+
+    def test_the_four_busiest_seoul_stations_on_the_newest_day_only(self):
+        facts = self.facts()
+        self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
+                         [('Seoul Station', '49,068'), ('Yongsan', '17,925'),
+                          ('Cheongnyangni', '7,549'), ('Yeongdeungpo', '7,310')])
+        self.assertEqual([f['label_ko'] for f in facts], ['서울역', '용산역', '청량리역', '영등포역'])
+        for f in facts:
+            self.assertEqual(f['cat'], 'railstations'); self.assertTrue(f['pin'])
+            self.assertEqual(f['place_en'], f['label_en']); self.assertEqual(f['unit'], 'people')
+
+    def test_daejeon_never_reaches_a_seoul_card(self):
+        self.assertNotIn('Daejeon', [f['label_en'] for f in self.facts()])
+
+    def test_the_registry_carries_a_fixed_opener_dateline_and_note(self):
+        self.facts()
+        info = S.RANKED_CARD_INFO['railstations']
+        self.assertEqual(info['opener_en'], 'Seoul’s railway stations')
+        self.assertEqual(info['dateline_en'], 'Intercity rail boardings on September 8')
+        self.assertEqual(info['dateline_ko'], '9월 8일 열차 승차')
+        self.assertEqual(info['day_en'], 'September 8')
+        self.assertEqual(info['note_en'], S.RAILSTATIONS_NOTE_EN)
+        self.assertNotIn('map_pins', info); self.assertNotIn('map_routes', info)
+
+    def test_fewer_than_three_seoul_stations_withholds(self):
+        rows = [r for r in self.ROWS if r['stn_nm'] in ('서울', '대전', '용산')]
+        self.assertEqual(self.facts(rows), [])
+        self.assertNotIn('railstations', S.RANKED_CARD_INFO)
+
+    def test_an_empty_or_broken_feed_withholds_quietly(self):
+        self.assertEqual(self.facts([]), [])
+        self.assertEqual(self.facts([{'stn_nm': '서울', 'ride_nope': '1'}]), [])   # no day at all
+
+    def test_seoul_is_the_station_not_the_city(self):
+        self.assertEqual(S.rail_station_en('서울'), 'Seoul Station')
+        self.assertEqual(S.rail_station_en('용산'), 'Yongsan')
+        self.assertIsNone(S.rail_station_en('없는역'))
+
+    def test_the_card_composes_with_bold_names_no_line_emoji_and_the_train(self):
+        pool = self.facts()
+        sel = {'opener_en': 'x', 'opener_ko': 'x', 'opener_emoji': '🚗',
+               'picks': [{'id': f['id']} for f in pool]}
+        c = S.compose(sel, pool)
+        self.assertTrue(all(l['emoji'] == '' for l in c['lines']))
+        self.assertEqual([l.get('emph_en') for l in c['lines']],
+                         ['Seoul Station', 'Yongsan', 'Cheongnyangni', 'Yeongdeungpo'])
+        self.assertEqual(c['dateline_en'], 'Intercity rail boardings on September 8')
+        self.assertEqual(c['note_en'], S.RAILSTATIONS_NOTE_EN)
+        self.assertEqual(c['opener']['emoji'], '🚆')
+        self.assertIn('korail.com', c['src_en'] if isinstance(c.get('src_en'), str) else str(c))
+
+    def test_the_vein_is_wired_everywhere_the_other_ranked_cards_are(self):
+        self.assertIn('railstations', S.RANKED_CATS)
+        self.assertIn('railstations', S.ORDERED_CATS)
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertIn("'last_railstations_at', 'railstations'", src)
+        self.assertIn("state['last_railstations_at'] = state['last_success_at']", src)
+        self.assertIn('- "railstations" lines are', src)
+        self.assertIn("uses_korail = bool({'rail', 'railstations'} & cats)", src)
 
 
 if __name__ == '__main__':

@@ -268,7 +268,7 @@ SEVERE_STARVE_DAYS = STARVE_DAYS * 2
 # total (in the millions) would jump to the top of a card whose whole point is
 # the top-to-bottom rank of the three routes above it.
 ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist', 'busroutes', 'stations',
-                'busmovers', 'nightbus', 'busweekend', 'busstops'}
+                'busmovers', 'nightbus', 'busweekend', 'busstops', 'railstations'}
 
 # Every vein's lines are all-or-nothing on emoji, not just a chosen few: a
 # partial set reads as an oversight rather than a judgement, whatever the
@@ -482,7 +482,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # --dry-run for a preview, or --force past the six-hour guard), since that is
 # how a decision gets made. Empty the set to release a vein; nothing else
 # needs touching. Empty since 11 September 2026.
-HELD_CATS = set()   # busstops held and released 11 Sep 2026 once its wording was settled
+HELD_CATS = {'railstations'}   # held 11 Sep 2026 until its wording is settled with him
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -490,6 +490,8 @@ STATIONS_COOLDOWN_DAYS = 3
 # And the bus stops card, for the same reason: 홍대입구역 (stop 14015) was the
 # busiest stop on all four days measured, 4-7 September 2026.
 BUSSTOPS_COOLDOWN_DAYS = 3
+# And the rail stations card: Seoul Station will lead it every day.
+RAILSTATIONS_COOLDOWN_DAYS = 3
 
 # Rotating openers offered to the selector (it may also write its own). Kept
 # deliberately neutral — time/place framings, never a punchline. The house style
@@ -1614,7 +1616,8 @@ BUSWEEKEND_COOLDOWN_DAYS = 7
 # this run: {cat: {'day_en', 'day_ko', 'note_en', 'note_ko', 'map_day',
 # 'map_routes': [(label, colour, route_no)], 'map_caption'}}. Reset every run.
 RANKED_CARD_INFO = {}
-RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend', 'busstops')
+RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend', 'busstops',
+               'railstations')
 # The veins whose card is TWO lines by design: rush (one station at two
 # hours) and, since 11 September 2026, busmovers (one rise, one fall) and
 # busweekend (one holds up best, one falls most). Every other vein needs
@@ -4507,10 +4510,8 @@ KORAIL_LINE_EN = {
 }
 
 
-def _korail_newest_rows(key, op, numofrows):
-    """One operation's rows for its OWN newest run_ym, as (rows, 'YYYYMM'),
-    or ([], None). numofrows must cover the operation's full history, since
-    the API's own row order is not guaranteed newest-first."""
+def _korail_fetch(key, op, numofrows):
+    """One page of one Korail operation, as its item list, or []."""
     url = (KORAIL_BASE.format(op=op) +
            f'?serviceKey={key}&pageNo=1&numOfRows={numofrows}&type=json')
     r = subprocess.run(['curl', '-s', '--max-time', '45', '-A', MOLIT_UA, url],
@@ -4518,14 +4519,106 @@ def _korail_newest_rows(key, op, numofrows):
     try:
         items = json.loads(r.stdout)['response']['body']['items']['item']
     except (ValueError, KeyError, TypeError):
-        return [], None
-    if not isinstance(items, list) or not items:
-        return [], None
-    newest = max((x.get('run_ym') for x in items if x.get('run_ym')),
-                default=None)
+        return []
+    return items if isinstance(items, list) else []
+
+
+def _korail_newest(items, field):
+    """The rows carrying the newest value of `field` (run_ym or opr_ymd),
+    as (rows, newest), or ([], None)."""
+    newest = max((x.get(field) for x in items if x.get(field)), default=None)
     if not newest:
         return [], None
-    return [x for x in items if x.get('run_ym') == newest], newest
+    return [x for x in items if x.get(field) == newest], newest
+
+
+def _korail_newest_rows(key, op, numofrows):
+    """One operation's rows for its OWN newest run_ym, as (rows, 'YYYYMM'),
+    or ([], None). numofrows must cover the operation's full history, since
+    the API's own row order is not guaranteed newest-first."""
+    return _korail_newest(_korail_fetch(key, op, numofrows), 'run_ym')
+
+
+# --- the rail stations card ---------------------------------------------------
+# His call, 11 September 2026 ("Now the Korail per-station card"), the
+# second of the two Korail operations this bot reads that carry Seoul by
+# name. mainLineStationPer is DAILY, not monthly: one row per station per
+# day, boardings (ride_nope) and alightings (goff_nope), station names in
+# the row, about 258 stations a day, newest day first, roughly a year of
+# history and no date parameter (93,814 rows on 11 September 2026, back to
+# 10 September 2025). The newest day was three days back. KORAIL_DAY_ROWS
+# covers about eight days, so the newest day is complete whatever the order.
+#
+# ⚠️ WHICH STATIONS ARE IN SEOUL WAS MEASURED, NOT ASSUMED. The 258 names on
+# 8 September 2026 were matched to subwayStationMaster and passed through
+# the stations card's own inside-Seoul test (within 300 m of a Seoul bus
+# stop): eight matched, and they are the roster below, with that day's
+# boardings: 서울 49,068, 용산 17,925, 청량리 7,549, 영등포 7,310, 상봉 381,
+# 왕십리 268, 옥수 32, 양원 1. The card shows the four busiest of them. 수서
+# is absent from the feed altogether: it is SRT's terminal, a different
+# operator, which the footnote says. Re-measure with the same join if a
+# Korail station opens in Seoul; a name not on the roster cannot appear.
+#
+# English is the station table's, tried with 역 first so 서울 reads "Seoul
+# Station" and not "Seoul", the city: a bare "Seoul: 49,068" on a card
+# about stations would say the wrong thing.
+KORAIL_DAY_ROWS = 2000
+KORAIL_SEOUL_STATIONS = ('서울', '용산', '청량리', '영등포', '상봉', '왕십리', '옥수', '양원')
+RAILSTATIONS_OPENER_EN = 'Seoul’s railway stations'
+RAILSTATIONS_OPENER_KO = '서울의 기차역'
+RAILSTATIONS_NOTE_EN = 'Korail’s own trains, KTX to Mugunghwa. SRT is a separate operator.'
+RAILSTATIONS_NOTE_KO = '코레일 열차 기준(KTX~무궁화호). SRT는 별도 운영사.'
+
+
+def rail_station_en(ko_name):
+    """The station table's English, 역 form first ('서울역' → Seoul Station),
+    then the bare name ('용산' → Yongsan). None rather than a romanization."""
+    return en_lookup(f'{ko_name}역', 'stations') or en_lookup(ko_name, 'stations')
+
+
+def rail_stations_facts(key):
+    """The railstations card: Seoul's four busiest Korail stations by
+    boardings on the newest published day. Fills RANKED_CARD_INFO when
+    built; prints why when withheld."""
+    RANKED_CARD_INFO.pop('railstations', None)
+    if not key:
+        return []
+    rows, day = _korail_newest(_korail_fetch(key, 'mainLineStationPer', KORAIL_DAY_ROWS), 'opr_ymd')
+    if not rows or not day or len(day) != 8:
+        return []
+    seoul = []
+    for x in rows:
+        name = (x.get('stn_nm') or '').strip()
+        if name not in KORAIL_SEOUL_STATIONS:
+            continue
+        try:
+            seoul.append((name, int(x.get('ride_nope') or 0)))
+        except (TypeError, ValueError):
+            continue
+    seoul.sort(key=lambda t: (-t[1], t[0]))
+    top = seoul[:4]
+    dt = _day_dt(day)
+    d, d_ko = en_date(dt), f'{dt.month}월 {dt.day}일'
+    if len(top) < 3:
+        print(f'Rail stations card withheld for {d}: only {len(top)} Seoul stations in the feed.')
+        return []
+    en = {name: rail_station_en(name) for name, _ in top}
+    missing = [n for n, e in en.items() if not e]
+    if missing:
+        print(f'Rail stations card withheld for {d}: no English name for '
+              f'{", ".join(repr(m) for m in missing)}.')
+        return []
+    RANKED_CARD_INFO['railstations'] = {
+        'day_en': d, 'day_ko': d_ko,
+        'opener_en': RAILSTATIONS_OPENER_EN, 'opener_ko': RAILSTATIONS_OPENER_KO,
+        'dateline_en': f'Intercity rail boardings on {d}', 'dateline_ko': f'{d_ko} 열차 승차',
+        'note_en': RAILSTATIONS_NOTE_EN, 'note_ko': RAILSTATIONS_NOTE_KO}
+    # Bare station names, sorted by the day's boardings; the name itself is
+    # the emphasised run (place_en), as the rush card bolds its station.
+    return [fact(f'railst_{i}', 'railstations', en[name], grouped(v), grouped(v), pin=True,
+                 label_ko=f'{name}역', place_en=en[name], place_ko=f'{name}역',
+                 num=v, unit='people')
+            for i, (name, v) in enumerate(top)]
 
 
 def _korail_top_line(rows, name_field, value_field):
@@ -5718,6 +5811,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += kac_facts(gov_key)
     pool += iiac_facts(gov_key)
     pool += rail_facts(gov_key)
+    pool += rail_stations_facts(gov_key)
     pool += hira_facts(gov_key)
     pool += hira_cost_facts(gov_key)
     pool += culture_facts(gov_key)
@@ -5769,6 +5863,7 @@ Rules:
 - "busroutes" lines are that day's busiest, second-busiest and quietest Seoul bus routes by plain route number ("Busiest: 143"), plus the day's total bus boardings — own post, never mixed with any other category, including "transport" above (that vein's own bus/subway totals are a different card). All FOUR lines are compulsory and must be used together, in that order: this is a complete small ranking, not a selection from it, the same rule "boxoffice" uses for its top four films. The dateline carries the date, so do NOT put a date anywhere in the opener and do NOT write a second one of your own — the opener MUST name buses or bus routes, because the lines carry BARE ROUTE NUMBERS with no "Route" word ("Busiest: 143"), e.g. "Seoul's buses", "On the buses today", and it MUST NOT settle on one wording, so write a fresh one each time. Never call a route busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines: the numbers say it. If the footnote already names a route's winning streak, do not repeat or rephrase that fact in the opener — it would say the same thing twice on one card.
 - "stations" lines are that day's busiest, second-busiest and quietest Seoul SUBWAY stations by official English name ("Busiest: Seoul Station"), plus the day's total subway boardings — own post, never mixed with any other category, including "transport" and "busroutes" above. Exactly the same rules as "busroutes": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the opener MUST name the subway or its stations, because the lines carry BARE STATION NAMES with no "station" word ("Busiest: Seoul Station", "Quietest: Dorimcheon"), e.g. "Seoul's subway, station by station", "Through the turnstiles", and it MUST NOT settle on one wording; never call a station busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines.
 - "busstops" lines are that day's busiest, second-busiest and third-busiest Seoul BUS STOPS ("Busiest: Hongik University Station", one stop per name, the busier side of the road), plus how many stops took at least one boarding that day — own post, never mixed with any other category, including "transport", "busroutes" and "stations" above. Exactly the same rules as "stations": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the lines carry BARE STOP NAMES with no "stop" word, and a stop named after a station reads as the station unless the title says these are bus stops, so like "busmovers" its opener is FIXED and written by Python ("Seoul's bus stops") and whatever opener you write for this card is replaced; never call a stop busy, quiet, packed or empty, and never remark on the gap between the lines. There is no quietest line on this card, by design.
+- "railstations" lines are the four busiest of Seoul's Korail stations by boardings on one day ("Seoul Station", "Yongsan"), from the Korea Railroad Corporation — own post, never mixed with any other category, including "rail" and "stations" above (the subway card is a different thing). All FOUR lines are compulsory, used together, in that order; the dateline carries the date and the footnote the operator note, so do NOT put either in the opener. The lines are BARE STATION NAMES, so like "busmovers" its opener is FIXED and written by Python ("Seoul's railway stations") and whatever opener you write for this card is replaced. Never call a station busy or quiet, and never remark on the gap between the lines.
 - "busmovers" lines are the day's biggest RISE and biggest FALL in bus boardings, route by route, each against that route's own typical figure for the same weekday ("Up the most: 5511, 16,571 boardings" with a value of "+40%"). Own post, never mixed with any other category. BOTH lines are compulsory, in that order (up, then down): this is a two-line card by design, like "rush". Like "rush", its opener is FIXED and written by Python ("Seoul's bus routes, against their usual Monday"), so whatever opener you write for this card is replaced; the dateline carries the date and the footnote the comparison. Never guess WHY a route rose or fell.
 - "nightbus" lines are the day's busiest, second-busiest and quietest NIGHT bus routes (Seoul's N routes, which run through the small hours) plus the night total — own post, exactly the "busroutes" rules: all FOUR lines, in order, no date in the opener, the opener MUST name night buses, since the lines carry BARE ROUTE NUMBERS ("Seoul after midnight, by bus", "The night buses"), never "busy" or "quiet" as adjectives.
 - "busweekend" lines are the two routes whose boardings changed MOST between weekdays and the weekend over one week: the one that holds up best at the weekend and the one that falls most ("Holds up best: Route 271, 9,880 a day" with a value of "+3%" or "−12%"). Own post, BOTH lines in that order: a two-line card by design, like "rush"; the dateline carries the week and the footnote the comparison. Like "rush" and "busmovers", its opener is FIXED and written by Python ("Seoul's bus routes, weekend against weekday"), so whatever opener you write for this card is replaced. Never guess why.
@@ -7123,6 +7218,8 @@ def compose(sel, pool):
             opener_emoji = '🚇'
         elif fid.startswith('bus'):
             opener_emoji = '🚌'
+        elif fid.startswith('rail'):
+            opener_emoji = '🚆'
         else:
             opener_emoji = '🚗'
 
@@ -7208,7 +7305,7 @@ def compose(sel, pool):
     # from Seoul's own portal (SeoulLibraryBookRentNumInfo), not data4library.
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
                  'health', 'healthcost', 'culture', 'tourism', 'level', 'boxoffice',
-                 'boxhist', 'incheon', 'rail'}
+                 'boxhist', 'incheon', 'rail', 'railstations'}
     uses_seoul = any(c not in non_seoul for c in cats)
     uses_kosis = 'national' in cats
     # The library "1 in N" divides by KOSIS's registered population, so a card
@@ -7224,7 +7321,7 @@ def compose(sel, pool):
     uses_kma = 'weather' in cats or 'river' in cats
     uses_kac = 'airport' in cats
     uses_iiac = 'incheon' in cats
-    uses_korail = 'rail' in cats
+    uses_korail = bool({'rail', 'railstations'} & cats)
     uses_hira = 'health' in cats
     # A different HIRA dataset from uses_hira above (cost, not patient
     # counts — see hira_cost_facts()), but the same providing agency, so it
@@ -8370,6 +8467,8 @@ def main():
                               BUSWEEKEND_COOLDOWN_DAYS, 'Weekend swing')
         pool = apply_cooldown(pool, state, 'last_busstops_at', 'busstops',
                               BUSSTOPS_COOLDOWN_DAYS, 'Bus stops')
+        pool = apply_cooldown(pool, state, 'last_railstations_at', 'railstations',
+                              RAILSTATIONS_COOLDOWN_DAYS, 'Rail stations')
         pool = apply_holds(pool)
 
         # The floor under the veins the selector never reaches for. Applied
@@ -8668,6 +8767,8 @@ def main():
         state['last_busweekend_at'] = state['last_success_at']
     if primary == 'busstops':
         state['last_busstops_at'] = state['last_success_at']
+    if primary == 'railstations':
+        state['last_railstations_at'] = state['last_success_at']
     write_json_atomic(STATE, state, ensure_ascii=False, indent=2)
 
     log_card(c, sel, primary, posted_uri, handle, fallback=cards is None)
