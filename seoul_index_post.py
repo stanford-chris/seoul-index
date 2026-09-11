@@ -1135,8 +1135,8 @@ def kma_now(key):
 
 # The air title's glyph: KMA's index colours, the worst grade present.
 AIR_GRADE_EMOJI = {'좋음': '🟢', '보통': '🟡', '나쁨': '🟠', '매우나쁨': '🔴'}
-AIR_SCALE_NOTE_EN = 'PM2.5: good to 15, bad from 36. PM10: good to 30, bad from 81. In µg/m³.'
-AIR_SCALE_NOTE_KO = '초미세먼지: 15까지 좋음, 36부터 나쁨. 미세먼지: 30까지 좋음, 81부터 나쁨. 단위 µg/m³.'
+AIR_SCALE_NOTE_EN = 'PM2.5: good to 15, bad from 36; PM10: good to 30, bad from 81 µg/m³'
+AIR_SCALE_NOTE_KO = '초미세먼지: 15까지 좋음, 36부터 나쁨; 미세먼지: 30까지 좋음, 81부터 나쁨 (µg/m³)'
 AIR_NOW = {'emoji': None}
 
 

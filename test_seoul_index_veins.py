@@ -3194,8 +3194,8 @@ class AirVeinFourLines(unittest.TestCase):
         pool = list(self.facts().values())
         sel = {'opener_en': 'x', 'opener_ko': 'x', 'picks': [{'id': f['id']} for f in pool]}
         c = S.compose(sel, pool)
-        self.assertEqual(c['note_en'], 'PM2.5: good to 15, bad from 36. PM10: good to 30, bad from 81. In µg/m³.')
-        self.assertEqual(c['note_ko'], '초미세먼지: 15까지 좋음, 36부터 나쁨. 미세먼지: 30까지 좋음, 81부터 나쁨. 단위 µg/m³.')
+        self.assertEqual(c['note_en'], 'PM2.5: good to 15, bad from 36; PM10: good to 30, bad from 81 µg/m³')
+        self.assertEqual(c['note_ko'], '초미세먼지: 15까지 좋음, 36부터 나쁨; 미세먼지: 30까지 좋음, 81부터 나쁨 (µg/m³)')
         # The branch is `cats == {'air'}`: a mixed card never reaches it.
         src = open(S.__file__, encoding='utf-8').read()
         self.assertIn("    elif cats == {'air'}:", src)
