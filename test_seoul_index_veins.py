@@ -3140,5 +3140,119 @@ class StationGapCard(unittest.TestCase):
         self.assertIn('- "stationgap" lines are', src)
 
 
+class AirVeinFourLines(unittest.TestCase):
+    """air_facts() carried two lines until 11 Sep 2026 and so sat under
+    STARVE_MIN_FACTS for ever: it could never lead a card. Two more come off
+    the same rows. What would ship them wrong: a monitor under maintenance
+    (점검중 readings, no grade) reaching either end of the spread or the
+    count, and a feed with no grades printing a count of nothing."""
+
+    def rows(self):
+        return [{'MSRSTN_NM': '종로구', 'FPM': '7', 'CAI_GRD': '좋음'},
+                {'MSRSTN_NM': '강남구', 'FPM': '12', 'CAI_GRD': '보통'},
+                {'MSRSTN_NM': '마포구', 'FPM': '2', 'CAI_GRD': '좋음'},
+                {'MSRSTN_NM': '송파구', 'FPM': '점검중', 'CAI_GRD': ''}]
+
+    def facts(self, rows=None):
+        with Stub({'ListAirQualityByDistrictService': ok('ListAirQualityByDistrictService',
+                                                        self.rows() if rows is None else rows)}):
+            return {f['id']: f for f in S.air_facts('unused-key')}
+
+    def test_four_lines_from_one_fetch(self):
+        by = self.facts()
+        self.assertEqual(set(by), {'air_monitors', 'air_worst', 'air_best', 'air_good'})
+        self.assertGreaterEqual(len(by), S.STARVE_MIN_FACTS)
+        self.assertEqual(by['air_monitors']['value_en'], '3')          # 점검중 is not reporting
+        self.assertEqual(by['air_worst']['label_en'], 'Worst PM2.5 right now (Gangnam-gu)')
+        self.assertEqual(by['air_best']['label_en'], 'Cleanest PM2.5 right now (Mapo-gu)')
+        self.assertEqual(by['air_best']['value_en'], '2 µg/m³')
+        self.assertEqual(by['air_best']['label_ko'], '지금 초미세먼지가 가장 낮은 곳 (마포구)')
+
+    def test_the_good_count_is_of_graded_districts_only(self):
+        by = self.facts()
+        self.assertEqual(by['air_good']['value_en'], '2 of 3')     # the ungraded monitor is out of both
+        self.assertEqual(by['air_good']['value_ko'], '3곳 중 2곳')
+        self.assertTrue(by['air_good']['pin'])
+
+    def test_no_grades_means_no_count_line(self):
+        rows = [{k: v for k, v in r.items() if k != 'CAI_GRD'} for r in self.rows()]
+        by = self.facts(rows)
+        self.assertNotIn('air_good', by)
+        self.assertIn('air_best', by)
+
+    def test_a_failed_read_is_no_lines_and_the_archive_reader_agrees(self):
+        with Stub({'ListAirQualityByDistrictService': RuntimeError('down')}):
+            self.assertEqual(S.air_facts('unused-key'), [])
+            self.assertIsNone(S.air_readings('unused-key'))
+        with Stub({'ListAirQualityByDistrictService': ok('ListAirQualityByDistrictService', self.rows())}):
+            self.assertEqual(sorted(S.air_readings('unused-key')), [('강남구', 12.0), ('마포구', 2.0), ('종로구', 7.0)])
+
+
+class WxDayCard(unittest.TestCase):
+    """Yesterday's readings as their own card. Inside the weather vein they
+    never posted once (the selector picks one frame and always picked the
+    fifty-year one), so the rain line could never fire. What would ship it
+    wrong: a blank rain field read as missing rather than as none, a row
+    with no temperatures, and the weather vein still offering the old
+    yesterday lines beside this card."""
+
+    def wx(self, row):
+        import subprocess as real_subprocess
+
+        def run(cmd, **kw):
+            items = [row] if (row and 'AsosDalyInfoService' in cmd[-1]) else []
+            body = {'response': {'body': {'items': {'item': items} if items else ''}}}
+            return types.SimpleNamespace(stdout=json.dumps(body), returncode=0)
+        S.subprocess.run = run
+        try:
+            return S.wx_day_facts('KEY')
+        finally:
+            S.subprocess.run = real_subprocess.run
+
+    def tearDown(self):
+        S.RANKED_CARD_INFO.pop('wxday', None)
+
+    def test_a_dry_day_reads_none_not_missing(self):
+        facts = self.wx({'tm': '2026-09-10', 'maxTa': '21.5', 'minTa': '15.8', 'avgTa': '18.4', 'sumRn': ''})
+        self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
+                         [('High', '21.5°C (71°F)'), ('Low', '15.8°C (60°F)'),
+                          ('Average', '18.4°C (65°F)'), ('Rain', 'None')])
+        self.assertEqual([(f['label_ko'], f['value_ko']) for f in facts],
+                         [('최고기온', '21.5°C'), ('최저기온', '15.8°C'), ('평균기온', '18.4°C'), ('강수량', '없음')])
+        self.assertTrue(all(f['pin'] and f['cat'] == 'wxday' for f in facts))
+
+    def test_a_wet_day_carries_the_millimetres(self):
+        facts = self.wx({'tm': '2026-09-01', 'maxTa': '27.0', 'minTa': '21.0', 'avgTa': '23.5', 'sumRn': '23.1'})
+        self.assertEqual(facts[-1]['value_en'], '23.1mm')
+        self.assertEqual(facts[-1]['value_ko'], '23.1mm')
+
+    def test_the_registry_carries_the_fixed_opener_the_date_and_the_station_note(self):
+        self.wx({'tm': 'x', 'maxTa': '21.5', 'minTa': '15.8', 'avgTa': '', 'sumRn': '0.0'})
+        info = S.RANKED_CARD_INFO['wxday']
+        self.assertEqual(info['opener_en'], 'Yesterday at Seoul’s weather station')
+        yday = S.datetime.now(S.SEOUL_TZ).date() - S.timedelta(days=1)
+        self.assertEqual(info['dateline_en'], S.en_date(yday))
+        self.assertIn('observing since 1907', info['note_en'])
+
+    def test_no_row_or_no_temperatures_withholds(self):
+        self.assertEqual(self.wx(None), [])
+        self.assertEqual(self.wx({'tm': 'x', 'maxTa': '', 'minTa': '15.8', 'sumRn': '1.0'}), [])
+        self.assertNotIn('wxday', S.RANKED_CARD_INFO)
+
+    def test_the_weather_vein_no_longer_offers_yesterday_lines(self):
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertNotIn("fact('wx_yday_hi'", src)
+        self.assertNotIn("Rain on Seoul yesterday", src)
+
+    def test_the_vein_is_wired_everywhere_the_other_ranked_cards_are(self):
+        self.assertIn('wxday', S.RANKED_CATS)
+        self.assertIn('wxday', S.ORDERED_CATS)
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertIn("'last_wxday_at', 'wxday'", src)
+        self.assertIn("state['last_wxday_at'] = state['last_success_at']", src)
+        self.assertIn('- "wxday" lines are', src)
+        self.assertIn("uses_kma = bool({'weather', 'river', 'wxday'} & cats)", src)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

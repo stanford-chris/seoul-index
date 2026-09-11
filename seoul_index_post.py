@@ -223,9 +223,9 @@ SELECT_RETRIES = 3
 # has never led a card at all, and a vein stuck past SEVERE_STARVE_DAYS (see
 # below), both of which may run on. See promote_starved.
 STARVE_DAYS = 5
-# A promoted vein must be able to fill a card on its own. 'air' has only 2 facts
-# and so can never be promoted — it can only ever ride along on someone else's
-# card, which is worth knowing rather than silently working around.
+# A promoted vein must be able to fill a card on its own. 'air' had only 2 facts
+# until 11 September 2026 and so could never be promoted — it could only ride
+# along on someone else's card. It carries 4 now (see air_facts).
 STARVE_MIN_FACTS = 3
 
 # The back-to-back bar in promote_starved trades a hard per-vein guarantee for
@@ -269,7 +269,7 @@ SEVERE_STARVE_DAYS = STARVE_DAYS * 2
 # the top-to-bottom rank of the three routes above it.
 ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist', 'busroutes', 'stations',
                 'busmovers', 'nightbus', 'busweekend', 'busstops', 'railstations', 'seoulstation',
-                'stationgap'}
+                'stationgap', 'wxday'}
 
 # Every vein's lines are all-or-nothing on emoji, not just a chosen few: a
 # partial set reads as an oversight rather than a judgement, whatever the
@@ -1077,16 +1077,25 @@ def air_readings(api_key):
     ⚠️ None, not [], on a failed read: a partial city and a clean one must not
     look alike to an archive.
     """
-    try:
-        d = http_get_json(
-            f'http://openapi.seoul.go.kr:8088/{api_key}/json/ListAirQualityByDistrictService/1/25/')
-        rows = [v for v in d.values() if isinstance(v, dict) and 'row' in v][0]['row']
-    except (RuntimeError, KeyError, IndexError, ValueError):
+    rows = air_rows(api_key)
+    if rows is None:
         return None
     vals = [(x.get('MSRSTE_NM') or x.get('SAREA_NM') or x.get('MSRSTN_NM'),
              float(x['FPM'])) for x in rows
             if str(x.get('FPM', '')).replace('.', '', 1).isdigit()]
     return vals or None
+
+
+def air_rows(api_key):
+    """The 25 district rows as served, or None on a failed read. One fetch
+    behind both air_readings() (the archive's shape) and air_facts(), which
+    since 11 September 2026 also reads the official grade (CAI_GRD)."""
+    try:
+        d = http_get_json(
+            f'http://openapi.seoul.go.kr:8088/{api_key}/json/ListAirQualityByDistrictService/1/25/')
+        return [v for v in d.values() if isinstance(v, dict) and 'row' in v][0]['row']
+    except (RuntimeError, KeyError, IndexError, ValueError):
+        return None
 
 
 def kma_now(key):
@@ -1120,11 +1129,28 @@ def kma_now(key):
 
 
 def air_facts(api_key):
+    """Four live lines. Two facts until 11 September 2026, which kept the vein
+    under STARVE_MIN_FACTS: it could ride along on another card but never
+    lead one, so the floor never promoted it. The two added come off the
+    same rows: the best PM2.5 district (the other end of the spread the
+    worst line opens) and how many districts the city's own index rates
+    좋음 right now, a count of rows against a published grade. A monitor
+    under maintenance reports 점검중 for its readings and no grade (3 of 25
+    on the morning this was built) and is left out of both.
+    """
     try:
-        vals = air_readings(api_key)
+        rows = air_rows(api_key)
+        if not rows:
+            return []
+        vals = [(x.get('MSRSTE_NM') or x.get('SAREA_NM') or x.get('MSRSTN_NM'),
+                 float(x['FPM'])) for x in rows
+                if str(x.get('FPM', '')).replace('.', '', 1).isdigit()]
         if not vals:
             return []
         worst = max(vals, key=lambda t: t[1])
+        best = min(vals, key=lambda t: t[1])
+        graded = [x for x in rows if (x.get('CAI_GRD') or '').strip()]
+        good = sum(1 for x in graded if x['CAI_GRD'].strip() == '좋음')
         # FPM is PM2.5, not PM10. The service documents its measured values as
         # 미세먼지(PM-10), 오존, 이산화질소, 일산화탄소, 아황산가스, and OZON/NTDX/CBMX/SPDX
         # take four of those, leaving PM as the documented PM-10 and FPM as the
@@ -1137,7 +1163,14 @@ def air_facts(api_key):
                 fact('air_worst', 'air',
                      f'Worst PM2.5 right now ({en_name(worst[0], "districts")})',
                      f'{worst[1]:.0f} µg/m³', f'{worst[1]:.0f} µg/m³', pin=True,
-                     label_ko=f'지금 초미세먼지가 가장 심한 곳 ({worst[0]})')]
+                     label_ko=f'지금 초미세먼지가 가장 심한 곳 ({worst[0]})'),
+                fact('air_best', 'air',
+                     f'Cleanest PM2.5 right now ({en_name(best[0], "districts")})',
+                     f'{best[1]:.0f} µg/m³', f'{best[1]:.0f} µg/m³', pin=True,
+                     label_ko=f'지금 초미세먼지가 가장 낮은 곳 ({best[0]})')] + ([
+                fact('air_good', 'air', 'Districts whose air is rated “good” right now',
+                     f'{good} of {len(graded)}', f'{len(graded)}곳 중 {good}곳', pin=True,
+                     label_ko='지금 대기질 등급이 “좋음”인 자치구')] if graded else [])
     except (RuntimeError, KeyError, IndexError, ValueError):
         return []
 
@@ -1709,7 +1742,7 @@ BUSWEEKEND_COOLDOWN_DAYS = 7
 # 'map_routes': [(label, colour, route_no)], 'map_caption'}}. Reset every run.
 RANKED_CARD_INFO = {}
 RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend', 'busstops',
-               'railstations', 'seoulstation', 'stationgap')
+               'railstations', 'seoulstation', 'stationgap', 'wxday')
 # The veins whose card is TWO lines by design: rush (one station at two
 # hours) and, since 11 September 2026, busmovers (one rise, one fall) and
 # busweekend (one holds up best, one falls most). Every other vein needs
@@ -4220,32 +4253,72 @@ def _wx_extremes(rows):
     }
 
 
+# --- yesterday at the weather station -----------------------------------------
+# His call, 11 September 2026 ("Fix ... yesterday's rainfall"). Four lines
+# from station 108's row for yesterday, published by KMA the next morning:
+# high, low, average and rain, as its own post with a fixed opener and the
+# date on the dateline. ⚠️ The rain field is BLANK on a day with no
+# precipitation, not 0.0: measured on the finalised rows for 25 August to
+# 10 September 2026, dry days (Open-Meteo 0.0 mm) read '' and a trace day
+# reads '0.0'. So a blank prints "None" / "없음", which is a reading, not a
+# missing one; a missing high or low withholds the card. Three-day
+# cooldown like the other daily cards.
+WXDAY_COOLDOWN_DAYS = 3
+WXDAY_OPENER_EN = 'Yesterday at Seoul’s weather station'
+WXDAY_OPENER_KO = '어제 서울 기상관측소에서'
+
+
+def wx_day_facts(key):
+    """The wxday card: yesterday's published readings from station 108.
+    Fills RANKED_CARD_INFO when built; prints why when withheld."""
+    RANKED_CARD_INFO.pop('wxday', None)
+    if not key:
+        return []
+    yday = datetime.now(SEOUL_TZ).date() - timedelta(days=1)
+    rows = _wx_rows(key, f'{yday:%Y%m%d}', f'{yday:%Y%m%d}')
+    d, d_ko = en_date(yday), f'{yday.month}월 {yday.day}일'
+    if not rows:
+        print(f'Weather-day card withheld: no row yet for {d}.')
+        return []
+    r = rows[0]
+    hi, lo, avg, rn = (_wx_num(r, 'maxTa'), _wx_num(r, 'minTa'),
+                       _wx_num(r, 'avgTa'), _wx_num(r, 'sumRn'))
+    if hi is None or lo is None:
+        print(f'Weather-day card withheld: high or low missing for {d}.')
+        return []
+    RANKED_CARD_INFO['wxday'] = {
+        'day_en': d, 'day_ko': d_ko,
+        'opener_en': WXDAY_OPENER_EN, 'opener_ko': WXDAY_OPENER_KO,
+        'dateline_en': d, 'dateline_ko': d_ko,
+        'note_en': f'Seoul’s reference station, observing since {WX_OBSERVING_SINCE}',
+        'note_ko': f'서울 대표 관측소, {WX_OBSERVING_SINCE}년 관측 개시'}
+    facts = [fact('wxday_hi', 'wxday', 'High', to_f(hi), f'{hi:.1f}°C', pin=True, label_ko='최고기온'),
+             fact('wxday_lo', 'wxday', 'Low', to_f(lo), f'{lo:.1f}°C', pin=True, label_ko='최저기온')]
+    if avg is not None:
+        facts.append(fact('wxday_avg', 'wxday', 'Average', to_f(avg), f'{avg:.1f}°C',
+                          pin=True, label_ko='평균기온'))
+    rain_en, rain_ko = (f'{rn:.1f}mm', f'{rn:.1f}mm') if rn is not None else ('None', '없음')
+    facts.append(fact('wxday_rain', 'wxday', 'Rain', rain_en, rain_ko, pin=True, label_ko='강수량'))
+    return facts
+
+
 def kma_facts(key):
-    """Weather lines: yesterday's readings, and the last full month set
-    against the same month fifty years earlier."""
+    """Weather lines: the last full month set against the same month fifty
+    years earlier, and in summer the season to date. Yesterday's readings
+    are wx_day_facts()'s card since 11 September 2026."""
     if not key:
         return []
     today = datetime.now(SEOUL_TZ).date()
     facts = []
 
+    # Yesterday's readings were the vein's third frame until 11 September
+    # 2026 and never once reached a card: the selector is told to pick one
+    # frame and picked the fifty-year one every time (zero cards with a
+    # "yesterday" line in the whole history), so the rain line, which needs
+    # a wet day AND that frame, could not fire. They are their own card now:
+    # wx_day_facts() below.
+    # The date itself still bounds the season-to-date window further down.
     yday = today - timedelta(days=1)
-    rows = _wx_rows(key, f'{yday:%Y%m%d}', f'{yday:%Y%m%d}')
-    if rows:
-        r = rows[0]
-        hi, lo, rn = (_wx_num(r, 'maxTa'), _wx_num(r, 'minTa'),
-                      _wx_num(r, 'sumRn'))
-        if hi is not None and lo is not None:
-            facts.append(fact('wx_yday_hi', 'weather', "Seoul's high yesterday",
-                              to_f(hi), f'{hi:.1f}°C', pair='wx_yday',
-                              pin=True, label_ko='어제 서울 최고기온'))
-            facts.append(fact('wx_yday_lo', 'weather', "Seoul's low yesterday",
-                              to_f(lo), f'{lo:.1f}°C', pair='wx_yday',
-                              pin=True, label_ko='어제 서울 최저기온'))
-        if rn:
-            facts.append(fact('wx_yday_rain', 'weather',
-                              'Rain on Seoul yesterday',
-                              f'{rn:.1f}mm', f'{rn:.1f}mm', pair='wx_yday',
-                              pin=True, label_ko='어제 서울에 내린 비'))
 
     # Last FULL month against the same month fifty years back: both sides
     # are complete, and neither can still grow.
@@ -6071,6 +6144,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += worldbank_facts(state, kosis_key)
     pool += molit_facts(gov_key)
     pool += kma_facts(gov_key)
+    pool += wx_day_facts(gov_key)
     pool += kac_facts(gov_key)
     pool += iiac_facts(gov_key)
     pool += rail_facts(gov_key)
@@ -6110,7 +6184,8 @@ Rules:
 - "world" lines set Seoul's metro area against other cities' metro areas, from the OECD. Their labels are BARE CITY NAMES, so the opener MUST say what is being measured (e.g. "Green space per person", "Within a five-minute walk of transit") — this is the one case where the opener names the metric. Build them into their own post: every world line in a post must come from the SAME pair (all city_green, or all city_transit, never a mix), and a world line NEVER appears alongside a Seoul-only line of any other category. Always include the Seoul line.
 - "nation" lines set SEOUL against whole countries, on one metric, from the World Bank (countries) and KOSIS (Seoul). Seoul leads the card; the peers are whole nations (Korea, Japan, the US…), which is the point — e.g. Seoul is denser than entire countries. Labels are BARE PLACE NAMES (Seoul, then countries), so the opener MUST name the metric (e.g. "People per square kilometre", "Births per woman") — the same rule as the world lines. Do NOT reach for the generic "Seoul and the nation" / "서울과 전국" opener here: that framing belongs to the Seoul-vs-Korea "national" lines, and on a nation card it names no metric, leaving the countries measuring nothing — make the metric itself the opener. Build them into their own post: every nation line must come from the SAME pair (all nation_density, or all nation_fertility, never a mix), ALWAYS include the Seoul line, and a nation line NEVER appears alongside a Seoul-only line of any other category or a world (city) line. The pair is the point: Seoul against the country that most sharpens it (the widest gap, or a near dead heat).
 - "property" lines are one month's apartment-market filings from the national land ministry: actual sale prices (the dearest and cheapest single sales), a record jeonse deposit, and counts of filings. Build them into their own post — never alongside a live "right now" line, a spending line, a national line or a world line. The pairs are the point: the price gap (dearest vs cheapest sale) or the jeonse/monthly-rent split. Never put a month or date in a property label — the filing month rides on the card automatically.
-- "weather" lines are published readings from Seoul's official weather station: yesterday's high/low/rain, the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the yesterday set, the then-and-now monthly set, OR the season-to-date set (never blend the three). A season-to-date post is built around the swelter tally ("Days of 33°C or more, June 1–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, and the arrangement carries the half-century — never point it out. ℹ️ Python owns the LAYOUT of these cards: it groups the lines by metric, draws each metric once as a subhead, and puts the newer year first in every group, so you do not have to order them and cannot get the two pairs out of step. Choose a coherent set of complete pairs and leave the rest alone. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
+- "weather" lines are published readings from Seoul's official weather station: the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the then-and-now monthly set OR the season-to-date set (never blend the two). A season-to-date post is built around the swelter tally ("Days of 33°C or more, June 1–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, and the arrangement carries the half-century — never point it out. ℹ️ Python owns the LAYOUT of these cards: it groups the lines by metric, draws each metric once as a subhead, and puts the newer year first in every group, so you do not have to order them and cannot get the two pairs out of step. Choose a coherent set of complete pairs and leave the rest alone. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
+- "wxday" lines are YESTERDAY's published readings at Seoul's reference weather station: the high, the low, the average and the rain (a rain value of "None" means none was recorded, and it is a reading, not a gap) — own post, never mixed with any other category, including "weather". All the lines offered are compulsory, in that order. Its opener is FIXED and written by Python ("Yesterday at Seoul's weather station"), so whatever opener you write for this card is replaced; the dateline carries the date. Never call the day hot, cold, wet or dry, and never compare it with anything.
 - "tourism" lines are one month's visitor counts at named paid-admission Seoul attractions (the palaces, Lotte World, Seoul Sky…). Own post; ONE frame per post — total visitors OR foreign visitors, never both; the month rides on the card automatically. The pairs are the point: a dead heat or the widest gap between two named attractions.
 - "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and nothing more, e.g. "Water and air in Seoul" (ℹ️ whatever you write here is REPLACED in compose(): the opener names air or water first to match whichever the sort puts on the top line, which is a fact about the readings rather than a choice of words) — the same case as the world, traffic and books lines. ⚠️ Do NOT put the hour, the time or the words "one hour" in the opener: the reading hour rides on the card automatically as its dateline, and an opener repeating it spends the line saying nothing. Do NOT write "right now" either: that hour can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
 - "level" lines appear ONLY when the Han is running high, and they are one gauge (잠수교) set against its own published flood-warning tiers: the level right now, then the 관심/주의/경계/심각 levels. Build them into their own post, never mixed with any other category, and include the current level plus at least two tiers — the arrangement IS the story, which is how far the river is from each tier. The opener must name the river and the gauge, e.g. "The Han at Jamsu Bridge". ⚠️ NEVER write or imply that the bridge is closed, submerged, flooded or about to be: these are flood-WARNING tiers set by 한강홍수통제소, not the level at which the walkway goes under, and the two are different things. Do not add alarm, urgency or commentary of any kind — state the levels and stop. Never call the situation dangerous.
@@ -7571,7 +7646,7 @@ def compose(sel, pool):
     # from Seoul's own portal (SeoulLibraryBookRentNumInfo), not data4library.
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
                  'health', 'healthcost', 'culture', 'tourism', 'level', 'boxoffice',
-                 'boxhist', 'incheon', 'rail', 'railstations', 'seoulstation'}
+                 'boxhist', 'incheon', 'rail', 'railstations', 'seoulstation', 'wxday'}
     uses_seoul = any(c not in non_seoul for c in cats)
     uses_kosis = 'national' in cats
     # The library "1 in N" divides by KOSIS's registered population, so a card
@@ -7584,7 +7659,7 @@ def compose(sel, pool):
     uses_molit = 'property' in cats
     # The river vein spans two publishers: the water is Seoul Open Data
     # (so 'river' stays out of non_seoul above) and the air is KMA.
-    uses_kma = 'weather' in cats or 'river' in cats
+    uses_kma = bool({'weather', 'river', 'wxday'} & cats)
     uses_kac = 'airport' in cats
     uses_iiac = 'incheon' in cats
     uses_korail = bool({'rail', 'railstations', 'seoulstation'} & cats)
@@ -8739,6 +8814,8 @@ def main():
                               SEOULSTATION_COOLDOWN_DAYS, 'Seoul Station')
         pool = apply_cooldown(pool, state, 'last_stationgap_at', 'stationgap',
                               STATIONGAP_COOLDOWN_DAYS, 'Station gap')
+        pool = apply_cooldown(pool, state, 'last_wxday_at', 'wxday',
+                              WXDAY_COOLDOWN_DAYS, 'Weather day')
         pool = apply_holds(pool)
 
         # The floor under the veins the selector never reaches for. Applied
@@ -9043,6 +9120,8 @@ def main():
         state['last_seoulstation_at'] = state['last_success_at']
     if primary == 'stationgap':
         state['last_stationgap_at'] = state['last_success_at']
+    if primary == 'wxday':
+        state['last_wxday_at'] = state['last_success_at']
     write_json_atomic(STATE, state, ensure_ascii=False, indent=2)
 
     log_card(c, sel, primary, posted_uri, handle, fallback=cards is None)
