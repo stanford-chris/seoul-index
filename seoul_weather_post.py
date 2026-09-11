@@ -558,7 +558,9 @@ def main():
 
     opener_en, lines_en, opener_ko, lines_ko = build_card_lines(summary)
     note_en, note_ko = footnotes(base_time, has_yesterday_rain=bool(summary.get('rain_24h')))
-    dateline_en = f'{now:%-d %B %Y}'
+    # Month first ('September 11, 2026'): this account's English order, his
+    # call on 11 September 2026 (see en_date() in seoul_index_post.py).
+    dateline_en = f'{now:%B} {now.day}, {now.year}'
     dateline_ko = f'{now.year}년 {now.month}월 {now.day}일'
 
     en_alt = strip_emoji(build_alt_bodies(opener_en, lines_en, note_en))

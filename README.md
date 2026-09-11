@@ -4,6 +4,8 @@ The source code behind **Seoul Index (숫자로 보는 서울)**, [**@seoul-inde
 
 The account is written by A.I. and says so in its profile. This repository is published for transparency: The code here is exactly what composes and sends the posts.
 
+
+⚠️ **English dates on this account run MONTH FIRST ("September 7", "August 31 to September 6", "3 p.m., August 21"), his call on 11 September 2026**, an exception to the day-first house style everywhere else: the Korean card beside each English one reads 9월 7일, month then day, and Seoul's own English site writes "September 1", so the English follows the order a Korean reader of English already meets. Every English date the bot writes goes through `en_date()` or `_span_en()` in `seoul_index_post.py`, and `seoul_weather_post.py`, `seoul_index_books_harvest.py` and `seoul-transit-art/seoul_transit_post.py` (which also posts here) carry the same order inline. Not applied to the London Index, which is British by subject.
 ## Design principle: accuracy over wit
 
 **Python owns every number.** It harvests the data, formats each value and detects the sharp juxtapositions. A `claude -p` step only *curates* (which lines, in what order, and a neutral opener), lightly rewords English labels and *translates* the labels to Korean. Claude never emits a numeric value: the poster reuses Python's exact value string in both languages, and a digit-guard rejects any Claude-written label that contains a figure's digits. So a hallucinated number cannot reach a post.
@@ -214,7 +216,7 @@ alongside it, or the Korean twin keeps both faults while the English card is fix
 
 **A Korean proper noun on the English card carries its category, once.** Four veins are a deliberate exception to the rule above (river, traffic, water and world), because their openers own the metric and their labels are bare names, which is what keeps five parallel lines scannable. But a bare name is exactly the thing the rule above exists to protect against: "Amsa" and "The Anyangcheon" are unparseable to the reader least able to place them, and that reader gets the English card first. So each of those cards names the KIND of thing somewhere on its face, once, and never on every line: a category word repeated down three of five rows is the sort of thing `dedupe_labels` exists to strip.
 
-- **water**: on the dateline, "Purification centers, 3 August". Without it, Amsa and Ttukdo read as districts, or as rivers.
+- **water**: on the dateline, "Purification centers, August 3". Without it, Amsa and Ttukdo read as districts, or as rivers.
 - **river**: in the footnote, "The Anyangcheon, Tancheon and Jungnangcheon are tributaries of the Han". The dateline is not available here, because the reading hour is already flying there. Two rules attach to it. It is built from the lines actually on the card, so a station under maintenance is never named in a footnote above a card it has dropped out of. And it says **tributaries**, not streams or rivers: Seoul's own English calls them Streams while Wikipedia has the Anyangcheon as a river, so "tributary" is at once the safe word and the useful one, since what makes the card worth reading is that these feed the Han.
 - **traffic**: carried by the metric, and nothing is added. km/h under an opener the prompt already requires to say "how fast Seoul is driving" leaves nothing to explain, and appending "road" to Gangbyeonbuk-ro would only say -ro twice.
 - **world**, **nation**, **books**: nothing needed. City names, country names and Dewey classes, already English.

@@ -443,9 +443,9 @@ class RiverOpenerAndDateline(unittest.TestCase):
         # .capitalize() must not touch these: "3 P.m." would be worse than the
         # bare lowercase it replaced.
         self.assertEqual(self.card(self.HOT, 31.3, '15:00')['dateline_en'],
-                         '3 p.m., 23 August')
+                         '3 p.m., August 23')
         self.assertEqual(self.card(self.HOT, 31.3, '08:00')['dateline_en'],
-                         '8 a.m., 23 August')
+                         '8 a.m., August 23')
 
     def test_the_date_rides_even_when_the_reading_is_from_today(self):
         # The old rule dated the hour only when it was NOT today, which left the
@@ -453,12 +453,12 @@ class RiverOpenerAndDateline(unittest.TestCase):
         # about five hours, so "which day" is never safe to leave implied.
         for hr in ('12:00', '00:00', '15:00'):
             c = self.card(self.HOT, 31.3, hr)
-            self.assertIn('23 August', c['dateline_en'])
+            self.assertIn('August 23', c['dateline_en'])
             self.assertIn('8월 23일', c['dateline_ko'])
 
     def test_a_reading_from_another_day_is_dated_to_that_day(self):
         c = self.card(self.HOT, 31.3, '15:00', ymd='20260821')
-        self.assertEqual(c['dateline_en'], '3 p.m., 21 August')
+        self.assertEqual(c['dateline_en'], '3 p.m., August 21')
         self.assertEqual(c['dateline_ko'], '오후 3시, 8월 21일')
 
     def test_the_footnote_says_what_a_cheon_is(self):
@@ -591,16 +591,16 @@ class LevelIsConditional(unittest.TestCase):
         # 23 August 2026 — no day at all, on the one card a reader may come back
         # to weeks later asking exactly that. See RiverOpenerAndDateline.
         self.facts([('202608211900', 4.62)])
-        self.assertEqual(S.LEVEL_PERIOD['en'], '7 p.m., 21 August')
+        self.assertEqual(S.LEVEL_PERIOD['en'], '7 p.m., August 21')
         self.assertEqual(S.LEVEL_PERIOD['ko'], '오후 7시, 8월 21일')
 
     def test_the_word_hours_lift_but_the_numerals_do_not(self):
         self.facts([('202608210000', 4.62)])
-        self.assertEqual(S.LEVEL_PERIOD['en'], 'Midnight, 21 August')
+        self.assertEqual(S.LEVEL_PERIOD['en'], 'Midnight, August 21')
         self.facts([('202608211200', 4.62)])
-        self.assertEqual(S.LEVEL_PERIOD['en'], 'Noon, 21 August')
+        self.assertEqual(S.LEVEL_PERIOD['en'], 'Noon, August 21')
         self.facts([('202608210800', 4.62)])
-        self.assertEqual(S.LEVEL_PERIOD['en'], '8 a.m., 21 August')
+        self.assertEqual(S.LEVEL_PERIOD['en'], '8 a.m., August 21')
 
 
 # ---------------------------------------------------------------------------
@@ -2157,7 +2157,7 @@ class BusHistoryCards(unittest.TestCase):
         self.assertEqual([no for _, _, no in info['busmovers']['map_routes']][:1], ['200'])
         self.assertEqual([l.split(':')[0] for l, _, _ in info['busmovers']['map_routes']],
                          ['Up the most', 'Down the most'])
-        self.assertEqual(info['busweekend']['day_en'], '31 August to 6 September')
+        self.assertEqual(info['busweekend']['day_en'], 'August 31 to September 6')
         self.assertEqual(info['busweekend']['map_day'], '20260905')
         self.assertEqual(info['nightbus']['note_en'], 'Night routes only')
         self.assertEqual(info['nightbus']['note_ko'], '심야 노선만')
@@ -2286,7 +2286,7 @@ class BusRouteStreak(unittest.TestCase):
         top, td, bottom, bd, rec, first = S.bus_rank_streaks(h, '20260907')
         self.assertEqual((top, td, bottom, bd, rec, first), ('143', 5, '1226', 5, 5, '20260903'))
         en, ko = S._streak_note(h, '20260907')
-        self.assertEqual(en, '143 busiest and 1226 quietest on every day recorded, 5 since 3 September')
+        self.assertEqual(en, '143 busiest and 1226 quietest on every day recorded, 5 since September 3')
         self.assertIn('기록된 5일(9월 3일부터) 내내', ko)
 
     def test_a_broken_streak_counts_only_the_run(self):
@@ -2294,7 +2294,7 @@ class BusRouteStreak(unittest.TestCase):
         top, td, bottom, bd, rec, first = S.bus_rank_streaks(h, '20260907')
         self.assertEqual((td, bd, rec), (5, 6, 6))
         en, _ = S._streak_note(h, '20260907')
-        self.assertEqual(en, '143 has led for the past 5 days · 1226 quietest on every day recorded, 6 since 2 September')
+        self.assertEqual(en, '143 has led for the past 5 days · 1226 quietest on every day recorded, 6 since September 2')
 
     def test_a_short_streak_says_nothing(self):
         h = self._hist(3, ['160', '160', '143'], ['1226', '1226', '7719'])

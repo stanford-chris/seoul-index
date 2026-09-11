@@ -304,7 +304,9 @@ def main():
 
     # For the operator's line below only: the card carries no date, because the
     # figures' period is the rolling window and not the day they were read.
-    label_en = datetime.now(SEOUL_TZ).strftime('%-d %B')
+    # Month first ('September 11'): this account's English order, his call
+    # on 11 September 2026 (see en_date() in seoul_index_post.py).
+    label_en = f'{datetime.now(SEOUL_TZ):%B} {datetime.now(SEOUL_TZ).day}'
     out = {
         'generated_at': datetime.now(timezone.utc).isoformat(),
         'source': SERVICE,

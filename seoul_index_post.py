@@ -1525,11 +1525,12 @@ def weekend_swing(h, day, holidays):
 
 
 def _span_en(a, b):
-    """'1 to 7 September' or '31 August to 6 September'."""
+    """'September 1 to 7' or 'August 31 to September 6' (month first,
+    see en_date)."""
     da, db = _day_dt(a), _day_dt(b)
     if da.month == db.month:
-        return f'{da.day} to {db.day} {db.strftime("%B")}'
-    return f'{da.strftime("%-d %B")} to {db.strftime("%-d %B")}'
+        return f'{MONTHS_EN[db.month - 1]} {da.day} to {db.day}'
+    return f'{en_date(da)} to {en_date(db)}'
 
 
 def _span_ko(a, b):
@@ -1640,7 +1641,7 @@ def history_bus_facts(h, day, d, d_ko):
             'note_ko': '토·일 하루 평균 대 월~금 하루 평균 · 평일 승차 1,000명 이상 간선·지선',
             'map_day': week[5],
             'map_caption': (f'Stops where each route saw a boarding on Saturday '
-                            f'{_day_dt(week[5]).strftime("%-d %B")}: not necessarily its full path'),
+                            f'{en_date(_day_dt(week[5]))}: not necessarily its full path'),
             'map_routes': [(f'Holds up best: Route {no} ({_pct(r)})', MAP_COLOURS[i], no)
                            for i, (no, we, wk, r) in enumerate(ws['ups'])]
                           + [(f'Falls most: Route {no} ({_pct(r)})', MAP_COLOURS[2 + i], no)
@@ -1729,7 +1730,7 @@ def _streak_note(h, day):
         return '', ''
     top, td, bottom, bd, recorded, first = st
     fd = datetime.strptime(first, '%Y%m%d')
-    first_en, first_ko = fd.strftime('%-d %B'), f'{fd.month}월 {fd.day}일'
+    first_en, first_ko = en_date(fd), f'{fd.month}월 {fd.day}일'
     if td >= BUS_ROUTE_STREAK_MIN and bd >= BUS_ROUTE_STREAK_MIN and td == bd == recorded:
         return (f'{top} busiest and {bottom} quietest on every day recorded, {recorded} since {first_en}',
                 f'기록된 {recorded}일({first_ko}부터) 내내 {top}번이 1위, {bottom}번이 최하위')
@@ -1885,7 +1886,7 @@ def transport_facts(api_key, state):
         state['transport_cache'] = c
 
     dt = datetime.strptime(c['date'], '%Y%m%d')
-    d = dt.strftime('%-d %B')
+    d = en_date(dt)
     d_ko = f'{dt.month}월 {dt.day}일'
     # All of these are pinned: the date says which day the count belongs to, and the
     # station/route identifiers are either looked up from the English name table or
@@ -2541,7 +2542,7 @@ def river_facts(api_key, gov_key):
     # feeds spotlight LABELS, where the hour sits mid-phrase inside brackets
     # ("Estimated crowd right now (noon)") and a capital would be wrong.
     RIVER_PERIOD['en'] = (_ampm_en(stamp_dt.hour).capitalize()
-                          + f', {stamp_dt.day} {MONTHS_EN[stamp_dt.month - 1]}')
+                          + f', {en_date(stamp_dt)}')
     RIVER_PERIOD['ko'] = (_ampm_ko(stamp_dt.hour)
                           + f', {stamp_dt.month}월 {stamp_dt.day}일')
 
@@ -2708,7 +2709,7 @@ def level_facts(hrfco_key):
     # ⚠️ Capitalise HERE, not in _ampm_en, which also feeds the spotlight
     # labels that read "... (noon)" mid-phrase. See river_facts.
     LEVEL_PERIOD['en'] = (_ampm_en(when.hour).capitalize()
-                          + f', {when.day} {MONTHS_EN[when.month - 1]}')
+                          + f', {en_date(when)}')
     LEVEL_PERIOD['ko'] = (_ampm_ko(when.hour)
                           + f', {when.month}월 {when.day}일')
     # Deliberately NOT "The Han at Jamsu Bridge": the opener already names the
@@ -2866,7 +2867,7 @@ def price_facts(api_key, state):
                 id(vals[-1]): ('Dearest', '가장 비싼')}
         try:
             d = datetime.strptime(newest, '%Y-%m-%d')
-            PRICE_PERIOD['en'] = f'{d.day} {MONTHS_EN[d.month - 1]}'
+            PRICE_PERIOD['en'] = f'{en_date(d)}'
             PRICE_PERIOD['ko'] = f'{d.month}월 {d.day}일'
         except ValueError:
             PRICE_PERIOD['en'] = PRICE_PERIOD['ko'] = newest
@@ -2955,7 +2956,7 @@ def water_facts(api_key):
         # The dateline names the KIND of place as well as the day: the lines
         # are bare names (Amsa, Ttukdo) and nothing else on the card said they
         # were waterworks rather than districts or rivers.
-        WATER_PERIOD['en'] = f'Purification centers, {dt.day} {MONTHS_EN[dt.month - 1]}'
+        WATER_PERIOD['en'] = f'Purification centers, {en_date(dt)}'
         WATER_PERIOD['ko'] = f'정수센터, {dt.month}월 {dt.day}일'
     except ValueError:
         WATER_PERIOD['en'] = WATER_PERIOD['ko'] = newest
@@ -3038,7 +3039,7 @@ def daynight_facts(api_key, state):
         # Just the date: the opener is required to say which half of the day
         # it is, and a dateline reading "by day, 17 August" under an opener
         # reading "Seoul by day" said it twice.
-        DAYNIGHT_PERIOD['en'] = f'{dt.day} {MONTHS_EN[dt.month - 1]}'
+        DAYNIGHT_PERIOD['en'] = f'{en_date(dt)}'
         DAYNIGHT_PERIOD['ko'] = f'{dt.month}월 {dt.day}일'
     except ValueError:
         DAYNIGHT_PERIOD['en'] = DAYNIGHT_PERIOD['ko'] = newest
@@ -3614,6 +3615,16 @@ SEOUL_LAWD = {
 MONTHS_EN = ('January', 'February', 'March', 'April', 'May', 'June', 'July',
              'August', 'September', 'October', 'November', 'December')
 
+
+def en_date(dt):
+    """'September 7': month first on this bot's English cards, his call on
+    11 September 2026. House style everywhere else is day first ("7
+    September"); here the Korean card beside it runs 9월 7일, month then day,
+    and Seoul's own English site writes "September 1", so the English follows
+    the order a Korean reader of English already meets. Every English date
+    the bot writes goes through here (or _span_en), so the order is one edit."""
+    return f'{MONTHS_EN[dt.month - 1]} {dt.day}'
+
 # Set by molit_facts() so compose() can put the filing month on the card
 # instead of repeating it on every row (same device as SALES_Q).
 MOLIT_M = {'en': None, 'ko': None}
@@ -3944,7 +3955,7 @@ def kma_facts(key):
         s_then = _wx_extremes(_wx_rows(key, f'{then_start:%Y%m%d}',
                                        f'{then_yday:%Y%m%d}', rows=200))
         if s_now['swelter'] or s_then['swelter']:
-            span_en = f'1 June–{yday.day} {MONTHS_EN[yday.month - 1]}'
+            span_en = f'June 1–{en_date(yday)}'
             span_ko = f'6월 1일–{yday.month}월 {yday.day}일'
             # Published for the source reply. The rows carry "Summer 2026", a
             # word the exact window has to stand behind — and the window is
@@ -4942,7 +4953,7 @@ def boxoffice_facts(kobis_key):
     # answers "when" the way it does for the books vein's window. The only
     # ambiguous case is a card posted on 1 January carrying 31 December, where
     # the timestamp still settles it, one day out.
-    BOXOFFICE_D['en'] = f'{day.day} {MONTHS_EN[day.month - 1]}'
+    BOXOFFICE_D['en'] = f'{en_date(day)}'
     BOXOFFICE_D['ko'] = f'{day.month}월 {day.day}일'
     BOXOFFICE_D['month_en'] = MONTHS_EN[day.month - 1]
     BOXOFFICE_D['month_ko'] = f'{day.month}월'
@@ -5465,7 +5476,7 @@ Rules:
   · The opener MUST be neutral and give nothing away — "Seoul by the numbers" / "숫자로 보는 서울", or a short neutral time/place framing. NEVER use a vein-specific opener (not "Spent last quarter", not "The apartment market", not "Through the turnstiles"): it would falsely frame the other vein's line.
   · Let the coincidence sit there unremarked, exactly as with any pair — never write a line, opener or note that points out that the two numbers match.
   · Only reach for a CROSS_PAIR when the two SUBJECTS make a genuinely interesting, tasteful pair (one apartment's deposit against a whole industry's quarter; a month's visitors against a crowd right now). If a pair's two subjects are dull or jarring together, ignore it and build a normal single-vein post. Never force it. NEVER build a cross pair that involves illness or patients.
-  · ℹ️ A "tourism" + "boxoffice" CROSS_PAIR carries two different SPANS of time (a whole month against one day), and Python draws that itself: it groups the card, a subhead over each vein's lines reading its span ("30 August" / "The entire month of June"), so you do not need to and must not mention either span or the mismatch in a label, opener or note.
+  · ℹ️ A "tourism" + "boxoffice" CROSS_PAIR carries two different SPANS of time (a whole month against one day), and Python draws that itself: it groups the card, a subhead over each vein's lines reading its span ("August 30" / "The entire month of June"), so you do not need to and must not mention either span or the mismatch in a label, opener or note.
 - House style is Harper's Index: let the arrangement carry the joke. NEVER add a line that explains or points out the juxtaposition, and never editorialize. Just the labeled numbers.
 - Punctuation: NEVER write an em dash (—) in anything you produce: not in an opener, not in a label, not in the note. Use a colon or a comma instead. House style has no em dashes anywhere.
 - Do NOT worry about line order: when the lines share a unit (e.g. an all-₩ post) they are automatically sorted by value, largest first. A near-equal "dead heat" still lands because near-equal values end up next to each other. Just choose a coherent set.
@@ -5478,7 +5489,7 @@ Rules:
 - "world" lines set Seoul's metro area against other cities' metro areas, from the OECD. Their labels are BARE CITY NAMES, so the opener MUST say what is being measured (e.g. "Green space per person", "Within a five-minute walk of transit") — this is the one case where the opener names the metric. Build them into their own post: every world line in a post must come from the SAME pair (all city_green, or all city_transit, never a mix), and a world line NEVER appears alongside a Seoul-only line of any other category. Always include the Seoul line.
 - "nation" lines set SEOUL against whole countries, on one metric, from the World Bank (countries) and KOSIS (Seoul). Seoul leads the card; the peers are whole nations (Korea, Japan, the US…), which is the point — e.g. Seoul is denser than entire countries. Labels are BARE PLACE NAMES (Seoul, then countries), so the opener MUST name the metric (e.g. "People per square kilometre", "Births per woman") — the same rule as the world lines. Do NOT reach for the generic "Seoul and the nation" / "서울과 전국" opener here: that framing belongs to the Seoul-vs-Korea "national" lines, and on a nation card it names no metric, leaving the countries measuring nothing — make the metric itself the opener. Build them into their own post: every nation line must come from the SAME pair (all nation_density, or all nation_fertility, never a mix), ALWAYS include the Seoul line, and a nation line NEVER appears alongside a Seoul-only line of any other category or a world (city) line. The pair is the point: Seoul against the country that most sharpens it (the widest gap, or a near dead heat).
 - "property" lines are one month's apartment-market filings from the national land ministry: actual sale prices (the dearest and cheapest single sales), a record jeonse deposit, and counts of filings. Build them into their own post — never alongside a live "right now" line, a spending line, a national line or a world line. The pairs are the point: the price gap (dearest vs cheapest sale) or the jeonse/monthly-rent split. Never put a month or date in a property label — the filing month rides on the card automatically.
-- "weather" lines are published readings from Seoul's official weather station: yesterday's high/low/rain, the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the yesterday set, the then-and-now monthly set, OR the season-to-date set (never blend the three). A season-to-date post is built around the swelter tally ("Days of 33°C or more, 1 Jun–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, and the arrangement carries the half-century — never point it out. ℹ️ Python owns the LAYOUT of these cards: it groups the lines by metric, draws each metric once as a subhead, and puts the newer year first in every group, so you do not have to order them and cannot get the two pairs out of step. Choose a coherent set of complete pairs and leave the rest alone. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
+- "weather" lines are published readings from Seoul's official weather station: yesterday's high/low/rain, the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the yesterday set, the then-and-now monthly set, OR the season-to-date set (never blend the three). A season-to-date post is built around the swelter tally ("Days of 33°C or more, June 1–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, and the arrangement carries the half-century — never point it out. ℹ️ Python owns the LAYOUT of these cards: it groups the lines by metric, draws each metric once as a subhead, and puts the newer year first in every group, so you do not have to order them and cannot get the two pairs out of step. Choose a coherent set of complete pairs and leave the rest alone. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
 - "tourism" lines are one month's visitor counts at named paid-admission Seoul attractions (the palaces, Lotte World, Seoul Sky…). Own post; ONE frame per post — total visitors OR foreign visitors, never both; the month rides on the card automatically. The pairs are the point: a dead heat or the widest gap between two named attractions.
 - "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and nothing more, e.g. "Water and air in Seoul" (ℹ️ whatever you write here is REPLACED in compose(): the opener names air or water first to match whichever the sort puts on the top line, which is a fact about the readings rather than a choice of words) — the same case as the world, traffic and books lines. ⚠️ Do NOT put the hour, the time or the words "one hour" in the opener: the reading hour rides on the card automatically as its dateline, and an opener repeating it spends the line saying nothing. Do NOT write "right now" either: that hour can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
 - "level" lines appear ONLY when the Han is running high, and they are one gauge (잠수교) set against its own published flood-warning tiers: the level right now, then the 관심/주의/경계/심각 levels. Build them into their own post, never mixed with any other category, and include the current level plus at least two tiers — the arrangement IS the story, which is how far the river is from each tier. The opener must name the river and the gauge, e.g. "The Han at Jamsu Bridge". ⚠️ NEVER write or imply that the bridge is closed, submerged, flooded or about to be: these are flood-WARNING tiers set by 한강홍수통제소, not the level at which the walkway goes under, and the two are different things. Do not add alarm, urgency or commentary of any kind — state the levels and stop. Never call the situation dangerous.
@@ -5491,7 +5502,7 @@ Rules:
 - "airport", "health", "healthcost" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An airport post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split. ⚠️ Do NOT put the month in the opener: on the split frame it rides on the card automatically as its dateline, and on the twenty-year pair each label carries its own year, which is the whole point of that frame. A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. A healthcost post is the SAME shape but treatment COST, not patient counts, and it comes in TWO FRAMES you must not blend on one card: the raw total cost per condition (treat it like "spending"/"property" for tone — a citywide sum, never implied per-person), OR the average cost PER PATIENT (like avgbill: the opener must say "average" plainly, e.g. "What treating each condition costs, per patient", so a reader never mistakes it for the total or for what one patient actually pays out of pocket — insurance covers most of it). Pick one frame, not lines from both. Both health and healthcost: these are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
-- "transport" lines are Seoul's total subway and bus boardings for the most recently published day, plus that day's busiest and quietest subway stations. The subway and bus TOTAL labels already carry the date in the label itself ("Subway boardings on 26 August", "Bus boardings the same day") — there is no separate dateline to lean on here, so do NOT put a date anywhere in the opener, and do NOT write a second, different date of your own: a neutral opener with no date at all is enough, e.g. "Through the turnstiles", "Seoul on the move". Never call a station busy, quiet, packed or empty — the four numbers say it.
+- "transport" lines are Seoul's total subway and bus boardings for the most recently published day, plus that day's busiest and quietest subway stations. The subway and bus TOTAL labels already carry the date in the label itself ("Subway boardings on August 26", "Bus boardings the same day") — there is no separate dateline to lean on here, so do NOT put a date anywhere in the opener, and do NOT write a second, different date of your own: a neutral opener with no date at all is enough, e.g. "Through the turnstiles", "Seoul on the move". Never call a station busy, quiet, packed or empty — the four numbers say it.
 - "busroutes" lines are that day's busiest, second-busiest and quietest Seoul bus routes by plain route number ("Busiest: 143"), plus the day's total bus boardings — own post, never mixed with any other category, including "transport" above (that vein's own bus/subway totals are a different card). All FOUR lines are compulsory and must be used together, in that order: this is a complete small ranking, not a selection from it, the same rule "boxoffice" uses for its top four films. The dateline carries the date, so do NOT put a date anywhere in the opener and do NOT write a second one of your own — the opener MUST name buses or bus routes, because the lines carry BARE ROUTE NUMBERS with no "Route" word ("Busiest: 143"), e.g. "Seoul's buses", "On the buses today", and it MUST NOT settle on one wording, so write a fresh one each time. Never call a route busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines: the numbers say it. If the footnote already names a route's winning streak, do not repeat or rephrase that fact in the opener — it would say the same thing twice on one card.
 - "stations" lines are that day's busiest, second-busiest and quietest Seoul SUBWAY stations by official English name ("Busiest: Seoul Station"), plus the day's total subway boardings — own post, never mixed with any other category, including "transport" and "busroutes" above. Exactly the same rules as "busroutes": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the opener MUST name the subway or its stations, because the lines carry BARE STATION NAMES with no "station" word ("Busiest: Seoul Station", "Quietest: Dorimcheon"), e.g. "Seoul's subway, station by station", "Through the turnstiles", and it MUST NOT settle on one wording; never call a station busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines.
 - "busmovers" lines are the day's biggest RISE and biggest FALL in bus boardings, route by route, each against that route's own typical figure for the same weekday ("Up the most: 5511, 16,571 boardings" with a value of "+40%"). Own post, never mixed with any other category. BOTH lines are compulsory, in that order (up, then down): this is a two-line card by design, like "rush". Like "rush", its opener is FIXED and written by Python ("Seoul's bus routes, against their usual Monday"), so whatever opener you write for this card is replaced; the dateline carries the date and the footnote the comparison. Never guess WHY a route rose or fell.
