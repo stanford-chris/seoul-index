@@ -3229,7 +3229,7 @@ class WxDayCard(unittest.TestCase):
     def test_the_registry_carries_the_fixed_opener_the_date_and_the_station_note(self):
         self.wx({'tm': 'x', 'maxTa': '21.5', 'minTa': '15.8', 'avgTa': '', 'sumRn': '0.0'})
         info = S.RANKED_CARD_INFO['wxday']
-        self.assertEqual(info['opener_en'], 'Yesterday at Seoul’s weather station')
+        self.assertEqual(info['opener_en'], 'Seoul’s weather yesterday')
         yday = S.datetime.now(S.SEOUL_TZ).date() - S.timedelta(days=1)
         self.assertEqual(info['dateline_en'], S.en_date(yday))
         self.assertIn('observing since 1907', info['note_en'])
