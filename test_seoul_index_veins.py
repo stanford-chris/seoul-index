@@ -2272,6 +2272,36 @@ class HeldVeins(unittest.TestCase):
         # busroutes was held 10-11 September 2026 and released on the 11th.
         self.assertEqual(self._held, set())
 
+class InfraCooldown(unittest.TestCase):
+    """The infrastructure counts are registry sizes and barely move, so the
+    vein posts about once a month (his call, 11 Sep 2026). Pins the span and
+    that the ordinary cooldown path actually drops the vein."""
+
+    def _pool(self):
+        return [{'cat': 'infra', 'id': f'i{i}'} for i in range(4)] + \
+               [{'cat': 'other', 'id': f'o{i}'} for i in range(6)]
+
+    def test_the_span_is_about_a_month(self):
+        self.assertGreaterEqual(S.INFRA_COOLDOWN_DAYS, 28)
+
+    def test_a_post_three_weeks_ago_still_holds_the_vein(self):
+        only = S.ONLY_CAT
+        S.ONLY_CAT = None
+        try:
+            from datetime import datetime, timezone
+            stamp = (datetime.now(timezone.utc) - timedelta(days=21)).isoformat()
+            pool = S.apply_cooldown(self._pool(), {'last_infra_at': stamp}, 'last_infra_at',
+                                    'infra', S.INFRA_COOLDOWN_DAYS, 'Infrastructure')
+        finally:
+            S.ONLY_CAT = only
+        self.assertEqual(sum(f['cat'] == 'infra' for f in pool), 0)
+
+    def test_the_stamp_the_poster_writes_is_the_one_the_cooldown_reads(self):
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertIn("state['last_infra_at'] = state['last_success_at']", src)
+        self.assertIn("'last_infra_at', 'infra'", src)
+
+
 class BusRouteStreak(unittest.TestCase):
     """bus_rank_streaks() reads both streaks straight from the history —
     replacing, on 10 Sep 2026, a state counter that had started at 2 the day

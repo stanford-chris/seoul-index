@@ -460,6 +460,13 @@ TRANSPORT_COOLDOWN_DAYS = 3
 # data, reported as a fresh surprise on every run that reached for it.
 TOURISM_COOLDOWN_DAYS = 3
 
+# The infrastructure counts (bus stops, car parks, libraries, parks, wifi,
+# cultural spaces: count_facts) are registry sizes, and a registry barely
+# moves. The card posted 18 Aug, 30 Aug and 10 Sep 2026 and read 11,239 /
+# 11,239 / 11,236 bus stops and 2,189 / — / 2,186 car parks: three posts,
+# one figure. His call, 11 Sep 2026: once a month or so is enough.
+INFRA_COOLDOWN_DAYS = 30
+
 # Same reasoning again: the busiest bus route is Route 143 on every one of
 # the 10 days measured 9 Sep 2026 (never close, usually 15-30% ahead of
 # whoever's second), so busroutes() hands back the same top line almost
@@ -8130,6 +8137,8 @@ def main():
                               NATIONAL_COOLDOWN_DAYS, 'National')
         pool = apply_cooldown(pool, state, 'last_tourism_at', 'tourism',
                               TOURISM_COOLDOWN_DAYS, 'Tourism')
+        pool = apply_cooldown(pool, state, 'last_infra_at', 'infra',
+                              INFRA_COOLDOWN_DAYS, 'Infrastructure')
         pool = apply_cooldown(pool, state, 'last_busroutes_at', 'busroutes',
                               BUSROUTES_COOLDOWN_DAYS, 'Bus routes')
         pool = apply_cooldown(pool, state, 'last_stations_at', 'stations',
@@ -8413,6 +8422,8 @@ def main():
         state['last_national_at'] = state['last_success_at']
     if primary == 'tourism':
         state['last_tourism_at'] = state['last_success_at']
+    if primary == 'infra':
+        state['last_infra_at'] = state['last_success_at']
     if primary == 'busroutes':
         state['last_busroutes_at'] = state['last_success_at']
     if primary == 'stations':
