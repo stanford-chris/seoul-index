@@ -228,6 +228,11 @@ STARVE_DAYS = 5
 # along on someone else's card. It carries 4 now (see air_facts).
 STARVE_MIN_FACTS = 3
 
+# Openers Python writes when a card is ONE of these veins and nothing else,
+# applied in main() beside the rush card's. The ranked cards carry theirs in
+# RANKED_CARD_INFO instead, since those change with the day.
+FIXED_OPENERS = {'air': ('Seoul’s air quality, right now', '지금 서울의 대기질')}
+
 # The back-to-back bar in promote_starved trades a hard per-vein guarantee for
 # an even-looking feed: with the roster now at 30 veins, the floor's own
 # throughput (at most one promotion every two posts, once no debut is waiting)
@@ -8868,6 +8873,14 @@ def main():
     if sel.get('picks') and all(by_cat.get(p.get('id')) == 'rush' for p in sel['picks']):
         sel['opener_en'], sel['opener_ko'] = 'Boarding the subway', '지하철 승차'
         sel['opener_emoji'] = '🚇'
+    # An all-air card likewise, his wording, 11 September 2026: the vein's
+    # own four lines (see air_facts) under the selector's "Seoul, right now"
+    # said nothing about air until the lines themselves did. Only when
+    # every pick is air: an air line riding on a crowd card keeps the
+    # selector's opener, since the card is then about more than air.
+    for cat, (op_en, op_ko) in FIXED_OPENERS.items():
+        if sel.get('picks') and all(by_cat.get(p.get('id')) == cat for p in sel['picks']):
+            sel['opener_en'], sel['opener_ko'] = op_en, op_ko
     # A ranked card whose registry entry carries an opener (busmovers, since
     # 11 September 2026) is the same arrangement: Python's words, not the
     # selector's. The weekday in it changes with the day.

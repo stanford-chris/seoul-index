@@ -3180,6 +3180,13 @@ class AirVeinFourLines(unittest.TestCase):
         self.assertNotIn('air_good', by)
         self.assertIn('air_best', by)
 
+    def test_an_all_air_card_takes_his_fixed_opener(self):
+        self.assertEqual(S.FIXED_OPENERS['air'], ('Seoul’s air quality, right now', '지금 서울의 대기질'))
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertIn("for cat, (op_en, op_ko) in FIXED_OPENERS.items():", src)
+        # Only an ALL-air card: the check is on every pick's category.
+        self.assertIn("all(by_cat.get(p.get('id')) == cat for p in sel['picks'])", src)
+
     def test_a_failed_read_is_no_lines_and_the_archive_reader_agrees(self):
         with Stub({'ListAirQualityByDistrictService': RuntimeError('down')}):
             self.assertEqual(S.air_facts('unused-key'), [])
