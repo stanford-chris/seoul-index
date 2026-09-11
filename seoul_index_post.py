@@ -1406,18 +1406,21 @@ def bus_stops_facts(c, d, d_ko):
         'dateline_en': f'Bus boardings on {d}', 'dateline_ko': f'{d_ko} 버스 승차',
         'note_en': note_en, 'note_ko': note_ko,
         'map_day': c['date'],
-        # The map says "bus stops" in its title and carries the card's own
-        # footnote as its caption: with the bare date and legend lines ending
-        # "Station" it read as the subway map (his observation, 11 Sep 2026).
+        # The map says "bus stops" in its title: with the bare date and
+        # legend lines ending "Station" it read as the subway map (his
+        # observation, 11 Sep 2026). The caption describes the drawing, his
+        # wording; the busier-side rule stays on the card, one post above.
         'map_title': f'Bus stops, {d}',
-        'map_caption': note_en,
+        'map_caption': (f'The map is composed of gray dots that represent each of '
+                        f'Seoul’s {grouped(c.get("seoul_stop_count") or 0)} bus stops.'),
         # The pins are the stations map's own shape, drawn by the same renderer.
         'map_pins': [(f'{ranks[i][0]}: {en}', MAP_COLOURS[i], tuple(coords[sid]))
                      for i, (sid, _, _, en) in enumerate(chosen)],
         'map_alt': (f'Map of the three busiest Seoul bus stops on {d}: '
                     + ', '.join(f'{ranks[i][0].lower()} ({en})' for i, (_, _, _, en) in enumerate(chosen))
-                    + f', each marked and named over a faint backdrop of every Seoul bus '
-                      f'stop. {note_en}')}
+                    + f', each marked and named. The map is composed of gray dots that '
+                      f'represent each of Seoul’s {grouped(c.get("seoul_stop_count") or 0)} bus '
+                      f'stops. Where two stops share a name, the busier is shown.')}
     facts = []
     for i, (sid, name, v, en) in enumerate(chosen):
         rank_en, rank_ko = ranks[i]

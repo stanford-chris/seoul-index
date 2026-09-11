@@ -2663,8 +2663,10 @@ class BusStopsVein(unittest.TestCase):
         self.assertNotIn('map_routes', info)
         # The map says what it is: title and caption, not just the date.
         self.assertEqual(info['map_title'], f"Bus stops, {info['day_en']}")
-        self.assertEqual(info['map_caption'], info['note_en'])
-        self.assertIn(info['note_en'], info['map_alt'])
+        self.assertEqual(info['map_caption'], 'The map is composed of gray dots that represent '
+                                              'each of Seoul’s 11 bus stops.')
+        self.assertIn('gray dots', info['map_alt'])
+        self.assertIn('the busier is shown', info['map_alt'])
 
     def test_a_same_day_cache_without_the_stop_rule_is_refetched(self):
         with Stub({'CardSubwayStatsNew': ok('CardSubwayStatsNew', self.SUB_ROWS)}):
