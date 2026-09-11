@@ -2521,5 +2521,242 @@ class BusRouteMapStops(unittest.TestCase):
         self.assertEqual(routes['9999'], [])
 
 
+class BusStopsVein(unittest.TestCase):
+    """The busiest-bus-stop card, his call on 11 Sep 2026, built from the
+    per-route-and-stop rows transport_facts() already pages. What would ship
+    the ranking WRONG rather than not at all: a stop's twin across the road
+    ranking beside it (the one-per-name fold), a Gyeonggi stop on a Seoul
+    route reaching the ranking, a stop with no station to borrow an English
+    name from being silently skipped so a fourth stop poses as third, and a
+    day cache written before the rule existed being served."""
+
+    MASTER = StationsVein.MASTER
+    SUB_ROWS = StationsVein.SUB_ROWS
+
+    @staticmethod
+    def _stop(sid, name, v, route='100', seq='00001'):
+        return {'RTE_ID': '11110001', 'RTE_NO': route, 'RTE_NM': f'{route}번(A~B)',
+                'STOPS_ID': sid, 'STOPS_ARS_NO': sid[-5:], 'SBWY_STNS_NM': f'{name}({seq})',
+                'GTON_TNOPE': v}
+
+    # 홍대입구역 1,000 on two routes (600 + 400: summed on the stop id), the two
+    # sides of 고속터미널 (900 and 800), 강남역 700, 구로디지털단지역 median 650
+    # and kerbside 640, and a Gyeonggi stop ('2') at 5,000 on a Seoul route.
+    ROWS = [_stop.__func__('113000422', '홍대입구역', 600),
+            _stop.__func__('113000422', '홍대입구역', 400, route='272'),
+            _stop.__func__('121000019', '고속터미널', 900),
+            _stop.__func__('121000020', '고속터미널', 800),
+            _stop.__func__('121000012', '지하철2호선강남역', 700),
+            _stop.__func__('120000674', '구로디지털단지역(중)', 650),
+            _stop.__func__('116000013', '구로디지털단지역', 640),
+            _stop.__func__('100000009', '옥수역', 0),
+            _stop.__func__('200000002', '경기정류장', 5000)]
+    # The stations card's own stop rows ride along so that card builds too
+    # (its membership test needs a Seoul stop within 300 m of each station).
+    STOPS = StationsVein.STOP_ROWS + [
+        {'STOPS_NO': sid, 'STOPS_NM': 'x', 'XCRD': f'126.9{i}', 'YCRD': f'37.5{i}'}
+        for i, sid in enumerate(('113000422', '121000019', '121000020', '121000012',
+                                 '120000674', '116000013', '100000009', '200000002'))]
+
+    def setUp(self):
+        # Restored afterwards: the stations tests, which run after this
+        # class, reuse whatever history path is current, and a same-day
+        # entry written from THESE rows is never re-counted from theirs.
+        self._history = S.BUS_HISTORY
+        S.BUS_HISTORY = _Path(_tempfile.mkdtemp()) / 'bus_route_history.json'
+
+    def tearDown(self):
+        S.BUS_HISTORY = self._history
+        S.RANKED_CARD_INFO.pop('busstops', None)
+
+    def _facts(self, rows=None, stops=None, state=None, stub_extra=None):
+        payloads = {'CardSubwayStatsNew': ok('CardSubwayStatsNew', self.SUB_ROWS),
+                    'CardBusStatisticsServiceNew': ok('CardBusStatisticsServiceNew', rows or self.ROWS),
+                    'subwayStationMaster': ok('subwayStationMaster', self.MASTER),
+                    'busStopLocationXyInfo': ok('busStopLocationXyInfo', stops or self.STOPS)}
+        payloads.update(stub_extra or {})
+        with Stub(payloads):
+            return S.transport_facts('unused-key', state if state is not None else {})
+
+    def by_id(self, facts, fid):
+        return next((f for f in facts if f['id'] == fid), None)
+
+    def test_ranked_per_stop_one_per_name_busier_side(self):
+        facts = self._facts()
+        top = self.by_id(facts, 'busstop_busiest')
+        self.assertIsNotNone(top, 'bus stops card withheld')
+        self.assertEqual(top['label_en'], 'Busiest: Hongik University Station')
+        self.assertEqual(top['value_en'], '1,000')          # 600 + 400 across two routes
+        self.assertEqual(top['label_ko'], '가장 붐빔: 홍대입구역')
+        second = self.by_id(facts, 'busstop_second')
+        self.assertEqual(second['label_en'], '2nd-busiest: Express Bus Terminal')
+        self.assertEqual(second['value_en'], '900')         # the busier side, not 1,700
+        third = self.by_id(facts, 'busstop_third')
+        self.assertEqual(third['label_en'], '3rd-busiest: Gangnam Station')
+        self.assertEqual(third['label_ko'], '세 번째로 붐빔: 강남역')   # the folded name, as the English
+        for f in (top, second, third):
+            self.assertEqual(f['cat'], 'busstops'); self.assertTrue(f['pin'])
+            self.assertEqual(f['unit'], 'people')
+
+    def test_a_median_lane_stop_and_its_kerbside_twin_are_one_name(self):
+        rows = [r for r in self.ROWS if not r['SBWY_STNS_NM'].startswith('구로')] + [
+            self._stop('120000674', '구로디지털단지역(중)', 950),
+            self._stop('116000013', '구로디지털단지역', 940)]
+        facts = self._facts(rows=rows)
+        second = self.by_id(facts, 'busstop_second')
+        self.assertEqual(second['label_ko'], '두 번째로 붐빔: 구로디지털단지역')   # (중) folded out, as the English
+        self.assertEqual(second['label_en'], '2nd-busiest: Guro Digital Complex Station')
+        self.assertEqual(self.by_id(facts, 'busstop_third')['label_en'],
+                         '3rd-busiest: Express Bus Terminal')   # not the kerbside twin
+
+    def test_a_gyeonggi_stop_never_ranks_and_is_not_counted_as_used(self):
+        facts = self._facts()
+        labels = [self.by_id(facts, f)['label_ko'] for f in ('busstop_busiest', 'busstop_second', 'busstop_third')]
+        self.assertFalse(any('경기' in l for l in labels))
+        used = self.by_id(facts, 'busstop_used')
+        self.assertEqual(used['label_en'], 'Stops with at least one boarding')
+        self.assertEqual(used['value_en'], '6')   # seven Seoul stops, 옥수역 took none
+        self.assertTrue(used['pin'])
+        # The transport total still counts the Gyeonggi stop's boardings.
+        self.assertEqual(self.by_id(facts, 'bus_total')['value_en'], '9,690')
+
+    def test_a_top_stop_with_no_station_english_withholds_the_whole_card(self):
+        rows = self.ROWS + [self._stop('122000301', '수서역6번출구', 2000)]
+        facts = self._facts(rows=rows, stops=self.STOPS + [
+            {'STOPS_NO': '122000301', 'STOPS_NM': 'x', 'XCRD': '127.1', 'YCRD': '37.48'}])
+        for fid in ('busstop_busiest', 'busstop_second', 'busstop_third', 'busstop_used'):
+            self.assertIsNone(self.by_id(facts, fid), fid)
+        self.assertNotIn('busstops', S.RANKED_CARD_INFO)
+        # Nothing else is touched by it.
+        self.assertIsNotNone(self.by_id(facts, 'bus_total'))
+        self.assertIsNotNone(self.by_id(facts, 'st_busiest'))
+
+    def test_missing_coordinates_withhold_the_card(self):
+        stops = [r for r in self.STOPS if r['STOPS_NO'] != '113000422']
+        facts = self._facts(stops=stops)
+        self.assertIsNone(self.by_id(facts, 'busstop_busiest'))
+        self.assertIsNotNone(self.by_id(facts, 'bus_total'))
+
+    def test_the_stop_coordinate_feed_failing_withholds_stops_and_stations_only(self):
+        facts = self._facts(stub_extra={'busStopLocationXyInfo': RuntimeError('down')})
+        self.assertIsNone(self.by_id(facts, 'busstop_busiest'))
+        self.assertIsNone(self.by_id(facts, 'st_busiest'))
+        self.assertIsNotNone(self.by_id(facts, 'sub_busiest'))
+        self.assertIsNotNone(self.by_id(facts, 'bus_total'))
+
+    def test_the_registry_carries_pins_in_rank_order_with_coordinates(self):
+        self._facts()
+        info = S.RANKED_CARD_INFO['busstops']
+        self.assertEqual([p[0] for p in info['map_pins']],
+                         ['Busiest: Hongik University Station', '2nd-busiest: Express Bus Terminal',
+                          '3rd-busiest: Gangnam Station'])
+        self.assertEqual(info['map_pins'][0][2], (126.90, 37.50))
+        self.assertEqual(info['dateline_en'], f"Boardings on {info['day_en']}")
+        self.assertEqual(info['note_en'], S.BUSSTOP_CAVEAT_EN)
+        self.assertIn('Hongik University Station', info['map_alt'])
+        self.assertNotIn('map_routes', info)
+
+    def test_a_same_day_cache_without_the_stop_rule_is_refetched(self):
+        with Stub({'CardSubwayStatsNew': ok('CardSubwayStatsNew', self.SUB_ROWS)}):
+            day = S._latest_daily('unused-key', 'CardSubwayStatsNew', True)[0]
+        stale = {'transport_cache': {'date': day, 'sub_total': 1, 'bus_total': 1,
+                                     'busiest_st': 'x', 'busiest_v': 1, 'quietest_st': 'y',
+                                     'quietest_v': 1, 'bus_rank_rule': S.BUS_RANK_RULE,
+                                     'st_rule': S.STATION_RANK_RULE, 'st_ranked': [], 'st_bottom': None}}
+        facts = self._facts(state=stale)
+        self.assertIsNotNone(self.by_id(facts, 'busstop_busiest'), 'stale cache was served')
+        self.assertEqual(stale['transport_cache']['stop_rule'], S.BUSSTOP_RANK_RULE)
+
+    def test_a_cache_round_tripped_through_json_still_builds(self):
+        state = {}
+        self._facts(state=state)
+        state = json.loads(json.dumps(state))    # tuples become lists, as in the state file
+        facts = self._facts(state=state)
+        self.assertIsNotNone(self.by_id(facts, 'busstop_busiest'))
+        self.assertEqual(S.RANKED_CARD_INFO['busstops']['map_pins'][0][2], (126.90, 37.50))
+
+    def test_english_is_the_stations_official_name_never_a_romanization(self):
+        self.assertEqual(S.stop_en('홍대입구역'), 'Hongik University Station')
+        self.assertEqual(S.stop_en('지하철2호선강남역'), 'Gangnam Station')
+        self.assertEqual(S.stop_en('서울역'), 'Seoul Station')          # not "Seoul Station Station"
+        self.assertEqual(S.stop_en('고속터미널'), 'Express Bus Terminal')
+        self.assertIsNone(S.stop_en('수서역6번출구'))
+        self.assertIsNone(S.stop_en('신림사거리.신림역'))
+        self.assertIsNone(S.stop_en('남산서울타워'))
+        self.assertEqual(S.stop_name('명륜3가.성대입구(00030)'), '명륜3가.성대입구')
+        self.assertEqual(S.stop_name('구로디지털단지역(중)(00012)'), '구로디지털단지역(중)')
+        self.assertEqual(S.stop_display_ko('지하철2호선강남역'), '강남역')
+        self.assertEqual(S.stop_display_ko('구로디지털단지역(중)'), '구로디지털단지역')
+
+
+class BusStopsCard(unittest.TestCase):
+    """compose()-level checks for the bus stops card: the stations card's
+    shape (no per-line emoji, rank word bold, fourth line bold, order kept,
+    bus opener emoji, the worded dateline and the one-per-name footnote)."""
+
+    def _pool(self):
+        return [
+            S.fact('busstop_busiest', 'busstops', 'Busiest: Hongik University Station', '11,337', '11,337',
+                   pin=True, label_ko='가장 붐빔: 홍대입구역', place_en='Busiest', place_ko='가장 붐빔',
+                   num=11337, unit='people'),
+            S.fact('busstop_second', 'busstops', '2nd-busiest: Guro Digital Complex Station', '10,502', '10,502',
+                   pin=True, label_ko='두 번째로 붐빔: 구로디지털단지역', place_en='2nd-busiest',
+                   place_ko='두 번째로 붐빔', num=10502, unit='people'),
+            S.fact('busstop_third', 'busstops', '3rd-busiest: Gangnam Station', '9,939', '9,939',
+                   pin=True, label_ko='세 번째로 붐빔: 강남역', place_en='3rd-busiest',
+                   place_ko='세 번째로 붐빔', num=9939, unit='people'),
+            S.fact('busstop_used', 'busstops', 'Stops with at least one boarding', '10,481', '10,481',
+                   pin=True, label_ko='승차가 1명 이상 있었던 정류장 수'),
+        ]
+
+    def _card(self, ids=None):
+        pool = self._pool()
+        ids = ids or [f['id'] for f in pool]
+        sel = {'opener_en': "Seoul's bus stops, one by one", 'opener_ko': '정류장으로 보는 서울 버스',
+               'opener_emoji': '🚇', 'picks': [{'id': i} for i in ids]}
+        return S.compose(sel, pool)
+
+    def setUp(self):
+        S.RANKED_CARD_INFO.clear()
+        S.RANKED_CARD_INFO['busstops'] = {
+            'day_en': '7 September', 'day_ko': '9월 7일',
+            'dateline_en': 'Boardings on 7 September', 'dateline_ko': '9월 7일 승차',
+            'note_en': S.BUSSTOP_CAVEAT_EN, 'note_ko': S.BUSSTOP_CAVEAT_KO,
+            'map_day': '20260907', 'map_caption': 'x', 'map_pins': [], 'map_alt': ''}
+
+    def tearDown(self):
+        S.RANKED_CARD_INFO.clear()
+
+    def test_shape_matches_the_stations_card(self):
+        c = self._card()
+        self.assertTrue(all(l['emoji'] == '' for l in c['lines']))
+        self.assertEqual([l['emph_en'] for l in c['lines'][:3]], ['Busiest', '2nd-busiest', '3rd-busiest'])
+        self.assertTrue(c['lines'][3].get('bold'))
+        self.assertEqual([l['label_en'] for l in c['lines']],
+                         ['Busiest: Hongik University Station', '2nd-busiest: Guro Digital Complex Station',
+                          '3rd-busiest: Gangnam Station', 'Stops with at least one boarding'])
+        self.assertEqual(c['dateline_en'], 'Boardings on 7 September')
+        self.assertEqual(c['dateline_ko'], '9월 7일 승차')
+        self.assertEqual(c['opener']['emoji'], '🚌')     # the bus, whatever the selector chose
+
+    def test_the_footnote_says_one_stop_per_name(self):
+        c = self._card()
+        self.assertEqual(c['note_en'], 'Stops inside Seoul, one per name: the busier side of the road')
+        self.assertEqual(c['note_ko'], '서울 시내 정류장, 같은 이름은 승차가 많은 쪽 한 곳')
+
+    def test_picking_two_of_four_completes_the_ranking(self):
+        c = self._card(ids=['busstop_busiest', 'busstop_used'])
+        self.assertEqual(len(c['items_en']), 4)
+
+    def test_the_vein_is_wired_everywhere_the_other_ranked_cards_are(self):
+        self.assertIn('busstops', S.RANKED_CATS)
+        self.assertIn('busstops', S.ORDERED_CATS)
+        self.assertGreaterEqual(S.BUSSTOPS_COOLDOWN_DAYS, 3)
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertIn("'last_busstops_at', 'busstops'", src)
+        self.assertIn("state['last_busstops_at'] = state['last_success_at']", src)
+        self.assertIn('- "busstops" lines are', src)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)
