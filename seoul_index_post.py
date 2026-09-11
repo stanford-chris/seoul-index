@@ -1168,7 +1168,10 @@ def air_facts(api_key):
                      f'Cleanest PM2.5 right now ({en_name(best[0], "districts")})',
                      f'{best[1]:.0f} µg/m³', f'{best[1]:.0f} µg/m³', pin=True,
                      label_ko=f'지금 초미세먼지가 가장 낮은 곳 ({best[0]})')] + ([
-                fact('air_good', 'air', 'Districts whose air is rated “good” right now',
+                # Short enough not to wrap against "19 of 22" (the row fits
+                # about 53 characters of label and value before it loses its
+                # leader; the first wording did, on the first render).
+                fact('air_good', 'air', 'Districts with “good” air right now',
                      f'{good} of {len(graded)}', f'{len(graded)}곳 중 {good}곳', pin=True,
                      label_ko='지금 대기질 등급이 “좋음”인 자치구')] if graded else [])
     except (RuntimeError, KeyError, IndexError, ValueError):
@@ -7561,6 +7564,8 @@ def compose(sel, pool):
             opener_emoji = '🚌'
         elif fid.startswith('rail'):
             opener_emoji = '🚆'
+        elif fid.startswith('wx'):
+            opener_emoji = '🌡'      # the weather-day card is a ranked card, not a transport one
         else:
             opener_emoji = '🚗'
 
