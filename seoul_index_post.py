@@ -1303,6 +1303,11 @@ BUSROUTES_OPENER_KO = '서울의 버스'
 # over a day four days behind. Same shape as the day card's.
 NIGHTBUS_OPENER_EN = 'On the night buses'
 NIGHTBUS_OPENER_KO = '서울의 심야버스'
+# The stations card's opener, Python's since 12 September 2026 when it got
+# its own 14:30 slot ("can we add a daily subway post?"): same reason and
+# same shape as the bus cards above. The card's day rides the dateline.
+STATIONS_OPENER_EN = 'On the subway'
+STATIONS_OPENER_KO = '서울의 지하철'
 BUS_ROUTE_CAVEAT_KO = '정류장 10곳 이상 간선·지선.'
 # Stamped into transport_cache; a same-day cache stamped with another rule
 # (or none) is refetched rather than served with a route the current rule
@@ -2407,6 +2412,7 @@ def transport_facts(api_key, state):
     st_bottom = c.get('st_bottom')
     STATION_DAY['en'] = STATION_DAY['ko'] = None
     STATION_MAP_INFO['day'] = STATION_MAP_INFO['stations'] = None
+    RANKED_CARD_INFO.pop('stations', None)
     if st_top and st_second and st_bottom:
         st_en = {n: en_lookup(n, 'stations') for n, _ in (st_top, st_second, st_bottom)}
         missing = [n for n, e in st_en.items() if not e]
@@ -2420,6 +2426,14 @@ def transport_facts(api_key, state):
         else:
             STATION_DAY['en'], STATION_DAY['ko'] = d, d_ko
             STATION_MAP_INFO['day'] = c['date']
+            # A registry entry for the fixed opener and the --daily guard's
+            # data day only: no map_routes or map_pins, so the generic map
+            # reply is not triggered; the station map keeps its own path
+            # (STATION_MAP_INFO), unchanged.
+            RANKED_CARD_INFO['stations'] = {
+                'map_day': c['date'],
+                'opener_en': STATIONS_OPENER_EN, 'opener_ko': STATIONS_OPENER_KO,
+            }
             STATION_MAP_INFO['stations'] = [
                 (f'Busiest: {st_en[st_top[0]]}', *coords[st_top[0]]),
                 (f'2nd-busiest: {st_en[st_second[0]]}', *coords[st_second[0]]),
@@ -6724,7 +6738,7 @@ Rules:
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
 - "transport" lines are Seoul's total subway and bus boardings for the most recently published day, plus that day's busiest and quietest subway stations. The subway and bus TOTAL labels already carry the date in the label itself ("Subway boardings on August 26", "Bus boardings the same day") — there is no separate dateline to lean on here, so do NOT put a date anywhere in the opener, and do NOT write a second, different date of your own: a neutral opener with no date at all is enough, e.g. "Through the turnstiles", "Seoul on the move". Never call a station busy, quiet, packed or empty — the four numbers say it.
 - "busroutes" lines are that day's busiest, second-busiest and quietest Seoul bus routes by plain route number ("Busiest: 143"), plus the day's total bus boardings — own post, never mixed with any other category, including "transport" above (that vein's own bus/subway totals are a different card). All FOUR lines are compulsory and must be used together, in that order: this is a complete small ranking, not a selection from it, the same rule "boxoffice" uses for its top four films. The dateline carries the date, so do NOT put a date anywhere in the opener and do NOT write a second one of your own — the opener MUST name buses or bus routes, because the lines carry BARE ROUTE NUMBERS with no "Route" word ("Busiest: 143"); like "busstops" its opener is FIXED and written by Python ("On the buses") and whatever opener you write for this card is replaced, and it must never say "today", since the day shown is several days behind. Never call a route busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines: the numbers say it. If the footnote already names a route's winning streak, do not repeat or rephrase that fact in the opener — it would say the same thing twice on one card.
-- "stations" lines are that day's busiest, second-busiest and quietest Seoul SUBWAY stations by official English name ("Busiest: Seoul Station"), plus the day's total subway boardings — own post, never mixed with any other category, including "transport" and "busroutes" above. Exactly the same rules as "busroutes": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the opener MUST name the subway or its stations, because the lines carry BARE STATION NAMES with no "station" word ("Busiest: Seoul Station", "Quietest: Dorimcheon"), e.g. "Seoul's subway, station by station", "Through the turnstiles", and it MUST NOT settle on one wording; never call a station busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines.
+- "stations" lines are that day's busiest, second-busiest and quietest Seoul SUBWAY stations by official English name ("Busiest: Seoul Station"), plus the day's total subway boardings — own post, never mixed with any other category, including "transport" and "busroutes" above. Exactly the same rules as "busroutes": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the opener MUST name the subway or its stations, because the lines carry BARE STATION NAMES with no "station" word ("Busiest: Seoul Station", "Quietest: Dorimcheon"); like "busstops" its opener is FIXED and written by Python ("On the subway") and whatever opener you write for this card is replaced, and it must never say "today", since the day shown is several days behind; and it MUST NOT settle on one wording; never call a station busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines.
 - "busstops" lines are that day's busiest, second-busiest and third-busiest Seoul BUS STOPS ("Busiest: Hongik University Station", one stop per name, the busier side of the road), plus how many stops took at least one boarding that day — own post, never mixed with any other category, including "transport", "busroutes" and "stations" above. Exactly the same rules as "stations": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the lines carry BARE STOP NAMES with no "stop" word, and a stop named after a station reads as the station unless the title says these are bus stops, so like "busmovers" its opener is FIXED and written by Python ("Seoul's bus stops") and whatever opener you write for this card is replaced; never call a stop busy, quiet, packed or empty, and never remark on the gap between the lines. There is no quietest line on this card, by design.
 - "railstations" lines are the four busiest of Seoul's Korail stations by boardings on one day ("Seoul Station", "Yongsan"), from the Korea Railroad Corporation — own post, never mixed with any other category, including "rail" and "stations" above (the subway card is a different thing). All FOUR lines are compulsory, used together, in that order; the dateline carries the date and the footnote the operator note, so do NOT put either in the opener. The lines are BARE STATION NAMES, so like "busmovers" its opener is FIXED and written by Python ("Seoul's railway stations") and whatever opener you write for this card is replaced. Never call a station busy or quiet, and never remark on the gap between the lines.
 - "seoulstation" lines are ONE station, Seoul Station, on one day: how many boarded Korail trains there, how many got off, the two together ("Passengers"), and "A typical Tuesday", the median of the previous same weekdays — own post, never mixed with any other category, including "rail", "railstations" and "stations". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Seoul Station"), so whatever opener you write for this card is replaced; the dateline carries the date and the footnote says what typical means. Never guess WHY the day differs from a typical one, and never call the station busy or quiet.

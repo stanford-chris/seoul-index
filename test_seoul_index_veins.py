@@ -3756,7 +3756,7 @@ class SlottedBusCards(unittest.TestCase):
     must be Python's, since a selector's "today" is false on a card four
     days behind the feed."""
 
-    SLOTTED = ('busroutes', 'busstops', 'nightbus', 'busweekend')
+    SLOTTED = ('busroutes', 'busstops', 'nightbus', 'busweekend', 'stations')
 
     def _entry(self, cat):
         src = Path(S.__file__).read_text()
@@ -3770,6 +3770,19 @@ class SlottedBusCards(unittest.TestCase):
     def test_every_slotted_vein_fixes_its_opener(self):
         for cat in self.SLOTTED:
             self.assertIn("'opener_en'", self._entry(cat), cat)
+
+    def test_the_subway_opener_is_fixed_and_carries_no_today(self):
+        # stations joined the slots on 12 September 2026 (14:30 daily). Its
+        # registry entry carries only the day and the opener: no map fields,
+        # so the generic map reply stays off and the station map's own path
+        # keeps posting it.
+        self.assertEqual(S.STATIONS_OPENER_EN, 'On the subway')
+        self.assertEqual(S.STATIONS_OPENER_KO, '서울의 지하철')
+        entry = self._entry('stations')
+        self.assertNotIn('map_routes', entry)
+        self.assertNotIn('map_pins', entry)
+        src = Path(S.__file__).read_text()
+        self.assertIn('its opener is FIXED and written by Python ("On the subway")', src)
 
     def test_the_night_bus_opener_is_his_and_carries_no_tonight(self):
         self.assertEqual(S.NIGHTBUS_OPENER_EN, 'On the night buses')
