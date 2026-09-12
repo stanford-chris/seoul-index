@@ -398,7 +398,14 @@ def render_bus_route_map(routes, seoul_stops, out_path, title='', caption=''):
     # (A four-route map clipped its caption on 10 September 2026.)
     ly = size - 84 - 19 * (len(routes) - 3) - 12 * max(0, len(caption_lines) - 1)
     legend_top = ly - 20
-    for label, colour, pts in routes:
+    for route in routes:
+        # (label, colour, path) or, since 12 September 2026, (label, colour,
+        # path, served): the served stops are drawn as small dots on the
+        # line, cream-ringed so they read on it, and their count is the
+        # card footnote's "stops served" rather than the line's own stop
+        # count, which the reader was otherwise left to reconcile.
+        label, colour, pts = route[:3]
+        served = route[3] if len(route) > 3 else []
         line_pts = [xy(lon, lat) for lon, lat in pts]
         if len(line_pts) >= 2:
             body.append(f'<path d="{smooth(line_pts)}" stroke="{colour}" '
@@ -406,6 +413,10 @@ def render_bus_route_map(routes, seoul_stops, out_path, title='', caption=''):
                          f'opacity="0.92"/>')
             for x, y in (line_pts[0], line_pts[-1]):
                 body.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.5" fill="{colour}"/>')
+        for lon, lat in served:
+            x, y = xy(lon, lat)
+            body.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.2" fill="{colour}" '
+                         f'stroke="{CREAM}" stroke-width="0.8" class="served"/>')
         legend.append(f'<rect x="30" y="{ly}" width="14" height="5" rx="2.5" fill="{colour}"/>')
         legend.append(f'<text x="50" y="{ly + 5}" font-family="Menlo,monospace" '
                        f'font-size="13" fill="{INK}">{_esc(label)}</text>')

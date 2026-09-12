@@ -207,6 +207,21 @@ class BusRouteMap(unittest.TestCase):
         self.assertEqual(legend_y(one) - legend_y(two), 12)
 
     @patch.object(C, '_shoot')
+    def test_served_stops_are_drawn_as_dots_and_a_three_tuple_still_works(self, mock_shoot):
+        # 12 September 2026: the served stops (the footnote's count) are dots
+        # on the line. Older callers passing (label, colour, path) draw none.
+        mock_shoot.return_value = ('out.png', (1200, 1200))
+        stops = [(127.0, 37.5), (127.02, 37.52)]
+        C.render_bus_route_map(
+            [('Busiest: Route 2211', '#d70000', [(127.0, 37.5), (127.01, 37.51)],
+              [(127.0, 37.5), (127.005, 37.505), (127.01, 37.51)])], stops, 'out.png')
+        doc = mock_shoot.call_args[0][0]
+        self.assertEqual(doc.count('class="served"'), 3)
+        C.render_bus_route_map(
+            [('Busiest: Route 2211', '#d70000', [(127.0, 37.5), (127.01, 37.51)])], stops, 'out.png')
+        self.assertEqual(mock_shoot.call_args[0][0].count('class="served"'), 0)
+
+    @patch.object(C, '_shoot')
     def test_a_route_with_no_stops_draws_no_path_but_does_not_crash(self, mock_shoot):
         # A cross-language edge case that should never actually reach here
         # (main() only calls this once bus_route_map_stops() has answered

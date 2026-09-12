@@ -2459,15 +2459,22 @@ def transport_facts(api_key, state):
     return facts
 
 
-def bus_route_map_stops(api_key, day, route_nos):
+def bus_route_map_stops(api_key, day, route_nos, with_served=False):
     """{route_no: [(lon, lat), ...]} ordered stop coordinates for `route_nos`
     on `day`, plus every Seoul-prefixed stop's own coordinates for the map's
-    background silhouette. Returns (routes, seoul_stops).
+    background silhouette. Returns (routes, seoul_stops), or with
+    `with_served` a third value: {route_no: {'points': [(lon, lat), ...],
+    'count': n}}, the stops the route SERVED that day (a boarding, either
+    direction: transport_facts()' rule, the footnote's count) as coordinates
+    where Seoul's stop table has them, and the full served count beside
+    them, so the caption can say when one could not be placed.
 
-    ⚠️ NOT filtered on boardings: every stop the day's feed lists for the
-    route's longest direction is drawn, boarded or not, so the count here is
-    not the card's "stops served" (distinct boarded stops, both directions).
-    The captions say "stops on each route" for that reason (11 Sept 2026).
+    ⚠️ The LINE is not filtered on boardings: every stop the day's feed lists
+    for the route's longest direction is drawn, boarded or not, so its stop
+    count is not the card's "stops served". Until 12 September 2026 that was
+    the only thing drawn, and a reader who counted found the map a stop or
+    two off the footnote (2211: 40 drawn, 39 served); the served stops are
+    drawn as dots on the line now, his ask, so the dots are the footnote.
 
     Fetched at POSTING time, not harvest time: transport_facts() already
     pages the whole day's CardBusStatisticsServiceNew once to find the day's
@@ -2506,12 +2513,15 @@ def bus_route_map_stops(api_key, day, route_nos):
     # on the first night-bus map, 10 September 2026: N61 and N15 came out as
     # scribbles. The longest direction is drawn; the other retraces it.
     seq = {}
+    served_ids = {no: set() for no in wanted}
     for s in range(1, btot + 1, 1000):
         bd = http_get_json(f'{base}/CardBusStatisticsServiceNew/{s}/{min(s + 999, btot)}/{day}')
         for x in bd.get('CardBusStatisticsServiceNew', {}).get('row', []):
             no = x.get('RTE_NO')
             if no not in wanted:
                 continue
+            if int(x.get('GTON_TNOPE', '0') or 0) > 0:
+                served_ids[no].add(x.get('STOPS_ID'))
             m = re.search(r'\((\d+)\)\s*$', x.get('SBWY_STNS_NM') or '')
             sid = x.get('STOPS_ID')
             if not m or sid not in stops:
@@ -2528,7 +2538,13 @@ def bus_route_map_stops(api_key, day, route_nos):
                 ids.append(sid)
         if len(ids) > len(routes[no]):
             routes[no] = [stops[sid] for sid in ids]
-    return routes, seoul_stops
+    if not with_served:
+        return routes, seoul_stops
+    served = {no: {'points': [stops[sid] for sid in sorted(ids)
+                              if sid in stops and str(sid).startswith('1')],
+                   'count': len(ids)}
+              for no, ids in served_ids.items()}
+    return routes, seoul_stops, served
 
 
 # --- rush hour -------------------------------------------------------------
@@ -6796,7 +6812,7 @@ def apply_holds(pool):
     return [f for f in pool if f['cat'] not in held]
 
 
-def route_map_words(info, n_stops):
+def route_map_words(info, n_stops, served=None):
     """(caption, alt) for a ranked bus card's route map, `n_stops` being the
     backdrop's stop count as drawn. Both carry his sentence from the bus
     stops map ("The map is composed of gray dots that represent each of
@@ -6804,17 +6820,36 @@ def route_map_words(info, n_stops):
     map said only "a faint backdrop of every Seoul bus stop" in its alt and
     nothing about the dots on the picture, and he remembered the fuller
     wording as being on both. The count is the backdrop actually drawn, so
-    the sentence can never disagree with the picture."""
+    the sentence can never disagree with the picture.
+
+    `served`, from bus_route_map_stops(with_served=True), adds the sentence
+    for the coloured dots (the stops each route served, the footnote's
+    count) and, only when a served stop had no place in Seoul's stop table
+    (5515 on 8 September 2026: 32 served, 31 placeable, the other a
+    Gyeonggi stop), says how many are not drawn, by route, so the picture
+    and the footnote can never silently disagree."""
     dots = (f'The map is composed of gray dots that represent each of Seoul’s '
             f'{grouped(n_stops)} bus stops.')
     base = info['map_caption'].rstrip()
     if not base.endswith('.'):          # the callers' captions end bare
         base += '.'
-    caption = f'{base} {dots}'
+    parts = [base]
+    if served is not None:
+        parts.append('The coloured dots are the stops each route served that day.')
+        for _, _, no in info['map_routes']:
+            sv = served.get(no) or {}
+            missing = sv.get('count', 0) - len(sv.get('points', []))
+            if missing > 0:
+                parts.append(f'{missing} of Route {no}’s {sv["count"]} served stops '
+                             f'{"lies" if missing == 1 else "lie"} outside Seoul’s stop '
+                             f'table and {"is" if missing == 1 else "are"} not drawn.')
+    parts.append(dots)
+    caption = ' '.join(parts)
     nos = [no for _, _, no in info['map_routes']]
     alt = (f'Map of {len(nos)} Seoul bus routes, {info["day_en"]}: '
            + '; '.join(label for label, _, _ in info['map_routes'])
-           + f'. Drawn from each route’s stops in the day’s feed. {dots} '
+           + '. Drawn from each route’s stops in the day’s feed. '
+           + ' '.join(parts[1:-1] + [dots]) + ' '
              'Not necessarily each route’s full official path.')
     return caption, alt
 
@@ -9688,10 +9723,12 @@ def main():
                         map_alt = info['map_alt']
                     else:
                         nos = [no for _, _, no in info['map_routes']]
-                        route_stops, seoul_stops = bus_route_map_stops(api_key, info['map_day'], nos)
-                        routes = [(label, colour, route_stops.get(no, []))
+                        route_stops, seoul_stops, served = bus_route_map_stops(
+                            api_key, info['map_day'], nos, with_served=True)
+                        routes = [(label, colour, route_stops.get(no, []),
+                                   (served.get(no) or {}).get('points', []))
                                   for label, colour, no in info['map_routes']]
-                        map_caption, map_alt = route_map_words(info, len(seoul_stops))
+                        map_caption, map_alt = route_map_words(info, len(seoul_stops), served)
                         _, map_size = render_bus_route_map(
                             routes, seoul_stops, map_path, title=info['day_en'],
                             caption=map_caption)

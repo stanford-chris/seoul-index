@@ -3744,7 +3744,7 @@ class RouteMapWords(unittest.TestCase):
 
     def test_the_poster_reads_the_count_off_the_backdrop_it_draws(self):
         src = Path(S.__file__).read_text()
-        self.assertIn('map_caption, map_alt = route_map_words(info, len(seoul_stops))', src)
+        self.assertIn('map_caption, map_alt = route_map_words(info, len(seoul_stops), served)', src)
         self.assertIn("caption=map_caption)", src)
 
 
@@ -3776,6 +3776,65 @@ class SlottedBusCards(unittest.TestCase):
         self.assertEqual(S.NIGHTBUS_OPENER_KO, '서울의 심야버스')
         src = Path(S.__file__).read_text()
         self.assertIn('its opener is FIXED and written by Python ("On the night buses")', src)
+
+
+class ServedStopsOnTheMap(unittest.TestCase):
+    """12 September 2026, his ask: the footnote counted stops served (a
+    boarding, either direction) while the map drew the longest direction's
+    listed stops, and a reader who counted found them a stop or two apart.
+    The served stops are dots on the line now, so the dots ARE the footnote,
+    and a served stop Seoul's stop table cannot place is named, never
+    silently dropped."""
+
+    def setUp(self):
+        self.stop_rows = BusRouteMapStops.STOP_ROWS
+        self.bus_rows = [dict(r, GTON_TNOPE='5') for r in BusRouteMapStops.BUS_ROWS]
+        # 143's stop C took no boarding that day: listed on the line, not served.
+        for r in self.bus_rows:
+            if r['RTE_NO'] == '143' and r['STOPS_ID'] == '101000060':
+                r['GTON_TNOPE'] = '0'
+
+    def _stub(self):
+        return Stub({'busStopLocationXyInfo': ok('busStopLocationXyInfo', self.stop_rows),
+                     'CardBusStatisticsServiceNew': ok('CardBusStatisticsServiceNew', self.bus_rows)})
+
+    def test_served_is_the_footnotes_rule_not_the_lines(self):
+        with self._stub():
+            routes, _, served = S.bus_route_map_stops('key', '20260906', ['143'], with_served=True)
+        self.assertEqual(len(routes['143']), 3)            # the line: every listed stop
+        self.assertEqual(served['143']['count'], 2)        # the footnote: boarded stops
+        self.assertEqual(served['143']['points'], [(127.00, 37.50), (127.01, 37.51)])
+
+    def test_a_served_stop_outside_the_table_is_counted_but_not_placed(self):
+        with self._stub():
+            _, _, served = S.bus_route_map_stops('key', '20260906', ['272'], with_served=True)
+        self.assertEqual(served['272'], {'points': [], 'count': 1})
+
+    def test_the_two_value_form_is_unchanged(self):
+        with self._stub():
+            out = S.bus_route_map_stops('key', '20260906', ['143'])
+        self.assertEqual(len(out), 2)
+
+    def test_the_caption_names_the_dots_and_any_stop_it_could_not_place(self):
+        info = {'day_en': 'September 8',
+                'map_caption': 'Stops on each route, September 8: not necessarily its full path',
+                'map_routes': [('Busiest: Route 2211', '#d70000', '2211'),
+                               ('2nd-busiest: Route 5515', '#e08a1e', '5515')]}
+        served = {'2211': {'points': [(0, 0)] * 39, 'count': 39},
+                  '5515': {'points': [(0, 0)] * 31, 'count': 32}}
+        caption, alt = S.route_map_words(info, 11236, served)
+        self.assertIn('The coloured dots are the stops each route served that day.', caption)
+        self.assertIn('1 of Route 5515’s 32 served stops lies outside Seoul’s stop table and is not drawn.', caption)
+        self.assertNotIn('Route 2211’s', caption)          # nothing missing, nothing said
+        self.assertIn('1 of Route 5515’s 32 served stops', alt)
+        self.assertTrue(alt.endswith('Not necessarily each route’s full official path.'))
+
+    def test_without_served_the_words_are_as_before(self):
+        info = {'day_en': 'September 8', 'map_caption': 'Stops on each route, September 8: x',
+                'map_routes': [('Busiest: Route 2211', '#d70000', '2211')]}
+        caption, alt = S.route_map_words(info, 11236)
+        self.assertNotIn('coloured dots', caption)
+        self.assertNotIn('coloured dots', alt)
 
 
 if __name__ == '__main__':
