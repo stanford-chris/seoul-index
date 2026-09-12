@@ -9222,6 +9222,11 @@ def compose(sel, pool):
         # What the ranking counts (see STATION_DAY's block): summed across a
         # station's lines, Seoul only.
         note_en, note_ko = STATION_CAVEAT_EN, STATION_CAVEAT_KO
+        # And the dateline is the newest day published, the bus cards'
+        # sentence ("Do the same for the stations card", 12 September 2026).
+        if STATION_DAY['en']:
+            en, ko = latest_note(STATION_DAY['en'], STATION_DAY['ko'])
+            note_en, note_ko = f'{note_en}. {en}.', f'{note_ko}. {ko}.'
     elif any(rc in cats and rc in RANKED_CARD_INFO for rc in RANKED_CATS):
         info = next(RANKED_CARD_INFO[rc] for rc in RANKED_CATS
                     if rc in cats and rc in RANKED_CARD_INFO)

@@ -2031,8 +2031,11 @@ class StationsCard(unittest.TestCase):
 
     def test_the_footnote_says_what_the_ranking_counts(self):
         c = self._card()
-        self.assertEqual(c['note_en'], 'Stations inside Seoul, all lines combined')
-        self.assertEqual(c['note_ko'], '서울 시내 역, 전 노선 합산')
+        # The bus cards' closing sentence, on this card too: his call,
+        # 12 September 2026.
+        self.assertEqual(c['note_en'], 'Stations inside Seoul, all lines combined. '
+                                       '7 September is the latest date for which data is available.')
+        self.assertEqual(c['note_ko'], '서울 시내 역, 전 노선 합산. 9월 7일은 데이터가 공개된 가장 최근 날짜.')
 
     def test_picking_two_of_four_completes_the_ranking(self):
         c = self._card(ids=['st_busiest', 'st_quietest'])
