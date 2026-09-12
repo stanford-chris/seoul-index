@@ -5697,7 +5697,9 @@ def rail_commuter_facts(gov_key, api_key):
              ('3rd-busiest', '세 번째로 붐빔'))
     facts = [fact(f'railcom_{i}', 'railcommuter', f'{ranks[i][0]}: {en[name]}',
                   grouped(v), grouped(v), pin=True,
-                  label_ko=f'{ranks[i][1]}: {name}', place_en=en[name], place_ko=name,
+                  # '역' on every Korean name, as the rail stations card does: a bare
+                  # '서울' on a Korean card is the city, not the station.
+                  label_ko=f'{ranks[i][1]}: {name}역', place_en=en[name], place_ko=f'{name}역',
                   num=v, unit='people')
              for i, (name, v) in enumerate(top)]
     total = sum(seoul.values())

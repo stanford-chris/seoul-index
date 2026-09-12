@@ -3960,7 +3960,7 @@ class RailCommuterCard(unittest.TestCase):
         self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
                          [('Busiest: Yongsan', '1,555,978'), ('2nd-busiest: Seoul Station', '1,012,404'),
                           ('3rd-busiest: Hoegi', '753,793'), ('All Seoul stations', '3,322,175')])
-        self.assertEqual(facts[1]['label_ko'], '두 번째로 붐빔: 서울')
+        self.assertEqual(facts[1]['label_ko'], '두 번째로 붐빔: 서울역')
         info = S.RANKED_CARD_INFO['railcommuter']
         self.assertEqual(info['dateline_en'], 'Boardings in July 2026')
         self.assertEqual(info['opener_en'], 'Seoul’s commuter rail')
