@@ -2859,9 +2859,11 @@ class RailStationsCard(unittest.TestCase):
         self.assertEqual(info['dateline_ko'], '9월 8일 열차 승차')
         self.assertEqual(info['day_en'], 'September 8')
         self.assertEqual(info['note_en'], 'The four busiest of Seoul’s 8 Korail stations. '
-                                          'Korail trains only, KTX to Mugunghwa; SRT is a separate operator.')
+                                          'Korail trains only, KTX to Mugunghwa; SRT is a separate operator. '
+                                          'September 8 is the latest date for which data is available.')
         self.assertEqual(info['note_ko'], '서울의 코레일 역 8곳 중 승차가 많은 네 곳. '
-                                          '코레일 열차 기준(KTX~무궁화호), SRT는 별도 운영사.')
+                                          '코레일 열차 기준(KTX~무궁화호), SRT는 별도 운영사. '
+                                          '9월 8일은 데이터가 공개된 가장 최근 날짜.')
         # The count is the roster's, whether or not every station had service.
         self.assertEqual(len(S.KORAIL_SEOUL_STATIONS), 8)
         self.assertNotIn('map_pins', info); self.assertNotIn('map_routes', info)
@@ -2890,7 +2892,8 @@ class RailStationsCard(unittest.TestCase):
         self.assertEqual([l.get('emph_en') for l in c['lines']],
                          ['Seoul Station', 'Yongsan', 'Cheongnyangni', 'Yeongdeungpo'])
         self.assertEqual(c['dateline_en'], 'Intercity rail boardings on September 8')
-        self.assertEqual(c['note_en'], S.RAILSTATIONS_NOTE_EN)
+        self.assertEqual(c['note_en'], S.RAILSTATIONS_NOTE_EN
+                         + ' September 8 is the latest date for which data is available.')
         self.assertEqual(c['opener']['emoji'], '🚆')
         self.assertIn('korail.com', c['src_en'] if isinstance(c.get('src_en'), str) else str(c))
 
@@ -2982,8 +2985,10 @@ class SeoulStationCard(unittest.TestCase):
         self.assertEqual(info['opener_en'], 'Seoul Station')
         self.assertEqual(info['dateline_en'], 'September 8')
         self.assertEqual(info['note_en'], 'Typical: the median of the previous 6 Tuesdays. '
-                                          'Korail trains only; SRT is a separate operator.')
-        self.assertEqual(info['note_ko'], '평소: 이전 화요일 6회의 중앙값. 코레일 열차 기준, SRT는 별도 운영사.')
+                                          'Korail trains only; SRT is a separate operator. '
+                                          'September 8 is the latest date for which data is available.')
+        self.assertEqual(info['note_ko'], '평소: 이전 화요일 6회의 중앙값. 코레일 열차 기준, SRT는 별도 운영사. '
+                                          '9월 8일은 데이터가 공개된 가장 최근 날짜.')
 
     def test_the_feed_wins_and_the_file_learns_the_day(self):
         self.facts()
@@ -3131,7 +3136,8 @@ class StationGapCard(unittest.TestCase):
         info = S.RANKED_CARD_INFO['stationgap']
         self.assertEqual(info['opener_en'], 'Seoul’s subway, one station')
         self.assertEqual(info['dateline_en'], S.STATION_DAY['en'])
-        self.assertEqual(info['note_en'], S.STATIONGAP_NOTE_EN)
+        self.assertEqual(info['note_en'], S.STATIONGAP_NOTE_EN
+                         + f" {S.STATION_DAY['en']} is the latest date for which data is available.")
 
     def test_a_same_day_cache_without_the_gap_rule_is_refetched(self):
         with Stub({'CardSubwayStatsNew': ok('CardSubwayStatsNew', self.rows())}):
@@ -3151,7 +3157,8 @@ class StationGapCard(unittest.TestCase):
         self.assertEqual([l['emph_en'] for l in c['lines']], ['Jamsil', 'Jamsil'])
         self.assertTrue(all(l['emoji'] == '' for l in c['lines']))
         self.assertEqual(c['opener']['emoji'], '🚇')
-        self.assertEqual(c['note_en'], S.STATIONGAP_NOTE_EN)
+        self.assertTrue(c['note_en'].startswith(S.STATIONGAP_NOTE_EN + ' '), c['note_en'])
+        self.assertTrue(c['note_en'].endswith(' is the latest date for which data is available.'))
 
     def test_the_vein_is_wired_everywhere_the_other_two_line_cards_are(self):
         self.assertIn('stationgap', S.RANKED_CATS)
@@ -3309,6 +3316,10 @@ class WxDayCard(unittest.TestCase):
         yday = S.datetime.now(S.SEOUL_TZ).date() - S.timedelta(days=1)
         self.assertEqual(info['dateline_en'], S.en_date(yday))
         self.assertIn('observing since 1907', info['note_en'])
+        # Every dated card's footnote ends by naming its period as the newest
+        # published, his call, 12 September 2026.
+        self.assertTrue(info['note_en'].endswith(
+            f' · {S.en_date(yday)} is the latest date for which data is available'), info['note_en'])
 
     def test_no_row_or_no_temperatures_withholds(self):
         self.assertEqual(self.wx(None), [])
@@ -3411,6 +3422,12 @@ class RescueCard(unittest.TestCase):
         self.assertEqual(info['dateline_en'], S._span_en(f'{start:%Y%m%d}', f'{end:%Y%m%d}'))
         self.assertEqual(info['opener_en'], 'Animals rescued in Seoul')
         self.assertIn('25 districts', info['note_en'])
+        # A fragment footnote takes the sentence after a middle dot (the
+        # dollar-rate note joins on the same way), and a week-long card names
+        # its week rather than a date.
+        self.assertTrue(info['note_en'].endswith(
+            f" · {info['dateline_en']} is the latest week for which data is available"), info['note_en'])
+        self.assertTrue(info['note_ko'].endswith(f" · {info['dateline_ko']}은 데이터가 공개된 가장 최근 주"))
         self.assertEqual(info['line_emoji']['Cats'], '🐈')
         self.assertGreaterEqual(S.RESCUE_LAG_DAYS, 3)   # 94% of notices are filed within three days
 
@@ -3502,6 +3519,8 @@ class KopisCard(unittest.TestCase):
         self.assertEqual(info['opener_en'], 'On stage in Seoul')
         self.assertEqual(info['dateline_en'], S._span_en(f'{start:%Y%m%d}', f'{end:%Y%m%d}'))
         self.assertIn('net of cancellations', info['note_en'])
+        self.assertTrue(info['note_en'].endswith(
+            f" · {info['dateline_en']} is the latest week for which data is available"), info['note_en'])
         self.assertEqual(info['line_emoji']['Box office'], '💰')
 
     def test_no_seoul_row_bad_xml_or_no_showings_withholds(self):
@@ -3622,6 +3641,10 @@ class KepcoCards(unittest.TestCase):
         self.assertEqual(calls.count((y, m)), 1)          # one fetch feeds both cards
         self.assertEqual(S.RANKED_CARD_INFO['kepcohist']['opener_en'], 'Seoul’s electricity, 20 years apart')
         self.assertNotIn('dateline_en', S.RANKED_CARD_INFO['kepcohist'])   # the periods are in the groups
+        # With no dateline the footnote names the newer month itself.
+        self.assertTrue(S.RANKED_CARD_INFO['kepcohist']['note_en'].endswith(
+            f' · {S.MONTHS_EN[m - 1]} {y} is the latest month for which data is available'),
+            S.RANKED_CARD_INFO['kepcohist']['note_en'])
 
     def test_no_twenty_year_old_month_withholds_only_the_history_card(self):
         y, m = self.newest()
@@ -3986,6 +4009,8 @@ class RailCommuterCard(unittest.TestCase):
         self.assertEqual(info['dateline_en'], 'Boardings in July 2026')
         self.assertEqual(info['opener_en'], 'Seoul’s commuter rail')
         self.assertIn('inside Seoul', info['note_en'])
+        self.assertTrue(info['note_en'].endswith(' July 2026 is the latest month for which data is available.'))
+        self.assertTrue(info['note_ko'].endswith(' 2026년 7월은 데이터가 공개된 가장 최근 달.'))
 
     def test_the_map_pins_the_three_with_their_coordinates(self):
         S.rail_commuter_facts('G', 'A')

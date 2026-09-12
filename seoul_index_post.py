@@ -1669,7 +1669,8 @@ def station_gap_facts(c, d, d_ko):
         'day_en': d, 'day_ko': d_ko,
         'opener_en': STATIONGAP_OPENER_EN, 'opener_ko': STATIONGAP_OPENER_KO,
         'dateline_en': d, 'dateline_ko': d_ko,
-        'note_en': STATIONGAP_NOTE_EN, 'note_ko': STATIONGAP_NOTE_KO}
+        'note_en': with_latest(STATIONGAP_NOTE_EN, STATIONGAP_NOTE_KO, d, d_ko)[0],
+        'note_ko': with_latest(STATIONGAP_NOTE_EN, STATIONGAP_NOTE_KO, d, d_ko)[1]}
     # The station is the emphasised run (place_en), as the rush card bolds
     # its station; the larger figure leads.
     off_line = fact('st_gap_off', 'stationgap', f'Got off at {en}', grouped(off), grouped(off),
@@ -1957,15 +1958,30 @@ def _span_ko(a, b):
 # "September 8 is the latest date for which data is available." Stated as
 # a rule, never as a lag count, so it stays true on a morning the feed
 # stalls and yesterday's day is still the newest.
-def latest_note(d, d_ko, week=False):
-    """(en, ko) sentence naming the card's day (or, for busweekend, its
-    week) as the newest published, WITHOUT the closing period: each caller
-    ends it or joins it with ' · ', whichever its footnote already uses."""
-    if week:
-        return (f'{d} is the latest week for which data is available',
-                f'{d_ko}은 데이터가 공개된 가장 최근 주')
-    return (f'{d} is the latest date for which data is available',
-            f'{d_ko}은 데이터가 공개된 가장 최근 날짜')
+# Extended to every dated card the same day ("Do the same for the other
+# dated cards"): the unit is the card's own period, a date, a week or a month.
+LATEST_UNITS = {'date': ('date', '날짜'), 'week': ('week', '주'), 'month': ('month', '달')}
+
+
+def latest_note(d, d_ko, unit='date'):
+    """(en, ko) sentence naming the card's period as the newest published,
+    WITHOUT the closing period: each caller ends it or joins it with ' · ',
+    whichever its footnote already uses."""
+    u_en, u_ko = LATEST_UNITS[unit]
+    return (f'{d} is the latest {u_en} for which data is available',
+            f'{d_ko}은 데이터가 공개된 가장 최근 {u_ko}')
+
+
+def with_latest(note_en, note_ko, d, d_ko, unit='date'):
+    """The (en, ko) footnote with latest_note()'s sentence on the end. A
+    footnote written as sentences (ending in a period) gets it as the next
+    sentence; a fragment (rescue, kopis, kepco) gets it after a middle dot,
+    the busmovers arrangement, so the dollar-rate note compose() joins on
+    with ' · ' never follows a full stop."""
+    en, ko = latest_note(d, d_ko, unit)
+    if note_en.endswith('.'):
+        return (f'{note_en} {en}.', f'{note_ko} {ko}.')
+    return (f'{note_en} · {en}', f'{note_ko} · {ko}')
 
 
 def history_bus_facts(h, day, d, d_ko):
@@ -2082,9 +2098,9 @@ def history_bus_facts(h, day, d, d_ko):
             'opener_ko': '서울의 버스 노선, 주말 대 평일',
             'note_en': ('Saturday and Sunday per day against Monday to Friday per day · '
                         'trunk and branch routes over 1,000 weekday boardings · '
-                        f'{latest_note(_span_en(week[0], week[6]), _span_ko(week[0], week[6]), week=True)[0]}'),
+                        f'{latest_note(_span_en(week[0], week[6]), _span_ko(week[0], week[6]), unit='week')[0]}'),
             'note_ko': ('토·일 하루 평균 대 월~금 하루 평균 · 평일 승차 1,000명 이상 간선·지선 · '
-                        f'{latest_note(_span_en(week[0], week[6]), _span_ko(week[0], week[6]), week=True)[1]}'),
+                        f'{latest_note(_span_en(week[0], week[6]), _span_ko(week[0], week[6]), unit='week')[1]}'),
             'map_day': week[5],
             'map_caption': (f'Stops on each route on Saturday '
                             f'{en_date(_day_dt(week[5]))}: not necessarily its full path'),
@@ -4446,8 +4462,10 @@ def wx_day_facts(key):
         'day_en': d, 'day_ko': d_ko,
         'opener_en': WXDAY_OPENER_EN, 'opener_ko': WXDAY_OPENER_KO,
         'dateline_en': d, 'dateline_ko': d_ko,
-        'note_en': f'Seoul’s reference station, observing since {WX_OBSERVING_SINCE}',
-        'note_ko': f'서울 대표 관측소, {WX_OBSERVING_SINCE}년 관측 개시',
+        'note_en': with_latest(f'Seoul’s reference station, observing since {WX_OBSERVING_SINCE}',
+                               f'서울 대표 관측소, {WX_OBSERVING_SINCE}년 관측 개시', d, d_ko)[0],
+        'note_ko': with_latest(f'Seoul’s reference station, observing since {WX_OBSERVING_SINCE}',
+                               f'서울 대표 관측소, {WX_OBSERVING_SINCE}년 관측 개시', d, d_ko)[1],
         # One glyph per line, his call; the rain line keeps its glyph on a
         # dry day, since the line is still about rain. The title's is the
         # day's own weather (wx_day_emoji), also his call.
@@ -4915,7 +4933,8 @@ def rescue_facts(key):
         'day_en': span_en, 'day_ko': span_ko,
         'opener_en': RESCUE_OPENER_EN, 'opener_ko': RESCUE_OPENER_KO,
         'dateline_en': span_en, 'dateline_ko': span_ko,
-        'note_en': RESCUE_NOTE_EN, 'note_ko': RESCUE_NOTE_KO,
+        'note_en': with_latest(RESCUE_NOTE_EN, RESCUE_NOTE_KO, span_en, span_ko, 'week')[0],
+        'note_ko': with_latest(RESCUE_NOTE_EN, RESCUE_NOTE_KO, span_en, span_ko, 'week')[1],
         'line_emoji': {'All animals': '🐾', **{en: e for _, en, _, e in RESCUE_SPECIES}},
         'emoji': '🐾'}
     facts = [fact('rescue_total', 'rescue', 'All animals', grouped(len(rows)),
@@ -5005,7 +5024,8 @@ def kopis_facts(key):
         'day_en': span_en, 'day_ko': span_ko,
         'opener_en': KOPIS_OPENER_EN, 'opener_ko': KOPIS_OPENER_KO,
         'dateline_en': span_en, 'dateline_ko': span_ko,
-        'note_en': KOPIS_NOTE_EN, 'note_ko': KOPIS_NOTE_KO,
+        'note_en': with_latest(KOPIS_NOTE_EN, KOPIS_NOTE_KO, span_en, span_ko, 'week')[0],
+        'note_ko': with_latest(KOPIS_NOTE_EN, KOPIS_NOTE_KO, span_en, span_ko, 'week')[1],
         'line_emoji': {'Productions': '🎭', 'Opened this week': '🎬', 'Performances': '🎟',
                        'Tickets sold': '🎫', 'Box office': '💰'},
         'emoji': '🎭'}
@@ -5159,7 +5179,8 @@ def kepco_facts(key):
         'day_en': per_en, 'day_ko': per_ko,
         'opener_en': KEPCO_OPENER_EN, 'opener_ko': KEPCO_OPENER_KO,
         'dateline_en': per_en, 'dateline_ko': per_ko,
-        'note_en': KEPCO_NOTE_EN, 'note_ko': KEPCO_NOTE_KO,
+        'note_en': with_latest(KEPCO_NOTE_EN, KEPCO_NOTE_KO, per_en, per_ko, 'month')[0],
+        'note_ko': with_latest(KEPCO_NOTE_EN, KEPCO_NOTE_KO, per_en, per_ko, 'month')[1],
         'line_emoji': {'Customers': '🔌', 'Electricity used': '⚡️', 'Households': '🏠',
                        'Shops and offices': '🏢', 'Billed': '💰'},
         'emoji': '⚡️'}
@@ -5193,11 +5214,15 @@ def kepco_hist_facts(key):
     now, then = _kepco_totals(rows), _kepco_totals(then_rows)
     if not now or not then:
         return []
+    mon_en = MONTHS_EN[m - 1]
+    # No dateline on this card (each row names its month), so the footnote
+    # names the newer of the two as the newest published.
+    now_en, now_ko = f'{mon_en} {y}', f'{y}년 {m}월'
     RANKED_CARD_INFO['kepcohist'] = {
         'opener_en': KEPCO_HIST_OPENER_EN, 'opener_ko': KEPCO_HIST_OPENER_KO,
-        'note_en': KEPCO_HIST_NOTE_EN, 'note_ko': KEPCO_HIST_NOTE_KO,
+        'note_en': with_latest(KEPCO_HIST_NOTE_EN, KEPCO_HIST_NOTE_KO, now_en, now_ko, 'month')[0],
+        'note_ko': with_latest(KEPCO_HIST_NOTE_EN, KEPCO_HIST_NOTE_KO, now_en, now_ko, 'month')[1],
         'emoji': '⚡️'}
-    mon_en = MONTHS_EN[m - 1]
     facts = []
     for head_en, head_ko, fid, fmt_en, fmt_ko, unit in (
             ('Electricity used', '전력 사용량', 'kwh', gwh, gwh, None),
@@ -5286,7 +5311,8 @@ def kepco_house_facts(key):
         'opener_en': KEPCO_HOUSE_OPENER_EN, 'opener_ko': KEPCO_HOUSE_OPENER_KO,
         'dateline_en': f'Average per household, {per_en}',
         'dateline_ko': f'{per_ko} 가구당 평균',
-        'note_en': KEPCO_HOUSE_NOTE_EN, 'note_ko': KEPCO_HOUSE_NOTE_KO,
+        'note_en': with_latest(KEPCO_HOUSE_NOTE_EN, KEPCO_HOUSE_NOTE_KO, per_en, per_ko, 'month')[0],
+        'note_ko': with_latest(KEPCO_HOUSE_NOTE_EN, KEPCO_HOUSE_NOTE_KO, per_en, per_ko, 'month')[1],
         'emoji': '⚡️'}
     hi_u, lo_u, hi_b, lo_b = by_use[0], by_use[-1], by_bill[0], by_bill[-1]
     return [fact('kepcohouse_use_hi', 'kepcohouse', f'Most used: {en[hi_u[0]]}',
@@ -5565,9 +5591,14 @@ def seoul_station_facts(key):
         'day_en': d, 'day_ko': d_ko,
         'opener_en': 'Seoul Station', 'opener_ko': '서울역',
         'dateline_en': dateline_en, 'dateline_ko': dateline_ko,
-        'note_en': (f'Typical: the median of the previous {n} {wd_en}s. '
-                    f'Korail trains only; SRT is a separate operator.'),
-        'note_ko': f'평소: 이전 {wd_ko} {n}회의 중앙값. 코레일 열차 기준, SRT는 별도 운영사.'}
+        'note_en': with_latest(f'Typical: the median of the previous {n} {wd_en}s. '
+                               f'Korail trains only; SRT is a separate operator.',
+                               f'평소: 이전 {wd_ko} {n}회의 중앙값. 코레일 열차 기준, SRT는 별도 운영사.',
+                               d, d_ko)[0],
+        'note_ko': with_latest(f'Typical: the median of the previous {n} {wd_en}s. '
+                               f'Korail trains only; SRT is a separate operator.',
+                               f'평소: 이전 {wd_ko} {n}회의 중앙값. 코레일 열차 기준, SRT는 별도 운영사.',
+                               d, d_ko)[1]}
     return [
         fact('railss_boarded', 'seoulstation', 'Boarded', grouped(ride), grouped(ride), pin=True,
              label_ko='승차', num=ride, unit='people'),
@@ -5615,7 +5646,8 @@ def rail_stations_facts(key):
         'day_en': d, 'day_ko': d_ko,
         'opener_en': RAILSTATIONS_OPENER_EN, 'opener_ko': RAILSTATIONS_OPENER_KO,
         'dateline_en': f'Intercity rail boardings on {d}', 'dateline_ko': f'{d_ko} 열차 승차',
-        'note_en': RAILSTATIONS_NOTE_EN, 'note_ko': RAILSTATIONS_NOTE_KO}
+        'note_en': with_latest(RAILSTATIONS_NOTE_EN, RAILSTATIONS_NOTE_KO, d, d_ko)[0],
+        'note_ko': with_latest(RAILSTATIONS_NOTE_EN, RAILSTATIONS_NOTE_KO, d, d_ko)[1]}
     # Bare station names, sorted by the day's boardings; the name itself is
     # the emphasised run (place_en), as the rush card bolds its station.
     return [fact(f'railst_{i}', 'railstations', en[name], grouped(v), grouped(v), pin=True,
@@ -5737,7 +5769,8 @@ def rail_commuter_facts(gov_key, api_key):
         'day_en': per_en, 'day_ko': per_ko,
         'opener_en': RAILCOMMUTER_OPENER_EN, 'opener_ko': RAILCOMMUTER_OPENER_KO,
         'dateline_en': f'Boardings in {per_en}', 'dateline_ko': f'{per_ko} 승차',
-        'note_en': RAILCOMMUTER_NOTE_EN, 'note_ko': RAILCOMMUTER_NOTE_KO,
+        'note_en': with_latest(RAILCOMMUTER_NOTE_EN, RAILCOMMUTER_NOTE_KO, per_en, per_ko, 'month')[0],
+        'note_ko': with_latest(RAILCOMMUTER_NOTE_EN, RAILCOMMUTER_NOTE_KO, per_en, per_ko, 'month')[1],
         # The threaded pin map, the bus stops card's own shape (his call,
         # 12 September 2026): three stations named on the bus-stop silhouette.
         'map_title': f'Commuter rail boardings for {per_en}',
