@@ -179,6 +179,29 @@ class ReplaceRecognisesItsOwnThread(unittest.TestCase):
         """
         self.assertTrue(M.SOURCE_LINE.startswith(M.SOURCE_PREFIX))
 
+    def test_the_bio_figures_follow_the_source_list(self):
+        # The bio is not in this repo and drifted three releases running
+        # (12 September 2026: "+9 more · 출처 12곳" against 17 credited).
+        # Every live run rewrites the two figures from SOURCE_DOMAINS.
+        bio = ('📊 Seoul in figures · 🇰🇷 숫자로 보는 서울\n'
+               '📈 data.seoul.go.kr, kosis.kr, OECD +9 more · 출처 12곳 (고정글) · A.I. 🤖 · 인구는 추정\n'
+               '👤 Run by @stanfordc.bsky.social')
+        out = M.updated_bio(bio, 17)
+        self.assertIn('OECD +14 more · 출처 17곳 (고정글)', out)
+        self.assertEqual(out.replace('+14 more · 출처 17곳', '+9 more · 출처 12곳'), bio)
+        self.assertEqual(M.updated_bio(bio), M.updated_bio(bio, len(M.SOURCE_DOMAINS)))
+
+    def test_a_bio_without_the_figures_is_left_alone(self):
+        self.assertIsNone(M.updated_bio('Seoul in figures. Run by a person.'))
+        self.assertIsNone(M.updated_bio(''))
+        self.assertIsNone(M.updated_bio(None))
+        twice = 'a +1 more · 출처 4곳 b +2 more · 출처 5곳'
+        self.assertIsNone(M.updated_bio(twice))
+
+    def test_the_live_run_syncs_the_bio_after_pinning(self):
+        src = Path(M.__file__).read_text()
+        self.assertIn("        print('Pinned the thread root.')\n    sync_bio(bsky)\n", src)
+
     def test_replace_is_a_recognised_argument(self):
         self.assertIn('--replace', M._KNOWN_ARGS)
 

@@ -39,6 +39,7 @@ The superseded wording is printed before it goes rather than archived to a file
 else). This thread's prose IS the code, so git already holds every version.
 """
 
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -228,6 +229,56 @@ SOURCE_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                   ('data.worldbank.org', 'https://data.worldbank.org')]
 
 
+# The bio names three publishers and counts the rest: "data.seoul.go.kr,
+# kosis.kr, OECD +N more · 출처 M곳 (고정글)". It lives in the profile record
+# and nowhere in this repo, so until 12 September 2026 it drifted every time
+# a vein with a new publisher was released and the thread reposted: three
+# releases in a row left it at "+9 more · 출처 12곳" against 17 credited.
+# Every live run of this script now rewrites those two figures from
+# SOURCE_DOMAINS, the list the credits reply is built from, so the bio and
+# the thread cannot disagree. Only the figures move; the rest of the bio is
+# his wording and is left exactly as found.
+BIO_NAMED = 3
+BIO_COUNTS = re.compile(r'\+(\d+) more · 출처 (\d+)곳')
+
+
+def updated_bio(description, n_sources=None):
+    """The bio with its two publisher figures set from SOURCE_DOMAINS, or None
+    if the bio does not carry the "+N more · 출처 M곳" figures exactly once,
+    in which case nothing should be written: a bio reworded by hand is his,
+    and a pattern that matches twice is a bio this cannot reason about."""
+    n = len(SOURCE_DOMAINS) if n_sources is None else n_sources
+    if len(BIO_COUNTS.findall(description or '')) != 1:
+        return None
+    return BIO_COUNTS.sub(f'+{n - BIO_NAMED} more · 출처 {n}곳', description)
+
+
+def sync_bio(bsky):
+    """Rewrite the profile bio's publisher figures if they are behind
+    SOURCE_DOMAINS; report and leave it alone otherwise. Reads and writes
+    the whole profile record with swap_record, as pin_post() does, so the
+    avatar and the pin survive."""
+    got = bsky.com.atproto.repo.get_record(
+        models.ComAtprotoRepoGetRecord.Params(
+            repo=bsky.me.did, collection='app.bsky.actor.profile', rkey='self'))
+    record = got.value
+    new = updated_bio(record.description)
+    if new is None:
+        print('Bio: publisher figures not found exactly once; left as is.')
+        return False
+    if new == record.description:
+        print(f'Bio: already credits {len(SOURCE_DOMAINS)} publishers.')
+        return False
+    record.description = new
+    bsky.com.atproto.repo.put_record(
+        models.ComAtprotoRepoPutRecord.Data(
+            repo=bsky.me.did, collection='app.bsky.actor.profile', rkey='self',
+            record=record, swap_record=got.cid))
+    print(f'Bio: publisher figures set to +{len(SOURCE_DOMAINS) - BIO_NAMED} more · '
+          f'출처 {len(SOURCE_DOMAINS)}곳.')
+    return True
+
+
 def _alt(card):
     # curly() so the alt text matches the card, which the renderer curls.
     return curly(card['heading'] + '\n\n' + '\n\n'.join(card['body']))
@@ -270,6 +321,7 @@ def main():
     print(f'  [reply] {_source_tb().build_text()!r} (clickable: {clickable})')
 
     if DRY_RUN:
+        print(f'  [bio] would set +{len(SOURCE_DOMAINS) - BIO_NAMED} more · 출처 {len(SOURCE_DOMAINS)}곳')
         print('\n(dry run — rendered cards, not posting)')
         return
 
@@ -308,6 +360,7 @@ def main():
     if PIN:
         pin_post(bsky, root_ref)
         print('Pinned the thread root.')
+    sync_bio(bsky)
 
     if REPLACE and old_root_uri:
         replace_old_thread(bsky, old_root_uri)
