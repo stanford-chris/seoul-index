@@ -507,7 +507,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # --dry-run for a preview, or --force past the six-hour guard), since that is
 # how a decision gets made. Empty the set to release a vein; nothing else
 # needs touching. Empty since 11 September 2026.
-HELD_CATS = {'kepcohouse', 'railcommuter'}   # held for his look, 12 September 2026; release on his word
+HELD_CATS = set()   # kepcohouse and railcommuter held for his look and released 12 Sep 2026
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -5610,7 +5610,10 @@ RAILCOMMUTER_TOP = 3
 RAILCOMMUTER_MIN_STATIONS = 20   # 62 inside Seoul in July 2026; far fewer is a broken join
 # The membership join (Korail name → subwayStationMaster → within 300 m of a
 # Seoul bus stop) costs a dozen coordinate calls, so it is cached per month
-# here, gitignored: {run_ym: {folded station: boardings}}.
+# here, gitignored: {run_ym: {'rides': {folded station: boardings},
+# 'coords': {folded station: [lon, lat]}, 'stops': N}}. The coordinates feed
+# the threaded pin map without a refetch; 'stops' is the backdrop's count
+# for the map's caption. An entry without those keys is recomputed.
 RAILCOMMUTER_CACHE = Path(__file__).with_name('railcommuter_cache.json')
 # ⚠️ A bracket naming ANOTHER CITY excludes the row; folding it off would
 # hand Busan's 교대 and 송정 to Seoul's stations of the same name, which the
@@ -5620,11 +5623,12 @@ RAILCOMMUTER_OTHER_CITY = re.compile(r'\((부산|대구|인천|대전|광주|울
 
 
 def rail_commuter_month(gov_key, api_key):
-    """({folded station: boardings} for stations inside Seoul, 'YYYYMM') for
-    the newest month of wideRailloadStationPer, or (None, None). The
-    per-station boardings are the API's own rows, summed only where two
-    rows fold to one station (서울 and 서울(경의선) are one Seoul Station,
-    the subway card's own rule). Cached per month."""
+    """({'rides': {folded station: boardings}, 'coords': {station: [lon, lat]},
+    'stops': N} for stations inside Seoul, 'YYYYMM') for the newest month of
+    wideRailloadStationPer, or (None, None). The per-station boardings are
+    the API's own rows, summed only where two rows fold to one station (서울
+    and 서울(경의선) are one Seoul Station, the subway card's own rule).
+    Cached per month."""
     items = _korail_fetch(gov_key, 'wideRailloadStationPer', KORAIL_PAGE_ROWS)
     rows, ym = _korail_newest(items, 'run_ym')
     if not rows or not ym:
@@ -5633,11 +5637,14 @@ def rail_commuter_month(gov_key, api_key):
         cache = json.loads(RAILCOMMUTER_CACHE.read_text())
     except (OSError, ValueError):
         cache = {}
-    if ym in cache and len(cache[ym]) >= RAILCOMMUTER_MIN_STATIONS:
-        return cache[ym], ym
+    got = cache.get(ym)
+    if (isinstance(got, dict) and isinstance(got.get('rides'), dict)
+            and len(got['rides']) >= RAILCOMMUTER_MIN_STATIONS and got.get('coords')):
+        return got, ym
     try:
         coords = station_coords(api_key)
-        inside = stations_in_seoul(coords, list(seoul_bus_stop_coord_map(api_key).values()))
+        stop_map = seoul_bus_stop_coord_map(api_key)
+        inside = stations_in_seoul(coords, list(stop_map.values()))
     except RuntimeError as e:
         print(f'Commuter rail card withheld: coordinate feeds unavailable ({e}).')
         return None, None
@@ -5658,9 +5665,12 @@ def rail_commuter_month(gov_key, api_key):
     if len(seoul) < RAILCOMMUTER_MIN_STATIONS:
         print(f'Commuter rail card withheld: only {len(seoul)} stations joined for {ym}.')
         return None, None
-    cache[ym] = seoul
+    month = {'rides': seoul,
+             'coords': {n: [coords[n][0], coords[n][1]] for n in seoul if n in coords},
+             'stops': len(stop_map)}
+    cache[ym] = month
     write_json_atomic(RAILCOMMUTER_CACHE, cache, ensure_ascii=False)
-    return seoul, ym
+    return month, ym
 
 
 def rail_commuter_facts(gov_key, api_key):
@@ -5672,9 +5682,10 @@ def rail_commuter_facts(gov_key, api_key):
     RANKED_CARD_INFO.pop('railcommuter', None)
     if not gov_key or not api_key:
         return []
-    seoul, ym = rail_commuter_month(gov_key, api_key)
-    if not seoul:
+    month, ym = rail_commuter_month(gov_key, api_key)
+    if not month:
         return []
+    seoul, coords = month['rides'], month.get('coords') or {}
     ranked = sorted(seoul.items(), key=lambda kv: (-kv[1], kv[0]))
     top = ranked[:RAILCOMMUTER_TOP]
     # The Korail roster's own English first ('서울' → 'Seoul Station', as the
@@ -5686,15 +5697,30 @@ def rail_commuter_facts(gov_key, api_key):
         print(f'Commuter rail card withheld for {ym}: no English name for '
               f'{", ".join(repr(m) for m in missing)}.')
         return []
+    if any(name not in coords for name, _ in top):
+        print(f'Commuter rail card withheld for {ym}: no coordinates for '
+              f'{", ".join(repr(n) for n, _ in top if n not in coords)}.')
+        return []
     y, m = int(ym[:4]), int(ym[4:])
     per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
+    ranks = (('Busiest', '가장 붐빔'), ('2nd-busiest', '두 번째로 붐빔'),
+             ('3rd-busiest', '세 번째로 붐빔'))
+    dots = (f'The map is composed of gray dots that represent each of Seoul’s '
+            f'{grouped(month.get("stops") or 0)} bus stops.')
     RANKED_CARD_INFO['railcommuter'] = {
         'day_en': per_en, 'day_ko': per_ko,
         'opener_en': RAILCOMMUTER_OPENER_EN, 'opener_ko': RAILCOMMUTER_OPENER_KO,
         'dateline_en': f'Boardings in {per_en}', 'dateline_ko': f'{per_ko} 승차',
-        'note_en': RAILCOMMUTER_NOTE_EN, 'note_ko': RAILCOMMUTER_NOTE_KO}
-    ranks = (('Busiest', '가장 붐빔'), ('2nd-busiest', '두 번째로 붐빔'),
-             ('3rd-busiest', '세 번째로 붐빔'))
+        'note_en': RAILCOMMUTER_NOTE_EN, 'note_ko': RAILCOMMUTER_NOTE_KO,
+        # The threaded pin map, the bus stops card's own shape (his call,
+        # 12 September 2026): three stations named on the bus-stop silhouette.
+        'map_title': f'Commuter rail boardings for {per_en}',
+        'map_caption': dots,
+        'map_pins': [(f'{ranks[i][0]}: {en[name]}', MAP_COLOURS[i], tuple(coords[name]))
+                     for i, (name, _) in enumerate(top)],
+        'map_alt': (f'Map of the three busiest Korail commuter-rail stations in Seoul, {per_en}: '
+                    + ', '.join(f'{ranks[i][0].lower()} ({en[name]})' for i, (name, _) in enumerate(top))
+                    + f', each marked and named. {dots}')}
     facts = [fact(f'railcom_{i}', 'railcommuter', f'{ranks[i][0]}: {en[name]}',
                   grouped(v), grouped(v), pin=True,
                   # '역' on every Korean name, as the rail stations card does: a bare

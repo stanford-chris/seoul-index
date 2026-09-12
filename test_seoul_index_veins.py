@@ -2277,8 +2277,9 @@ class HeldVeins(unittest.TestCase):
         # the mock-ups and released the same day; rescue likewise, held for
         # its mock-up and released on 11 September; kopis likewise, the
         # same afternoon; kepco and kepcohist likewise, that evening.
-        # kepcohouse and railcommuter held for his look on 12 September 2026.
-        self.assertEqual(self._held, {'kepcohouse', 'railcommuter'})
+        # kepcohouse and railcommuter held for his look and released the
+        # same afternoon, 12 September 2026. Nothing is held.
+        self.assertEqual(self._held, set())
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
@@ -3944,7 +3945,7 @@ class RailCommuterCard(unittest.TestCase):
         self._real = (S._korail_fetch, S.station_coords, S.seoul_bus_stop_coord_map,
                       S.stations_in_seoul, S.RAILCOMMUTER_CACHE, S.RAILCOMMUTER_MIN_STATIONS)
         S._korail_fetch = lambda key, op, n, page=1: list(self.ROWS)
-        S.station_coords = lambda key: {n: (127.0, 37.5) for n in self.INSIDE | {'수원'}}
+        S.station_coords = lambda key: {n: (127.0 + i / 1000, 37.5) for i, n in enumerate(sorted(self.INSIDE | {'수원'}))}
         S.seoul_bus_stop_coord_map = lambda key: {'1': (127.0, 37.5)}
         S.stations_in_seoul = lambda coords, stops, within_km=None: set(self.INSIDE)
         S.RAILCOMMUTER_CACHE = _Path(_tempfile.mkdtemp()) / 'railcommuter_cache.json'
@@ -3966,11 +3967,30 @@ class RailCommuterCard(unittest.TestCase):
         self.assertEqual(info['opener_en'], 'Seoul’s commuter rail')
         self.assertIn('inside Seoul', info['note_en'])
 
+    def test_the_map_pins_the_three_with_their_coordinates(self):
+        S.rail_commuter_facts('G', 'A')
+        info = S.RANKED_CARD_INFO['railcommuter']
+        self.assertEqual([lab for lab, _, _ in info['map_pins']],
+                         ['Busiest: Yongsan', '2nd-busiest: Seoul Station', '3rd-busiest: Hoegi'])
+        self.assertEqual(len({xy for _, _, xy in info['map_pins']}), 3)   # three distinct points
+        self.assertEqual(info['map_title'], 'Commuter rail boardings for July 2026')
+        self.assertIn('gray dots that represent each of Seoul’s 1 bus stops', info['map_caption'])
+        self.assertTrue(info['map_alt'].startswith('Map of the three busiest Korail commuter-rail stations in Seoul, July 2026: busiest (Yongsan)'))
+        self.assertNotIn('map_routes', info)
+        self.assertNotIn('map_day', info)
+
+    def test_an_old_flat_cache_entry_is_recomputed(self):
+        S.RAILCOMMUTER_CACHE.write_text(json.dumps({'202607': {'용산': 1}}))
+        self.assertEqual(len(S.rail_commuter_facts('G', 'A')), 4)
+        self.assertIn('coords', json.loads(S.RAILCOMMUTER_CACHE.read_text())['202607'])
+
     def test_the_month_is_cached_and_the_cache_is_reused(self):
         S.rail_commuter_facts('G', 'A')
         cache = json.loads(S.RAILCOMMUTER_CACHE.read_text())
         self.assertEqual(set(cache), {'202607'})
-        self.assertNotIn('교대', cache['202607'])
+        self.assertNotIn('교대', cache['202607']['rides'])
+        self.assertEqual(set(cache['202607']), {'rides', 'coords', 'stops'})
+        self.assertEqual(cache['202607']['stops'], 1)
         S.station_coords = lambda key: (_ for _ in ()).throw(AssertionError('coords refetched'))
         self.assertEqual(len(S.rail_commuter_facts('G', 'A')), 4)
 
