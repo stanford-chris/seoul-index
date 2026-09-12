@@ -4296,10 +4296,12 @@ def _wx_extremes(rows):
 
 
 # --- yesterday at the weather station -----------------------------------------
-# His call, 11 September 2026 ("Fix ... yesterday's rainfall"). Four lines
+# His call, 11 September 2026 ("Fix ... yesterday's rainfall"). Three lines
 # from station 108's row for yesterday, published by KMA the next morning:
-# high, low, average and rain, as its own post with a fixed opener and the
-# date on the dateline. ⚠️ The rain field is BLANK on a day with no
+# high, low and rain, as its own post with a fixed opener and the date on
+# the dateline. ⚠️ The AVERAGE line was cut on 12 September 2026, his call
+# ("we don't need the average temperature line going forward"); the row's
+# avgTa is no longer read. ⚠️ The rain field is BLANK on a day with no
 # precipitation, not 0.0: measured on the finalised rows for 25 August to
 # 10 September 2026, dry days (Open-Meteo 0.0 mm) read '' and a trace day
 # reads '0.0'. So a blank prints "None" / "없음", which is a reading, not a
@@ -4345,8 +4347,7 @@ def wx_day_facts(key):
         print(f'Weather-day card withheld: no row yet for {d}.')
         return []
     r = rows[0]
-    hi, lo, avg, rn = (_wx_num(r, 'maxTa'), _wx_num(r, 'minTa'),
-                       _wx_num(r, 'avgTa'), _wx_num(r, 'sumRn'))
+    hi, lo, rn = _wx_num(r, 'maxTa'), _wx_num(r, 'minTa'), _wx_num(r, 'sumRn')
     if hi is None or lo is None:
         print(f'Weather-day card withheld: high or low missing for {d}.')
         return []
@@ -4359,14 +4360,11 @@ def wx_day_facts(key):
         # One glyph per line, his call; the rain line keeps its glyph on a
         # dry day, since the line is still about rain. The title's is the
         # day's own weather (wx_day_emoji), also his call.
-        'line_emoji': {'High': '🔺', 'Low': '🔻', 'Average': '🌡', 'Rain': '🌧',
+        'line_emoji': {'High': '🔺', 'Low': '🔻', 'Rain': '🌧',
                        'Sunshine': '🌞', 'Snow': '❄️'},
         'emoji': wx_day_emoji(r)}
     facts = [fact('wxday_hi', 'wxday', 'High', to_f(hi), f'{hi:.1f}°C', pin=True, label_ko='최고기온'),
              fact('wxday_lo', 'wxday', 'Low', to_f(lo), f'{lo:.1f}°C', pin=True, label_ko='최저기온')]
-    if avg is not None:
-        facts.append(fact('wxday_avg', 'wxday', 'Average', to_f(avg), f'{avg:.1f}°C',
-                          pin=True, label_ko='평균기온'))
     rain_en, rain_ko = (f'{rn:.1f}mm', f'{rn:.1f}mm') if rn is not None else ('None', '없음')
     facts.append(fact('wxday_rain', 'wxday', 'Rain', rain_en, rain_ko, pin=True, label_ko='강수량'))
     # Sunshine hours, his call, 11 September 2026: on a dry day it says what
@@ -6657,7 +6655,7 @@ Rules:
 - "nation" lines set SEOUL against whole countries, on one metric, from the World Bank (countries) and KOSIS (Seoul). Seoul leads the card; the peers are whole nations (Korea, Japan, the US…), which is the point — e.g. Seoul is denser than entire countries. Labels are BARE PLACE NAMES (Seoul, then countries), so the opener MUST name the metric (e.g. "People per square kilometre", "Births per woman") — the same rule as the world lines. Do NOT reach for the generic "Seoul and the nation" / "서울과 전국" opener here: that framing belongs to the Seoul-vs-Korea "national" lines, and on a nation card it names no metric, leaving the countries measuring nothing — make the metric itself the opener. Build them into their own post: every nation line must come from the SAME pair (all nation_density, or all nation_fertility, never a mix), ALWAYS include the Seoul line, and a nation line NEVER appears alongside a Seoul-only line of any other category or a world (city) line. The pair is the point: Seoul against the country that most sharpens it (the widest gap, or a near dead heat).
 - "property" lines are one month's apartment-market filings from the national land ministry: actual sale prices (the dearest and cheapest single sales), a record jeonse deposit, and counts of filings. Build them into their own post — never alongside a live "right now" line, a spending line, a national line or a world line. The pairs are the point: the price gap (dearest vs cheapest sale) or the jeonse/monthly-rent split. Never put a month or date in a property label — the filing month rides on the card automatically.
 - "weather" lines are published readings from Seoul's official weather station: the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the then-and-now monthly set OR the season-to-date set (never blend the two). A season-to-date post is built around the swelter tally ("Days of 33°C or more, June 1–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, and the arrangement carries the half-century — never point it out. ℹ️ Python owns the LAYOUT of these cards: it groups the lines by metric, draws each metric once as a subhead, and puts the newer year first in every group, so you do not have to order them and cannot get the two pairs out of step. Choose a coherent set of complete pairs and leave the rest alone. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
-- "wxday" lines are YESTERDAY's published readings at Seoul's reference weather station: the high, the low, the average and the rain (a rain value of "None" means none was recorded, and it is a reading, not a gap) — own post, never mixed with any other category, including "weather". All the lines offered are compulsory, in that order. Its opener is FIXED and written by Python ("Seoul's weather yesterday"), so whatever opener you write for this card is replaced; the dateline carries the date. Never call the day hot, cold, wet or dry, and never compare it with anything.
+- "wxday" lines are YESTERDAY's published readings at Seoul's reference weather station: the high, the low and the rain (a rain value of "None" means none was recorded, and it is a reading, not a gap) — own post, never mixed with any other category, including "weather". All the lines offered are compulsory, in that order. Its opener is FIXED and written by Python ("Seoul's weather yesterday"), so whatever opener you write for this card is replaced; the dateline carries the date. Never call the day hot, cold, wet or dry, and never compare it with anything.
 - "rescue" lines are ONE WEEK of rescue notices filed by Seoul's districts on the national animal protection register: every animal, then cats, dogs and other animals — own post, never mixed with any other category. All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Animals rescued in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote says who files the notices. Never call the week busy or quiet, never remark on the split between cats and dogs, and never mention shelters, adoption or what became of any animal.
 - "kopis" lines are ONE WEEK on Seoul's stages from the national box-office register: productions, productions that opened, performances given, tickets sold and box office — own post, never mixed with any other category, including "boxoffice" (that is cinema). All FIVE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("On stage in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote names the register. Never call the week busy or quiet, never name a show, and never compare the figures with anything.
 - "kepco" lines are ONE MONTH of electricity in Seoul from Korea Electric Power Corporation: customers, electricity used, the households' share, the shops-and-offices share, and the bill — own post, never mixed with any other category, including "kepcohist". All FIVE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Electricity in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the month and the footnote says which tariffs the two shares are. Never call the month heavy or light, and never compare it with anything.
@@ -8949,8 +8947,8 @@ def compose(sel, pool):
     # even_out_emoji() below already handles within-vein consistency on its
     # own; this only needs to zero out busroutes specifically.
     # ⚠️ Except a ranked card whose registry entry names an emoji per line
-    # (wxday, his call, 11 September 2026: high, low, average and rain are
-    # four different things, unlike four routes), keyed on the pinned
+    # (wxday, his call, 11 September 2026: high, low and rain are
+    # different things, unlike four routes), keyed on the pinned
     # English label, so the selector's choice never reaches these lines.
     for l in lines:
         if l['cat'] in RANKED_CATS:

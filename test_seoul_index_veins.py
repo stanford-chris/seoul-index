@@ -3252,22 +3252,29 @@ class WxDayCard(unittest.TestCase):
         facts = self.wx({'tm': '2026-09-10', 'maxTa': '21.5', 'minTa': '15.8', 'avgTa': '18.4', 'sumRn': ''})
         self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
                          [('High', '21.5°C (71°F)'), ('Low', '15.8°C (60°F)'),
-                          ('Average', '18.4°C (65°F)'), ('Rain', 'None')])   # no sunshine field: no line
+                          ('Rain', 'None')])   # no sunshine field: no line
         self.assertEqual([(f['label_ko'], f['value_ko']) for f in facts],
-                         [('최고기온', '21.5°C'), ('최저기온', '15.8°C'), ('평균기온', '18.4°C'), ('강수량', '없음')])
+                         [('최고기온', '21.5°C'), ('최저기온', '15.8°C'), ('강수량', '없음')])
         self.assertTrue(all(f['pin'] and f['cat'] == 'wxday' for f in facts))
 
     def test_sunshine_always_and_snow_only_when_it_fell(self):
         facts = self.wx({'tm': 'x', 'maxTa': '-2.1', 'minTa': '-8.4', 'avgTa': '-5.0', 'sumRn': '4.2',
                          'sumSsHr': '1.3', 'ddMefs': '3.5', 'avgTca': '9.5'})
-        self.assertEqual([(f['label_en'], f['value_en']) for f in facts[3:]],
+        self.assertEqual([(f['label_en'], f['value_en']) for f in facts[2:]],
                          [('Rain', '4.2mm'), ('Sunshine', '1.3 hours'), ('Snow', '3.5cm')])
-        self.assertEqual([(f['label_ko'], f['value_ko']) for f in facts[4:]],
+        self.assertEqual([(f['label_ko'], f['value_ko']) for f in facts[3:]],
                          [('일조시간', '1.3시간'), ('신적설', '3.5cm')])
         self.assertEqual(S.RANKED_CARD_INFO['wxday']['emoji'], '🌨')
         facts = self.wx({'tm': 'x', 'maxTa': '21.5', 'minTa': '15.8', 'avgTa': '18.4', 'sumRn': '',
                          'sumSsHr': '11.0', 'ddMefs': ''})
-        self.assertEqual([f['label_en'] for f in facts], ['High', 'Low', 'Average', 'Rain', 'Sunshine'])
+        self.assertEqual([f['label_en'] for f in facts], ['High', 'Low', 'Rain', 'Sunshine'])
+
+    def test_no_average_line_even_when_the_row_carries_one(self):
+        # His call, 12 September 2026: the average was cut from the card.
+        facts = self.wx({'tm': 'x', 'maxTa': '21.5', 'minTa': '15.8', 'avgTa': '18.4', 'sumRn': ''})
+        self.assertNotIn('Average', [f['label_en'] for f in facts])
+        self.assertNotIn('평균기온', [f['label_ko'] for f in facts])
+        self.assertNotIn('Average', S.RANKED_CARD_INFO['wxday']['line_emoji'])
 
     def test_a_wet_day_carries_the_millimetres(self):
         facts = self.wx({'tm': '2026-09-01', 'maxTa': '27.0', 'minTa': '21.0', 'avgTa': '23.5', 'sumRn': '23.1'})
@@ -3292,12 +3299,12 @@ class WxDayCard(unittest.TestCase):
         sel = {'opener_en': 'x', 'opener_ko': 'x', 'opener_emoji': '🚗',
                'picks': [{'id': f['id'], 'emoji': '🎉'} for f in pool]}   # the selector's are ignored
         c = S.compose(sel, pool)
-        self.assertEqual([l['emoji'] for l in c['lines']], ['🔺', '🔻', '🌡', '🌧'])
+        self.assertEqual([l['emoji'] for l in c['lines']], ['🔺', '🔻', '🌧'])
         self.assertEqual(c['opener']['emoji'], '🌤')     # the fixture row has no cloud field
         # A registry entry without line_emoji still strips, as before.
         S.RANKED_CARD_INFO['wxday'].pop('line_emoji')
         c = S.compose(sel, pool)
-        self.assertEqual([l['emoji'] for l in c['lines']], ['', '', '', ''])
+        self.assertEqual([l['emoji'] for l in c['lines']], ['', '', ''])
 
     def test_the_title_emoji_is_the_days_weather_from_the_rows_own_fields(self):
         e = S.wx_day_emoji
