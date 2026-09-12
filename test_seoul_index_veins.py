@@ -3010,7 +3010,7 @@ class SeoulStationCard(unittest.TestCase):
         self.assertIn("'last_seoulstation_at', 'seoulstation'", src)
         self.assertIn("state['last_seoulstation_at'] = state['last_success_at']", src)
         self.assertIn('- "seoulstation" lines are', src)
-        self.assertIn("'seoulstation'} & cats", src)
+        self.assertIn("'seoulstation', 'railroutes'} & cats", src)
 
     def test_a_holiday_is_named_on_the_dateline_in_his_wording(self):
         # Friday 25 September 2026, Chuseok, with three prior Fridays.
