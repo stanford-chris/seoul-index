@@ -3748,5 +3748,35 @@ class RouteMapWords(unittest.TestCase):
         self.assertIn("caption=map_caption)", src)
 
 
+class SlottedBusCards(unittest.TestCase):
+    """Four bus cards have launchd slots of their own since 12 September
+    2026 (busroutes 10:30, busstops 11:30, nightbus 18:30 daily; busweekend
+    Fridays 11:00): --daily=<cat>'s same-day guard reads the registry
+    entry's map_day, so every slotted vein must record one, and its opener
+    must be Python's, since a selector's "today" is false on a card four
+    days behind the feed."""
+
+    SLOTTED = ('busroutes', 'busstops', 'nightbus', 'busweekend')
+
+    def _entry(self, cat):
+        src = Path(S.__file__).read_text()
+        i = src.index(f"RANKED_CARD_INFO['{cat}'] = {{")
+        return src[i:src.index('\n\n', i)]
+
+    def test_every_slotted_vein_records_its_data_day(self):
+        for cat in self.SLOTTED:
+            self.assertIn("'map_day'", self._entry(cat), cat)
+
+    def test_every_slotted_vein_fixes_its_opener(self):
+        for cat in self.SLOTTED:
+            self.assertIn("'opener_en'", self._entry(cat), cat)
+
+    def test_the_night_bus_opener_is_his_and_carries_no_tonight(self):
+        self.assertEqual(S.NIGHTBUS_OPENER_EN, 'On the night buses')
+        self.assertEqual(S.NIGHTBUS_OPENER_KO, '서울의 심야버스')
+        src = Path(S.__file__).read_text()
+        self.assertIn('its opener is FIXED and written by Python ("On the night buses")', src)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)
