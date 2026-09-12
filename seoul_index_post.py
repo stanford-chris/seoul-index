@@ -293,7 +293,7 @@ SEVERE_STARVE_DAYS = STARVE_DAYS * 2
 # the top-to-bottom rank of the three routes above it.
 ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist', 'busroutes', 'stations',
                 'busmovers', 'nightbus', 'busweekend', 'busstops', 'railstations', 'seoulstation',
-                'stationgap', 'wxday', 'rescue', 'kopis', 'kepco'}
+                'stationgap', 'wxday', 'rescue', 'kopis', 'kepco', 'kepcohouse', 'railroutes'}
 
 # Every vein's lines are all-or-nothing on emoji, not just a chosen few: a
 # partial set reads as an oversight rather than a judgement, whatever the
@@ -507,7 +507,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # --dry-run for a preview, or --force past the six-hour guard), since that is
 # how a decision gets made. Empty the set to release a vein; nothing else
 # needs touching. Empty since 11 September 2026.
-HELD_CATS = set()   # kepco, kepcohist, kopis, rescue, air and wxday each held for a mock-up and released 11 Sep 2026
+HELD_CATS = {'kepcohouse', 'railroutes'}   # held for his look, 12 September 2026; release on his word
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -654,7 +654,8 @@ def won_en(amount):
 
 # Categories that ever post a won_en() value. compose() reads this to decide
 # whether a card needs the "$1 ≈ ₩N" footnote at all.
-WON_CATS = {'price', 'spending', 'avgbill', 'property', 'healthcost', 'kopis', 'kepco', 'kepcohist'}
+WON_CATS = {'price', 'spending', 'avgbill', 'property', 'healthcost', 'kopis', 'kepco', 'kepcohist',
+            'kepcohouse'}
 
 # Set once per run by refresh_usd_rate(), read by compose() for the footnote.
 # ⚠️ Deliberately a single rate on the FOOTNOTE, not a per-value "(~$18.3M)"
@@ -1821,7 +1822,7 @@ BUSWEEKEND_COOLDOWN_DAYS = 7
 RANKED_CARD_INFO = {}
 RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend', 'busstops',
                'railstations', 'seoulstation', 'stationgap', 'wxday', 'rescue', 'kopis',
-               'kepco', 'kepcohist')
+               'kepco', 'kepcohist', 'kepcohouse', 'railroutes')
 # The veins whose card is TWO lines by design: rush (one station at two
 # hours) and, since 11 September 2026, busmovers (one rise, one fall) and
 # busweekend (one holds up best, one falls most). Every other vein needs
@@ -5029,6 +5030,27 @@ KEPCO_NOTE_KO = '한국전력 월별 판매 실적, 전체 계약종별 합계; 
 KEPCO_HIST_NOTE_EN = 'Korea Electric Power Corporation’s billing for the month, all contract types'
 KEPCO_HIST_NOTE_KO = '한국전력 월별 판매 실적, 전체 계약종별 합계'
 _KEPCO_CACHE = {}
+# KEPCO's household-average endpoint (가구평균, houseAve.do): per district, the
+# month's households on the residential tariff, the AVERAGE kWh per household
+# and the AVERAGE bill, all published by KEPCO itself. That is the per-household
+# figure the kepco card deliberately does not compute (see kepco_facts): here
+# it is the publisher's own number. Added 12 September 2026, his call. ⚠️
+# The month MUST be zero-padded ('06', not '6'): a bare single digit answers
+# 404 NotFound exactly like an unpublished month, which on 12 September
+# 2026 read for an hour as "only October to December are published". Padded,
+# every month answers and the newest is about two months behind, like the
+# contract card, so the same five-month lookback serves.
+KEPCO_HOUSE_BASE = ('https://bigdata.kepco.co.kr/openapi/v1/powerUsage/houseAve.do'
+                    '?year={y}&month={m:02d}&metroCd=11&apiKey={key}&returnType=json')
+KEPCO_HOUSE_LOOKBACK_MONTHS = KEPCO_LOOKBACK_MONTHS
+KEPCO_HOUSE_MIN_ROWS = 25      # one row per district; fewer is a partial answer
+KEPCO_HOUSE_COOLDOWN_DAYS = 28
+KEPCO_HOUSE_OPENER_EN = 'Household electricity in Seoul'
+KEPCO_HOUSE_OPENER_KO = '서울 가정의 전기'
+KEPCO_HOUSE_NOTE_EN = ('Korea Electric Power Corporation’s average per household on its '
+                       'residential tariff, by district')
+KEPCO_HOUSE_NOTE_KO = '한국전력 주택용 가구당 평균, 자치구별'
+_KEPCO_HOUSE_CACHE = {}
 
 
 def gwh(kwh):
@@ -5168,6 +5190,95 @@ def kepco_hist_facts(key):
     return facts
 
 
+def _kepco_house_rows(key, y, m):
+    """The month's 25 district rows from houseAve.do, or None: a failed call,
+    an unpublished month (404 with errCd) or fewer rows than districts."""
+    if (y, m) in _KEPCO_HOUSE_CACHE:
+        return _KEPCO_HOUSE_CACHE[(y, m)]
+    url = KEPCO_HOUSE_BASE.format(key=key, y=y, m=m)
+    r = subprocess.run(['curl', '-s', '-L', '--max-time', '30', '-A', MOLIT_UA, url],
+                       capture_output=True, text=True)
+    try:
+        rows = json.loads(r.stdout)['data']
+    except (ValueError, KeyError, TypeError):
+        rows = None
+    if not isinstance(rows, list) or len(rows) < KEPCO_HOUSE_MIN_ROWS:
+        rows = None
+    _KEPCO_HOUSE_CACHE[(y, m)] = rows
+    return rows
+
+
+def _kepco_house_newest(key):
+    """(year, month, rows) for the newest published household month,
+    walking back from last month over KEPCO_HOUSE_LOOKBACK_MONTHS, or None."""
+    first = datetime.now(SEOUL_TZ).date().replace(day=1)
+    for _ in range(KEPCO_HOUSE_LOOKBACK_MONTHS):
+        first = (first - timedelta(days=1)).replace(day=1)
+        rows = _kepco_house_rows(key, first.year, first.month)
+        if rows:
+            return first.year, first.month, rows
+    return None
+
+
+def kwh_avg(v):
+    """An average kWh figure: 209.26 -> '209 kWh'."""
+    return f'{v:,.0f} kWh'
+
+
+def kepco_house_facts(key):
+    """The kepcohouse card: the newest published month's household
+    averages by district, four lines in a fixed order, the two ends of use
+    and the two ends of the bill. Every figure is a row KEPCO published;
+    nothing is summed or divided here. Fills RANKED_CARD_INFO when built;
+    prints why when withheld."""
+    RANKED_CARD_INFO.pop('kepcohouse', None)
+    if not key:
+        return []
+    got = _kepco_house_newest(key)
+    if not got:
+        print('Household electricity card withheld: no month could be read from KEPCO.')
+        return []
+    y, m, rows = got
+    parsed = []
+    for r in rows:
+        try:
+            parsed.append((str(r['city']).strip(), float(r['powerUsage']), int(r['bill'])))
+        except (KeyError, TypeError, ValueError):
+            print(f'Household electricity card withheld: a row for {y}-{m:02d} did not parse.')
+            return []
+    en = {gu: en_name(gu, 'districts') for gu, _, _ in parsed}
+    missing = [gu for gu, e in en.items() if not e]
+    if missing:
+        print(f'Household electricity card withheld: no English name for '
+              f'{", ".join(repr(g) for g in missing)}.')
+        return []
+    by_use = sorted(parsed, key=lambda t: (-t[1], t[0]))
+    by_bill = sorted(parsed, key=lambda t: (-t[2], t[0]))
+    per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
+    RANKED_CARD_INFO['kepcohouse'] = {
+        'day_en': per_en, 'day_ko': per_ko,
+        'opener_en': KEPCO_HOUSE_OPENER_EN, 'opener_ko': KEPCO_HOUSE_OPENER_KO,
+        'dateline_en': f'Average per household, {per_en}',
+        'dateline_ko': f'{per_ko} 가구당 평균',
+        'note_en': KEPCO_HOUSE_NOTE_EN, 'note_ko': KEPCO_HOUSE_NOTE_KO,
+        'emoji': '⚡️'}
+    hi_u, lo_u, hi_b, lo_b = by_use[0], by_use[-1], by_bill[0], by_bill[-1]
+    return [fact('kepcohouse_use_hi', 'kepcohouse', f'Most used: {en[hi_u[0]]}',
+                 kwh_avg(hi_u[1]), kwh_avg(hi_u[1]), pin=True,
+                 label_ko=f'가장 많이 씀: {hi_u[0]}', place_en=en[hi_u[0]], place_ko=hi_u[0]),
+            fact('kepcohouse_use_lo', 'kepcohouse', f'Least used: {en[lo_u[0]]}',
+                 kwh_avg(lo_u[1]), kwh_avg(lo_u[1]), pin=True,
+                 label_ko=f'가장 적게 씀: {lo_u[0]}', place_en=en[lo_u[0]], place_ko=lo_u[0]),
+            fact('kepcohouse_bill_hi', 'kepcohouse', f'Highest bill: {en[hi_b[0]]}',
+                 won_en(hi_b[2]), won_ko(hi_b[2]), pin=True,
+                 label_ko=f'가장 비싼 요금: {hi_b[0]}', place_en=en[hi_b[0]], place_ko=hi_b[0],
+                 num=hi_b[2], unit='won'),
+            fact('kepcohouse_bill_lo', 'kepcohouse', f'Lowest bill: {en[lo_b[0]]}',
+                 won_en(lo_b[2]), won_ko(lo_b[2]), pin=True,
+                 label_ko=f'가장 싼 요금: {lo_b[0]}', place_en=en[lo_b[0]], place_ko=lo_b[0],
+                 num=lo_b[2], unit='won')]
+
+
 # --- Korea by rail (KORAIL) --------------------------------------------------
 # 한국철도공사's ticketing/movement-type statistics via data.go.kr (자동승인,
 # approved 2 Sep 2026): ten operations, covering intercity trains (간선열차:
@@ -5203,6 +5314,11 @@ KORAIL_LINE_EN = {
     '수인선': 'the Suin Line', '경춘선': 'the Gyeongchun Line',
     '서해선': 'the Seohae Line', '경강선': 'the Gyeonggang Line',
     '대경선': 'the Daegyeong Line',
+    # The rest of mainLineRoutePer's July 2026 roster, added 12 September
+    # 2026 for the railroutes card, which reads every line's total.
+    '태백선': 'the Taebaek Line', '중부내륙선': 'the Jungbu Naeryuk Line',
+    '영동선': 'the Yeongdong Line', '경북선': 'the Gyeongbuk Line',
+    '대구선': 'the Daegu Line', '공항철도': 'the Airport Railroad',
 }
 
 
@@ -5480,6 +5596,65 @@ def rail_stations_facts(key):
                  label_ko=f'{name}역', place_en=en[name], place_ko=f'{name}역',
                  num=v, unit='people')
             for i, (name, v) in enumerate(top)]
+
+
+RAILROUTES_COOLDOWN_DAYS = 28    # a new month arrives monthly
+RAILROUTES_OPENER_EN = 'Korea’s railway lines'
+RAILROUTES_OPENER_KO = '한국의 철도 노선'
+RAILROUTES_NOTE_EN = ('Korail’s intercity trains, KTX to Mugunghwa, whole lines: most run well '
+                      'beyond Seoul')
+RAILROUTES_NOTE_KO = '코레일 간선열차(KTX~무궁화호), 노선 전체 기준'
+RAILROUTES_TOP = 3
+
+
+def rail_routes_facts(key):
+    """The railroutes card: Korail's intercity lines ranked by riders in the
+    newest published month, the top three and every line's total. The rail
+    vein above reads the same operation for its single busiest-line line;
+    this is the ranking, added 12 September 2026, his call. Each figure is
+    the API's own monthly total for a named line, summed across the rows
+    (train models) that share the name, as rail_facts already does."""
+    RANKED_CARD_INFO.pop('railroutes', None)
+    if not key:
+        return []
+    rows, ym = _korail_newest_rows(key, 'mainLineRoutePer', 800)
+    if not rows or not ym:
+        print('Railway lines card withheld: no month could be read from Korail.')
+        return []
+    totals = {}
+    for x in rows:
+        name = (x.get('rte_nm') or '').strip()
+        try:
+            v = int(x.get('utztn_nope') or 0)
+        except (TypeError, ValueError):
+            print(f'Railway lines card withheld: a row for {ym} did not parse.')
+            return []
+        if name:
+            totals[name] = totals.get(name, 0) + v
+    ranked = sorted(totals.items(), key=lambda kv: (-kv[1], kv[0]))
+    if len(ranked) < RAILROUTES_TOP:
+        print(f'Railway lines card withheld: only {len(ranked)} lines in {ym}.')
+        return []
+    y, m = int(ym[:4]), int(ym[4:])
+    per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
+    RANKED_CARD_INFO['railroutes'] = {
+        'day_en': per_en, 'day_ko': per_ko,
+        'opener_en': RAILROUTES_OPENER_EN, 'opener_ko': RAILROUTES_OPENER_KO,
+        'dateline_en': f'Riders in {per_en}', 'dateline_ko': f'{per_ko} 이용객',
+        'note_en': RAILROUTES_NOTE_EN, 'note_ko': RAILROUTES_NOTE_KO}
+    ranks = (('Busiest', '가장 붐빔'), ('2nd-busiest', '두 번째로 붐빔'),
+             ('3rd-busiest', '세 번째로 붐빔'))
+    facts = []
+    for i, (name, v) in enumerate(ranked[:RAILROUTES_TOP]):
+        en = _korail_line_en(name)
+        facts.append(fact(f'railroutes_{i}', 'railroutes', f'{ranks[i][0]}: {en}',
+                          grouped(v), grouped(v), pin=True,
+                          label_ko=f'{ranks[i][1]}: {name}', place_en=en, place_ko=name,
+                          num=v, unit='people'))
+    total = sum(totals.values())
+    facts.append(fact('railroutes_total', 'railroutes', 'All lines', grouped(total),
+                      grouped(total), pin=True, label_ko='전체 노선', num=total, unit='people'))
+    return facts
 
 
 def _korail_top_line(rows, name_field, value_field):
@@ -6686,8 +6861,11 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     # KEPCO's own key as well (bigdata.kepco.co.kr); both electricity cards
     # are silent without it. One fetch per month per run, cached.
     _KEPCO_CACHE.clear()
+    _KEPCO_HOUSE_CACHE.clear()
     pool += kepco_facts(kepco_key)
     pool += kepco_hist_facts(kepco_key)
+    pool += kepco_house_facts(kepco_key)
+    pool += rail_routes_facts(gov_key)
     # KOFIC issues its own key, like HRFCO: not a data.go.kr one.
     pool += boxoffice_facts(kobis_key)
     return pool
@@ -6724,6 +6902,8 @@ Rules:
 - "kopis" lines are ONE WEEK on Seoul's stages from the national box-office register: productions, productions that opened, performances given, tickets sold and box office — own post, never mixed with any other category, including "boxoffice" (that is cinema). All FIVE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("On stage in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote names the register. Never call the week busy or quiet, never name a show, and never compare the figures with anything.
 - "kepco" lines are ONE MONTH of electricity in Seoul from Korea Electric Power Corporation: customers, electricity used, the households' share, the shops-and-offices share, and the bill — own post, never mixed with any other category, including "kepcohist". All FIVE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Electricity in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the month and the footnote says which tariffs the two shares are. Never call the month heavy or light, and never compare it with anything.
 - "kepcohist" lines set ONE MONTH of Seoul's electricity against the SAME month TWENTY YEARS earlier: electricity used, the bill and customers, each as a pair (each label already carries its month and year — do not reword those labels) — own post, never mixed with any other category, including "kepco". Use ALL SIX lines, every pair with BOTH its sides. Its opener is FIXED and written by Python, so whatever you write is replaced. The arrangement carries the twenty years — never point out that the bill rose faster than the use, or that anything rose or fell at all.
+- "kepcohouse" lines are ONE MONTH's household electricity by Seoul district from Korea Electric Power Corporation: the district with the most used per household, the least, the highest average bill and the lowest — own post, never mixed with any other category, including "kepco". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Household electricity in Seoul"), so whatever opener you write is replaced; the dateline carries the month. Never call a district rich or poor, hot or cold, and never explain the gap.
+- "railroutes" lines are ONE MONTH's riders on Korea's intercity railway lines from the Korea Railroad Corporation: the busiest, second and third lines and the total for all lines — own post, never mixed with any other category, including "rail" and "railstations". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Korea's railway lines"), so whatever opener you write is replaced; the dateline carries the month and the footnote says these are whole lines running beyond Seoul. Never call a line busy or quiet.
 - "tourism" lines are one month's visitor counts at named paid-admission Seoul attractions (the palaces, Lotte World, Seoul Sky…). Own post; ONE frame per post — total visitors OR foreign visitors, never both; the month rides on the card automatically. The pairs are the point: a dead heat or the widest gap between two named attractions.
 - "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and nothing more, e.g. "Water and air in Seoul" (ℹ️ whatever you write here is REPLACED in compose(): the opener names air or water first to match whichever the sort puts on the top line, which is a fact about the readings rather than a choice of words) — the same case as the world, traffic and books lines. ⚠️ Do NOT put the hour, the time or the words "one hour" in the opener: the reading hour rides on the card automatically as its dateline, and an opener repeating it spends the line saying nothing. Do NOT write "right now" either: that hour can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
 - "level" lines appear ONLY when the Han is running high, and they are one gauge (잠수교) set against its own published flood-warning tiers: the level right now, then the 관심/주의/경계/심각 levels. Build them into their own post, never mixed with any other category, and include the current level plus at least two tiers — the arrangement IS the story, which is how far the river is from each tier. The opener must name the river and the gauge, e.g. "The Han at Jamsu Bridge". ⚠️ NEVER write or imply that the bridge is closed, submerged, flooded or about to be: these are flood-WARNING tiers set by 한강홍수통제소, not the level at which the walkway goes under, and the two are different things. Do not add alarm, urgency or commentary of any kind — state the levels and stop. Never call the situation dangerous.
@@ -8296,7 +8476,7 @@ def compose(sel, pool):
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
                  'health', 'healthcost', 'culture', 'tourism', 'level', 'boxoffice',
                  'boxhist', 'incheon', 'rail', 'railstations', 'seoulstation', 'wxday',
-                 'rescue', 'kopis', 'kepco', 'kepcohist'}
+                 'rescue', 'kopis', 'kepco', 'kepcohist', 'kepcohouse', 'railroutes'}
     uses_seoul = any(c not in non_seoul for c in cats)
     uses_kosis = 'national' in cats
     # The library "1 in N" divides by KOSIS's registered population, so a card
@@ -8312,7 +8492,7 @@ def compose(sel, pool):
     uses_kma = bool({'weather', 'river', 'wxday'} & cats)
     uses_kac = 'airport' in cats
     uses_iiac = 'incheon' in cats
-    uses_korail = bool({'rail', 'railstations', 'seoulstation'} & cats)
+    uses_korail = bool({'rail', 'railstations', 'seoulstation', 'railroutes'} & cats)
     uses_hira = 'health' in cats
     # A different HIRA dataset from uses_hira above (cost, not patient
     # counts — see hira_cost_facts()), but the same providing agency, so it
@@ -8327,7 +8507,7 @@ def compose(sel, pool):
     # The rescue register is the quarantine agency's, served through data.go.kr.
     uses_apqa = 'rescue' in cats
     uses_kopis = 'kopis' in cats
-    uses_kepco = bool({'kepco', 'kepcohist'} & cats)
+    uses_kepco = bool({'kepco', 'kepcohist', 'kepcohouse'} & cats)
     srcs = (['data.seoul.go.kr'] if uses_seoul else []) + \
            (['kosis.kr'] if uses_kosis or lib_ratio else []) + \
            ([OECD_DOMAIN] if uses_oecd else []) + \
@@ -9507,6 +9687,10 @@ def main():
                               KEPCO_COOLDOWN_DAYS, 'Electricity')
         pool = apply_cooldown(pool, state, 'last_kepcohist_at', 'kepcohist',
                               KEPCO_COOLDOWN_DAYS, 'Electricity then-and-now')
+        pool = apply_cooldown(pool, state, 'last_kepcohouse_at', 'kepcohouse',
+                              KEPCO_HOUSE_COOLDOWN_DAYS, 'Household electricity')
+        pool = apply_cooldown(pool, state, 'last_railroutes_at', 'railroutes',
+                              RAILROUTES_COOLDOWN_DAYS, 'Railway lines')
         pool = apply_holds(pool)
 
         # The floor under the veins the selector never reaches for. Applied
@@ -9845,6 +10029,10 @@ def main():
         state['last_kepco_at'] = state['last_success_at']
     if primary == 'kepcohist':
         state['last_kepcohist_at'] = state['last_success_at']
+    if primary == 'kepcohouse':
+        state['last_kepcohouse_at'] = state['last_success_at']
+    if primary == 'railroutes':
+        state['last_railroutes_at'] = state['last_success_at']
     write_json_atomic(STATE, state, ensure_ascii=False, indent=2)
 
     log_card(c, sel, primary, posted_uri, handle, fallback=cards is None)

@@ -2277,8 +2277,8 @@ class HeldVeins(unittest.TestCase):
         # the mock-ups and released the same day; rescue likewise, held for
         # its mock-up and released on 11 September; kopis likewise, the
         # same afternoon; kepco and kepcohist likewise, that evening.
-        # Nothing is held.
-        self.assertEqual(self._held, set())
+        # kepcohouse and railroutes held for his look on 12 September 2026.
+        self.assertEqual(self._held, {'kepcohouse', 'railroutes'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
@@ -2880,7 +2880,7 @@ class RailStationsCard(unittest.TestCase):
         self.assertIn("'last_railstations_at', 'railstations'", src)
         self.assertIn("state['last_railstations_at'] = state['last_success_at']", src)
         self.assertIn('- "railstations" lines are', src)
-        self.assertIn("uses_korail = bool({'rail', 'railstations', 'seoulstation'} & cats)", src)
+        self.assertIn("uses_korail = bool({'rail', 'railstations', 'seoulstation', 'railroutes'} & cats)", src)
 
 
 def korail_run(fn, rows, calls=None):
@@ -3624,7 +3624,7 @@ class KepcoCards(unittest.TestCase):
                        "state['last_kepco_at'] = state['last_success_at']",
                        "state['last_kepcohist_at'] = state['last_success_at']",
                        '- "kepco" lines are', '- "kepcohist" lines set',
-                       "uses_kepco = bool({'kepco', 'kepcohist'} & cats)",
+                       "uses_kepco = bool({'kepco', 'kepcohist', 'kepcohouse'} & cats)",
                        "('bigdata.kepco.co.kr', 'https://bigdata.kepco.co.kr')",
                        "pool += kepco_facts(kepco_key)", "pool += kepco_hist_facts(kepco_key)",
                        "kepco_key = config.get('kepco_key')"):
@@ -3848,6 +3848,129 @@ class ServedStopsOnTheMap(unittest.TestCase):
         caption, alt = S.route_map_words(info, 11236)
         self.assertNotIn('coloured dots', caption)
         self.assertNotIn('coloured dots', alt)
+
+
+class KepcoHouseCard(unittest.TestCase):
+    """KEPCO's own per-household averages by district, 12 September 2026.
+    What would ship it wrong: a month read with an unpadded digit (404,
+    exactly like an unpublished month), a partial answer read as the month,
+    a district with no English name, and a figure of ours where only
+    KEPCO's published rows belong."""
+
+    def rows(self):
+        out = []
+        for i, (city, use, bill) in enumerate([('서초구', 273.4, 44475), ('관악구', 178.1, 24600),
+                                                ('중구', 210.0, 30000)]):
+            out.append({'year': '2026', 'month': '06', 'metro': '서울특별시', 'city': city,
+                        'houseCnt': 100 + i, 'powerUsage': use, 'bill': bill})
+        while len(out) < 25:
+            out.append({'year': '2026', 'month': '06', 'metro': '서울특별시', 'city': '강남구',
+                        'houseCnt': 1, 'powerUsage': 200.0, 'bill': 30000})
+        return out
+
+    def run_with(self, by_month):
+        import subprocess as real_subprocess
+        urls = []
+
+        def run(cmd, **kw):
+            url = cmd[-1]; urls.append(url)
+            y = int(url.split('year=')[1][:4]); m = url.split('month=')[1][:2]
+            v = by_month.get((y, int(m)), {'errCd': '404', 'errMsg': 'NotFound'})
+            body = {'data': v} if isinstance(v, list) else v
+            return types.SimpleNamespace(stdout=json.dumps(body, ensure_ascii=False), returncode=0)
+        S.subprocess.run = run
+        S._KEPCO_HOUSE_CACHE.clear()
+        try:
+            return S.kepco_house_facts('KEY'), urls
+        finally:
+            S.subprocess.run = real_subprocess.run
+
+    def tearDown(self):
+        S.RANKED_CARD_INFO.pop('kepcohouse', None)
+        S._KEPCO_HOUSE_CACHE.clear()
+
+    def newest(self):
+        first = S.datetime.now(S.SEOUL_TZ).date().replace(day=1)
+        last = (first - S.timedelta(days=1)).replace(day=1)
+        return last.year, last.month
+
+    def test_four_published_rows_in_a_fixed_order_and_nothing_computed(self):
+        y, m = self.newest()
+        facts, urls = self.run_with({(y, m): self.rows()})
+        self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
+                         [('Most used: Seocho-gu', '273 kWh'), ('Least used: Gwanak-gu', '178 kWh'),
+                          ('Highest bill: Seocho-gu', '₩44,475'), ('Lowest bill: Gwanak-gu', '₩24,600')])
+        self.assertEqual(facts[0]['label_ko'], '가장 많이 씀: 서초구')
+        self.assertEqual((facts[2]['num'], facts[2]['unit']), (44475, 'won'))
+        info = S.RANKED_CARD_INFO['kepcohouse']
+        self.assertEqual(info['dateline_en'], f'Average per household, {S.MONTHS_EN[m - 1]} {y}')
+        self.assertEqual(info['opener_en'], 'Household electricity in Seoul')
+        self.assertNotIn('All districts', ' '.join(f['label_en'] for f in facts))
+
+    def test_the_month_is_zero_padded_in_the_url(self):
+        y, m = self.newest()
+        _, urls = self.run_with({(y, m): self.rows()})
+        self.assertIn(f'month={m:02d}&', urls[0])
+        self.assertNotIn(f'month={m}&' if m < 10 else 'month=x', urls[0])
+
+    def test_a_partial_month_a_bad_row_and_no_key_withhold(self):
+        y, m = self.newest()
+        facts, _ = self.run_with({(y, m): self.rows()[:10]})
+        self.assertEqual(facts, [])
+        bad = self.rows(); bad[0]['bill'] = 'n/a'
+        facts, _ = self.run_with({(y, m): bad})
+        self.assertEqual(facts, [])
+        self.assertNotIn('kepcohouse', S.RANKED_CARD_INFO)
+        self.assertEqual(S.kepco_house_facts(None), [])
+
+
+class RailRoutesCard(unittest.TestCase):
+    """Korail's intercity lines ranked for one month, 12 September 2026.
+    Rows come one per train model per line, so the ranking sums them; the
+    total is every line's sum, which is the API's own figures added."""
+
+    ROWS = [{'carmdl': 'KTX', 'rte_nm': '경부선', 'run_ym': '202607', 'utztn_nope': '5000000'},
+            {'carmdl': '무궁화호', 'rte_nm': '경부선', 'run_ym': '202607', 'utztn_nope': '583980'},
+            {'carmdl': 'KTX', 'rte_nm': '호남선', 'run_ym': '202607', 'utztn_nope': '1656817'},
+            {'carmdl': 'KTX', 'rte_nm': '전라선', 'run_ym': '202607', 'utztn_nope': '1186469'},
+            {'carmdl': '무궁화호', 'rte_nm': '대구선', 'run_ym': '202607', 'utztn_nope': '7014'}]
+
+    def run_with(self, rows, ym='202607'):
+        real = S._korail_newest_rows
+        S._korail_newest_rows = lambda key, op, n: (rows, ym) if rows else ([], None)
+        try:
+            return S.rail_routes_facts('KEY')
+        finally:
+            S._korail_newest_rows = real
+
+    def tearDown(self):
+        S.RANKED_CARD_INFO.pop('railroutes', None)
+
+    def test_top_three_summed_across_models_then_the_total(self):
+        facts = self.run_with(self.ROWS)
+        self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
+                         [('Busiest: the Gyeongbu Line', '5,583,980'),
+                          ('2nd-busiest: the Honam Line', '1,656,817'),
+                          ('3rd-busiest: the Jeolla Line', '1,186,469'),
+                          ('All lines', '8,434,280')])
+        self.assertEqual(facts[0]['label_ko'], '가장 붐빔: 경부선')
+        info = S.RANKED_CARD_INFO['railroutes']
+        self.assertEqual(info['dateline_en'], 'Riders in July 2026')
+        self.assertEqual(info['opener_en'], 'Korea’s railway lines')
+        self.assertIn('beyond Seoul', info['note_en'])
+
+    def test_every_line_in_the_july_roster_has_an_english_name(self):
+        for ko in ('경부선', '호남선', '전라선', '동해선', '경전선', '강릉선', '장항선', '중앙선',
+                   '경춘선', '충북선', '태백선', '중부내륙선', '영동선', '경북선', '공항철도', '대구선'):
+            self.assertIn(ko, S.KORAIL_LINE_EN, ko)
+
+    def test_too_few_lines_no_month_or_a_bad_row_withhold(self):
+        self.assertEqual(self.run_with(self.ROWS[:2]), [])
+        self.assertEqual(self.run_with([]), [])
+        bad = [dict(r) for r in self.ROWS]; bad[0]['utztn_nope'] = 'x'
+        self.assertEqual(self.run_with(bad), [])
+        self.assertNotIn('railroutes', S.RANKED_CARD_INFO)
+        self.assertEqual(S.rail_routes_facts(None), [])
 
 
 if __name__ == '__main__':
