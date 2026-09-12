@@ -293,7 +293,7 @@ SEVERE_STARVE_DAYS = STARVE_DAYS * 2
 # the top-to-bottom rank of the three routes above it.
 ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist', 'busroutes', 'stations',
                 'busmovers', 'nightbus', 'busweekend', 'busstops', 'railstations', 'seoulstation',
-                'stationgap', 'wxday', 'rescue', 'kopis', 'kepco', 'kepcohouse', 'railroutes'}
+                'stationgap', 'wxday', 'rescue', 'kopis', 'kepco', 'kepcohouse', 'railcommuter'}
 
 # Every vein's lines are all-or-nothing on emoji, not just a chosen few: a
 # partial set reads as an oversight rather than a judgement, whatever the
@@ -507,7 +507,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # --dry-run for a preview, or --force past the six-hour guard), since that is
 # how a decision gets made. Empty the set to release a vein; nothing else
 # needs touching. Empty since 11 September 2026.
-HELD_CATS = {'kepcohouse', 'railroutes'}   # held for his look, 12 September 2026; release on his word
+HELD_CATS = {'kepcohouse', 'railcommuter'}   # held for his look, 12 September 2026; release on his word
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -1822,7 +1822,7 @@ BUSWEEKEND_COOLDOWN_DAYS = 7
 RANKED_CARD_INFO = {}
 RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend', 'busstops',
                'railstations', 'seoulstation', 'stationgap', 'wxday', 'rescue', 'kopis',
-               'kepco', 'kepcohist', 'kepcohouse', 'railroutes')
+               'kepco', 'kepcohist', 'kepcohouse', 'railcommuter')
 # The veins whose card is TWO lines by design: rush (one station at two
 # hours) and, since 11 September 2026, busmovers (one rise, one fall) and
 # busweekend (one holds up best, one falls most). Every other vein needs
@@ -5315,7 +5315,7 @@ KORAIL_LINE_EN = {
     '서해선': 'the Seohae Line', '경강선': 'the Gyeonggang Line',
     '대경선': 'the Daegyeong Line',
     # The rest of mainLineRoutePer's July 2026 roster, added 12 September
-    # 2026 for the railroutes card, which reads every line's total.
+    # 2026 for the commuter-rail card's sibling work; kept, harmless.
     '태백선': 'the Taebaek Line', '중부내륙선': 'the Jungbu Naeryuk Line',
     '영동선': 'the Yeongdong Line', '경북선': 'the Gyeongbuk Line',
     '대구선': 'the Daegu Line', '공항철도': 'the Airport Railroad',
@@ -5598,62 +5598,111 @@ def rail_stations_facts(key):
             for i, (name, v) in enumerate(top)]
 
 
-RAILROUTES_COOLDOWN_DAYS = 28    # a new month arrives monthly
-RAILROUTES_OPENER_EN = 'Korea’s railway lines'
-RAILROUTES_OPENER_KO = '한국의 철도 노선'
-RAILROUTES_NOTE_EN = ('Korail’s intercity trains, KTX to Mugunghwa, whole lines: most run well '
-                      'beyond Seoul')
-RAILROUTES_NOTE_KO = '코레일 간선열차(KTX~무궁화호), 노선 전체 기준'
-RAILROUTES_TOP = 3
+RAILCOMMUTER_COOLDOWN_DAYS = 28    # a new month arrives monthly
+RAILCOMMUTER_OPENER_EN = 'Seoul’s commuter rail'
+RAILCOMMUTER_OPENER_KO = '서울의 광역철도'
+RAILCOMMUTER_NOTE_EN = ('Korail’s commuter lines only: its stretches of lines 1, 3 and 4, and the '
+                        'Gyeongui-Jungang, Gyeongchun, Suin-Bundang, Gyeonggang and Seohae lines. '
+                        'Stations inside Seoul.')
+RAILCOMMUTER_NOTE_KO = ('코레일 광역철도만: 1·3·4호선 코레일 구간과 경의중앙·경춘·수인분당·경강·서해선. '
+                        '서울 시내 역.')
+RAILCOMMUTER_TOP = 3
+RAILCOMMUTER_MIN_STATIONS = 20   # 62 inside Seoul in July 2026; far fewer is a broken join
+# The membership join (Korail name → subwayStationMaster → within 300 m of a
+# Seoul bus stop) costs a dozen coordinate calls, so it is cached per month
+# here, gitignored: {run_ym: {folded station: boardings}}.
+RAILCOMMUTER_CACHE = Path(__file__).with_name('railcommuter_cache.json')
+# ⚠️ A bracket naming ANOTHER CITY excludes the row; folding it off would
+# hand Busan's 교대 and 송정 to Seoul's stations of the same name, which the
+# first join did (12 September 2026, 교대(부산) 151,849 credited to Seoul).
+# A bracket naming a line ((경의선), (서해), (분당)) is folded as usual.
+RAILCOMMUTER_OTHER_CITY = re.compile(r'\((부산|대구|인천|대전|광주|울산)\)\s*$')
 
 
-def rail_routes_facts(key):
-    """The railroutes card: Korail's intercity lines ranked by riders in the
-    newest published month, the top three and every line's total. The rail
-    vein above reads the same operation for its single busiest-line line;
-    this is the ranking, added 12 September 2026, his call. Each figure is
-    the API's own monthly total for a named line, summed across the rows
-    (train models) that share the name, as rail_facts already does."""
-    RANKED_CARD_INFO.pop('railroutes', None)
-    if not key:
-        return []
-    rows, ym = _korail_newest_rows(key, 'mainLineRoutePer', 800)
+def rail_commuter_month(gov_key, api_key):
+    """({folded station: boardings} for stations inside Seoul, 'YYYYMM') for
+    the newest month of wideRailloadStationPer, or (None, None). The
+    per-station boardings are the API's own rows, summed only where two
+    rows fold to one station (서울 and 서울(경의선) are one Seoul Station,
+    the subway card's own rule). Cached per month."""
+    items = _korail_fetch(gov_key, 'wideRailloadStationPer', KORAIL_PAGE_ROWS)
+    rows, ym = _korail_newest(items, 'run_ym')
     if not rows or not ym:
-        print('Railway lines card withheld: no month could be read from Korail.')
-        return []
-    totals = {}
-    for x in rows:
-        name = (x.get('rte_nm') or '').strip()
+        return None, None
+    try:
+        cache = json.loads(RAILCOMMUTER_CACHE.read_text())
+    except (OSError, ValueError):
+        cache = {}
+    if ym in cache and len(cache[ym]) >= RAILCOMMUTER_MIN_STATIONS:
+        return cache[ym], ym
+    try:
+        coords = station_coords(api_key)
+        inside = stations_in_seoul(coords, list(seoul_bus_stop_coord_map(api_key).values()))
+    except RuntimeError as e:
+        print(f'Commuter rail card withheld: coordinate feeds unavailable ({e}).')
+        return None, None
+    seoul = {}
+    for r in rows:
+        raw = r.get('stn_nm') or ''
+        if RAILCOMMUTER_OTHER_CITY.search(raw):
+            continue
+        name = fold_station(raw)
+        if name not in inside:
+            continue
         try:
-            v = int(x.get('utztn_nope') or 0)
+            v = int(r.get('ride_nope') or 0)
         except (TypeError, ValueError):
-            print(f'Railway lines card withheld: a row for {ym} did not parse.')
-            return []
-        if name:
-            totals[name] = totals.get(name, 0) + v
-    ranked = sorted(totals.items(), key=lambda kv: (-kv[1], kv[0]))
-    if len(ranked) < RAILROUTES_TOP:
-        print(f'Railway lines card withheld: only {len(ranked)} lines in {ym}.')
+            print(f'Commuter rail card withheld: a row for {ym} did not parse.')
+            return None, None
+        seoul[name] = seoul.get(name, 0) + v
+    if len(seoul) < RAILCOMMUTER_MIN_STATIONS:
+        print(f'Commuter rail card withheld: only {len(seoul)} stations joined for {ym}.')
+        return None, None
+    cache[ym] = seoul
+    write_json_atomic(RAILCOMMUTER_CACHE, cache, ensure_ascii=False)
+    return seoul, ym
+
+
+def rail_commuter_facts(gov_key, api_key):
+    """The railcommuter card: the newest month's boardings at Korail's
+    commuter-rail stations inside Seoul, the busiest three and the total
+    for all of them. Replaced a Korea-wide lines card the same day it was
+    built (12 September 2026): a whole-line figure to Busan is not Seoul's,
+    and this table is the one Korail operation nothing here read."""
+    RANKED_CARD_INFO.pop('railcommuter', None)
+    if not gov_key or not api_key:
+        return []
+    seoul, ym = rail_commuter_month(gov_key, api_key)
+    if not seoul:
+        return []
+    ranked = sorted(seoul.items(), key=lambda kv: (-kv[1], kv[0]))
+    top = ranked[:RAILCOMMUTER_TOP]
+    # The Korail roster's own English first ('서울' → 'Seoul Station', as the
+    # rail stations card prints it; bare 'Seoul' on a station line reads as
+    # the city), then the subway table's official name.
+    en = {name: rail_station_en(name) or en_lookup(name, 'stations') for name, _ in top}
+    missing = [n for n, e in en.items() if not e]
+    if missing:
+        print(f'Commuter rail card withheld for {ym}: no English name for '
+              f'{", ".join(repr(m) for m in missing)}.')
         return []
     y, m = int(ym[:4]), int(ym[4:])
     per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
-    RANKED_CARD_INFO['railroutes'] = {
+    RANKED_CARD_INFO['railcommuter'] = {
         'day_en': per_en, 'day_ko': per_ko,
-        'opener_en': RAILROUTES_OPENER_EN, 'opener_ko': RAILROUTES_OPENER_KO,
-        'dateline_en': f'Riders in {per_en}', 'dateline_ko': f'{per_ko} 이용객',
-        'note_en': RAILROUTES_NOTE_EN, 'note_ko': RAILROUTES_NOTE_KO}
+        'opener_en': RAILCOMMUTER_OPENER_EN, 'opener_ko': RAILCOMMUTER_OPENER_KO,
+        'dateline_en': f'Boardings in {per_en}', 'dateline_ko': f'{per_ko} 승차',
+        'note_en': RAILCOMMUTER_NOTE_EN, 'note_ko': RAILCOMMUTER_NOTE_KO}
     ranks = (('Busiest', '가장 붐빔'), ('2nd-busiest', '두 번째로 붐빔'),
              ('3rd-busiest', '세 번째로 붐빔'))
-    facts = []
-    for i, (name, v) in enumerate(ranked[:RAILROUTES_TOP]):
-        en = _korail_line_en(name)
-        facts.append(fact(f'railroutes_{i}', 'railroutes', f'{ranks[i][0]}: {en}',
-                          grouped(v), grouped(v), pin=True,
-                          label_ko=f'{ranks[i][1]}: {name}', place_en=en, place_ko=name,
-                          num=v, unit='people'))
-    total = sum(totals.values())
-    facts.append(fact('railroutes_total', 'railroutes', 'All lines', grouped(total),
-                      grouped(total), pin=True, label_ko='전체 노선', num=total, unit='people'))
+    facts = [fact(f'railcom_{i}', 'railcommuter', f'{ranks[i][0]}: {en[name]}',
+                  grouped(v), grouped(v), pin=True,
+                  label_ko=f'{ranks[i][1]}: {name}', place_en=en[name], place_ko=name,
+                  num=v, unit='people')
+             for i, (name, v) in enumerate(top)]
+    total = sum(seoul.values())
+    facts.append(fact('railcom_total', 'railcommuter', 'All Seoul stations', grouped(total),
+                      grouped(total), pin=True, label_ko='서울 시내 역 전체', num=total, unit='people'))
     return facts
 
 
@@ -6865,7 +6914,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += kepco_facts(kepco_key)
     pool += kepco_hist_facts(kepco_key)
     pool += kepco_house_facts(kepco_key)
-    pool += rail_routes_facts(gov_key)
+    pool += rail_commuter_facts(gov_key, api_key)
     # KOFIC issues its own key, like HRFCO: not a data.go.kr one.
     pool += boxoffice_facts(kobis_key)
     return pool
@@ -6903,7 +6952,7 @@ Rules:
 - "kepco" lines are ONE MONTH of electricity in Seoul from Korea Electric Power Corporation: customers, electricity used, the households' share, the shops-and-offices share, and the bill — own post, never mixed with any other category, including "kepcohist". All FIVE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Electricity in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the month and the footnote says which tariffs the two shares are. Never call the month heavy or light, and never compare it with anything.
 - "kepcohist" lines set ONE MONTH of Seoul's electricity against the SAME month TWENTY YEARS earlier: electricity used, the bill and customers, each as a pair (each label already carries its month and year — do not reword those labels) — own post, never mixed with any other category, including "kepco". Use ALL SIX lines, every pair with BOTH its sides. Its opener is FIXED and written by Python, so whatever you write is replaced. The arrangement carries the twenty years — never point out that the bill rose faster than the use, or that anything rose or fell at all.
 - "kepcohouse" lines are ONE MONTH's household electricity by Seoul district from Korea Electric Power Corporation: the district with the most used per household, the least, the highest average bill and the lowest — own post, never mixed with any other category, including "kepco". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Household electricity in Seoul"), so whatever opener you write is replaced; the dateline carries the month. Never call a district rich or poor, hot or cold, and never explain the gap.
-- "railroutes" lines are ONE MONTH's riders on Korea's intercity railway lines from the Korea Railroad Corporation: the busiest, second and third lines and the total for all lines — own post, never mixed with any other category, including "rail" and "railstations". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Korea's railway lines"), so whatever opener you write is replaced; the dateline carries the month and the footnote says these are whole lines running beyond Seoul. Never call a line busy or quiet.
+- "railcommuter" lines are ONE MONTH's boardings at Korail's commuter-rail stations inside Seoul from the Korea Railroad Corporation: the busiest, second and third stations and the total for all Seoul stations — own post, never mixed with any other category, including "rail", "railstations" and "stations". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Seoul's commuter rail"), so whatever opener you write is replaced; the dateline carries the month and the footnote says which lines these are. The lines carry BARE STATION NAMES; never call a station busy or quiet.
 - "tourism" lines are one month's visitor counts at named paid-admission Seoul attractions (the palaces, Lotte World, Seoul Sky…). Own post; ONE frame per post — total visitors OR foreign visitors, never both; the month rides on the card automatically. The pairs are the point: a dead heat or the widest gap between two named attractions.
 - "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and nothing more, e.g. "Water and air in Seoul" (ℹ️ whatever you write here is REPLACED in compose(): the opener names air or water first to match whichever the sort puts on the top line, which is a fact about the readings rather than a choice of words) — the same case as the world, traffic and books lines. ⚠️ Do NOT put the hour, the time or the words "one hour" in the opener: the reading hour rides on the card automatically as its dateline, and an opener repeating it spends the line saying nothing. Do NOT write "right now" either: that hour can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
 - "level" lines appear ONLY when the Han is running high, and they are one gauge (잠수교) set against its own published flood-warning tiers: the level right now, then the 관심/주의/경계/심각 levels. Build them into their own post, never mixed with any other category, and include the current level plus at least two tiers — the arrangement IS the story, which is how far the river is from each tier. The opener must name the river and the gauge, e.g. "The Han at Jamsu Bridge". ⚠️ NEVER write or imply that the bridge is closed, submerged, flooded or about to be: these are flood-WARNING tiers set by 한강홍수통제소, not the level at which the walkway goes under, and the two are different things. Do not add alarm, urgency or commentary of any kind — state the levels and stop. Never call the situation dangerous.
@@ -8476,7 +8525,7 @@ def compose(sel, pool):
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
                  'health', 'healthcost', 'culture', 'tourism', 'level', 'boxoffice',
                  'boxhist', 'incheon', 'rail', 'railstations', 'seoulstation', 'wxday',
-                 'rescue', 'kopis', 'kepco', 'kepcohist', 'kepcohouse', 'railroutes'}
+                 'rescue', 'kopis', 'kepco', 'kepcohist', 'kepcohouse', 'railcommuter'}
     uses_seoul = any(c not in non_seoul for c in cats)
     uses_kosis = 'national' in cats
     # The library "1 in N" divides by KOSIS's registered population, so a card
@@ -8492,7 +8541,7 @@ def compose(sel, pool):
     uses_kma = bool({'weather', 'river', 'wxday'} & cats)
     uses_kac = 'airport' in cats
     uses_iiac = 'incheon' in cats
-    uses_korail = bool({'rail', 'railstations', 'seoulstation', 'railroutes'} & cats)
+    uses_korail = bool({'rail', 'railstations', 'seoulstation', 'railcommuter'} & cats)
     uses_hira = 'health' in cats
     # A different HIRA dataset from uses_hira above (cost, not patient
     # counts — see hira_cost_facts()), but the same providing agency, so it
@@ -9689,8 +9738,8 @@ def main():
                               KEPCO_COOLDOWN_DAYS, 'Electricity then-and-now')
         pool = apply_cooldown(pool, state, 'last_kepcohouse_at', 'kepcohouse',
                               KEPCO_HOUSE_COOLDOWN_DAYS, 'Household electricity')
-        pool = apply_cooldown(pool, state, 'last_railroutes_at', 'railroutes',
-                              RAILROUTES_COOLDOWN_DAYS, 'Railway lines')
+        pool = apply_cooldown(pool, state, 'last_railcommuter_at', 'railcommuter',
+                              RAILCOMMUTER_COOLDOWN_DAYS, 'Commuter rail')
         pool = apply_holds(pool)
 
         # The floor under the veins the selector never reaches for. Applied
@@ -10031,8 +10080,8 @@ def main():
         state['last_kepcohist_at'] = state['last_success_at']
     if primary == 'kepcohouse':
         state['last_kepcohouse_at'] = state['last_success_at']
-    if primary == 'railroutes':
-        state['last_railroutes_at'] = state['last_success_at']
+    if primary == 'railcommuter':
+        state['last_railcommuter_at'] = state['last_success_at']
     write_json_atomic(STATE, state, ensure_ascii=False, indent=2)
 
     log_card(c, sel, primary, posted_uri, handle, fallback=cards is None)

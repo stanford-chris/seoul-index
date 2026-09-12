@@ -67,3 +67,4 @@ bus_route_history.json
 # bot has run: the feed prunes at about a year, so older days exist only
 # here (and on the NAS). Initial fill by korail_station_history_backfill.py.
 korail_station_history.json
+railcommuter_cache.json

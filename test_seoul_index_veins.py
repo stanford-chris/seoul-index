@@ -2277,8 +2277,8 @@ class HeldVeins(unittest.TestCase):
         # the mock-ups and released the same day; rescue likewise, held for
         # its mock-up and released on 11 September; kopis likewise, the
         # same afternoon; kepco and kepcohist likewise, that evening.
-        # kepcohouse and railroutes held for his look on 12 September 2026.
-        self.assertEqual(self._held, {'kepcohouse', 'railroutes'})
+        # kepcohouse and railcommuter held for his look on 12 September 2026.
+        self.assertEqual(self._held, {'kepcohouse', 'railcommuter'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
@@ -2880,7 +2880,7 @@ class RailStationsCard(unittest.TestCase):
         self.assertIn("'last_railstations_at', 'railstations'", src)
         self.assertIn("state['last_railstations_at'] = state['last_success_at']", src)
         self.assertIn('- "railstations" lines are', src)
-        self.assertIn("uses_korail = bool({'rail', 'railstations', 'seoulstation', 'railroutes'} & cats)", src)
+        self.assertIn("uses_korail = bool({'rail', 'railstations', 'seoulstation', 'railcommuter'} & cats)", src)
 
 
 def korail_run(fn, rows, calls=None):
@@ -3010,7 +3010,7 @@ class SeoulStationCard(unittest.TestCase):
         self.assertIn("'last_seoulstation_at', 'seoulstation'", src)
         self.assertIn("state['last_seoulstation_at'] = state['last_success_at']", src)
         self.assertIn('- "seoulstation" lines are', src)
-        self.assertIn("'seoulstation', 'railroutes'} & cats", src)
+        self.assertIn("'seoulstation', 'railcommuter'} & cats", src)
 
     def test_a_holiday_is_named_on_the_dateline_in_his_wording(self):
         # Friday 25 September 2026, Chuseok, with three prior Fridays.
@@ -3924,53 +3924,65 @@ class KepcoHouseCard(unittest.TestCase):
         self.assertEqual(S.kepco_house_facts(None), [])
 
 
-class RailRoutesCard(unittest.TestCase):
-    """Korail's intercity lines ranked for one month, 12 September 2026.
-    Rows come one per train model per line, so the ranking sums them; the
-    total is every line's sum, which is the API's own figures added."""
+class RailCommuterCard(unittest.TestCase):
+    """Korail's commuter-rail stations inside Seoul, one month, 12 September
+    2026. What would ship it wrong: a Busan station folded onto a Seoul
+    name (교대(부산) → 교대), a line bracket NOT folded (서울(경의선) is Seoul
+    Station), a station outside Seoul counted, and a join that came back
+    nearly empty being read as a quiet month."""
 
-    ROWS = [{'carmdl': 'KTX', 'rte_nm': '경부선', 'run_ym': '202607', 'utztn_nope': '5000000'},
-            {'carmdl': '무궁화호', 'rte_nm': '경부선', 'run_ym': '202607', 'utztn_nope': '583980'},
-            {'carmdl': 'KTX', 'rte_nm': '호남선', 'run_ym': '202607', 'utztn_nope': '1656817'},
-            {'carmdl': 'KTX', 'rte_nm': '전라선', 'run_ym': '202607', 'utztn_nope': '1186469'},
-            {'carmdl': '무궁화호', 'rte_nm': '대구선', 'run_ym': '202607', 'utztn_nope': '7014'}]
+    ROWS = [{'stn_nm': '용산', 'run_ym': '202607', 'ride_nope': '1555978', 'goff_nope': '1'},
+            {'stn_nm': '서울', 'run_ym': '202607', 'ride_nope': '918534', 'goff_nope': '1'},
+            {'stn_nm': '서울(경의선)', 'run_ym': '202607', 'ride_nope': '93870', 'goff_nope': '1'},
+            {'stn_nm': '교대(부산)', 'run_ym': '202607', 'ride_nope': '9999999', 'goff_nope': '1'},
+            {'stn_nm': '수원', 'run_ym': '202607', 'ride_nope': '948439', 'goff_nope': '1'},
+            {'stn_nm': '회기', 'run_ym': '202607', 'ride_nope': '753793', 'goff_nope': '1'},
+            {'stn_nm': '옛달', 'run_ym': '202606', 'ride_nope': '5', 'goff_nope': '1'}]
+    INSIDE = {'용산', '서울', '교대', '회기'} | {f'역{i}' for i in range(20)}
 
-    def run_with(self, rows, ym='202607'):
-        real = S._korail_newest_rows
-        S._korail_newest_rows = lambda key, op, n: (rows, ym) if rows else ([], None)
-        try:
-            return S.rail_routes_facts('KEY')
-        finally:
-            S._korail_newest_rows = real
+    def setUp(self):
+        self._real = (S._korail_fetch, S.station_coords, S.seoul_bus_stop_coord_map,
+                      S.stations_in_seoul, S.RAILCOMMUTER_CACHE, S.RAILCOMMUTER_MIN_STATIONS)
+        S._korail_fetch = lambda key, op, n, page=1: list(self.ROWS)
+        S.station_coords = lambda key: {n: (127.0, 37.5) for n in self.INSIDE | {'수원'}}
+        S.seoul_bus_stop_coord_map = lambda key: {'1': (127.0, 37.5)}
+        S.stations_in_seoul = lambda coords, stops, within_km=None: set(self.INSIDE)
+        S.RAILCOMMUTER_CACHE = _Path(_tempfile.mkdtemp()) / 'railcommuter_cache.json'
+        S.RAILCOMMUTER_MIN_STATIONS = 3
 
     def tearDown(self):
-        S.RANKED_CARD_INFO.pop('railroutes', None)
+        (S._korail_fetch, S.station_coords, S.seoul_bus_stop_coord_map,
+         S.stations_in_seoul, S.RAILCOMMUTER_CACHE, S.RAILCOMMUTER_MIN_STATIONS) = self._real
+        S.RANKED_CARD_INFO.pop('railcommuter', None)
 
-    def test_top_three_summed_across_models_then_the_total(self):
-        facts = self.run_with(self.ROWS)
+    def test_seoul_stations_only_lines_folded_cities_excluded(self):
+        facts = S.rail_commuter_facts('G', 'A')
         self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
-                         [('Busiest: the Gyeongbu Line', '5,583,980'),
-                          ('2nd-busiest: the Honam Line', '1,656,817'),
-                          ('3rd-busiest: the Jeolla Line', '1,186,469'),
-                          ('All lines', '8,434,280')])
-        self.assertEqual(facts[0]['label_ko'], '가장 붐빔: 경부선')
-        info = S.RANKED_CARD_INFO['railroutes']
-        self.assertEqual(info['dateline_en'], 'Riders in July 2026')
-        self.assertEqual(info['opener_en'], 'Korea’s railway lines')
-        self.assertIn('beyond Seoul', info['note_en'])
+                         [('Busiest: Yongsan', '1,555,978'), ('2nd-busiest: Seoul Station', '1,012,404'),
+                          ('3rd-busiest: Hoegi', '753,793'), ('All Seoul stations', '3,322,175')])
+        self.assertEqual(facts[1]['label_ko'], '두 번째로 붐빔: 서울')
+        info = S.RANKED_CARD_INFO['railcommuter']
+        self.assertEqual(info['dateline_en'], 'Boardings in July 2026')
+        self.assertEqual(info['opener_en'], 'Seoul’s commuter rail')
+        self.assertIn('inside Seoul', info['note_en'])
 
-    def test_every_line_in_the_july_roster_has_an_english_name(self):
-        for ko in ('경부선', '호남선', '전라선', '동해선', '경전선', '강릉선', '장항선', '중앙선',
-                   '경춘선', '충북선', '태백선', '중부내륙선', '영동선', '경북선', '공항철도', '대구선'):
-            self.assertIn(ko, S.KORAIL_LINE_EN, ko)
+    def test_the_month_is_cached_and_the_cache_is_reused(self):
+        S.rail_commuter_facts('G', 'A')
+        cache = json.loads(S.RAILCOMMUTER_CACHE.read_text())
+        self.assertEqual(set(cache), {'202607'})
+        self.assertNotIn('교대', cache['202607'])
+        S.station_coords = lambda key: (_ for _ in ()).throw(AssertionError('coords refetched'))
+        self.assertEqual(len(S.rail_commuter_facts('G', 'A')), 4)
 
-    def test_too_few_lines_no_month_or_a_bad_row_withhold(self):
-        self.assertEqual(self.run_with(self.ROWS[:2]), [])
-        self.assertEqual(self.run_with([]), [])
-        bad = [dict(r) for r in self.ROWS]; bad[0]['utztn_nope'] = 'x'
-        self.assertEqual(self.run_with(bad), [])
-        self.assertNotIn('railroutes', S.RANKED_CARD_INFO)
-        self.assertEqual(S.rail_routes_facts(None), [])
+    def test_a_thin_join_no_month_or_no_key_withhold(self):
+        S.RAILCOMMUTER_MIN_STATIONS = 20
+        self.assertEqual(S.rail_commuter_facts('G', 'A'), [])
+        self.assertNotIn('railcommuter', S.RANKED_CARD_INFO)
+        S.RAILCOMMUTER_MIN_STATIONS = 3
+        S._korail_fetch = lambda key, op, n, page=1: []
+        self.assertEqual(S.rail_commuter_facts('G', 'A'), [])
+        self.assertEqual(S.rail_commuter_facts(None, 'A'), [])
+        self.assertEqual(S.rail_commuter_facts('G', None), [])
 
 
 if __name__ == '__main__':
