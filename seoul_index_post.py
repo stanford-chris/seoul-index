@@ -127,6 +127,7 @@ CLAUDE_TIMEOUT = 300
 # flags, and validating their argv here rejected `--pin` on 23 Jul 2026.
 _KNOWN_ARGS = {'--dry-run', '--spotlight', '--show-cross', '--tail', '--force'}
 _ONLY_PREFIX = '--only='       # --only=<cat>: build the card from one vein
+_DAILY_PREFIX = '--daily='     # --daily=<cat>: --only for a vein's own launchd slot
 
 
 def _tail_n(argv):
@@ -150,11 +151,12 @@ if __name__ == '__main__':
             _skip = _t + 1
     _unknown = [a for j, a in enumerate(sys.argv[1:], 1)
                 if a not in _KNOWN_ARGS and j != _skip
-                and not a.startswith(_ONLY_PREFIX)]
+                and not a.startswith(_ONLY_PREFIX)
+                and not a.startswith(_DAILY_PREFIX)]
     if _unknown:
         sys.exit(f'Unknown argument(s): {" ".join(_unknown)}. '
                  f'Recognized: {" ".join(sorted(_KNOWN_ARGS))} [N], '
-                 f'{_ONLY_PREFIX}<cat>. '
+                 f'{_ONLY_PREFIX}<cat>, {_DAILY_PREFIX}<cat>. '
                  f'Refusing to run (a bare run posts live).')
 
 DRY_RUN = '--dry-run' in sys.argv
@@ -175,6 +177,23 @@ ONLY_CAT = next((a[len(_ONLY_PREFIX):] for a in sys.argv
 # identical card out again. --force overrides, for a deliberate repost.
 FORCE = '--force' in sys.argv
 ONLY_MIN_HOURS = 6
+# --daily=<cat>: the scheduled form of --only=<cat>, for a vein that has a
+# launchd slot of its own. busroutes has one at 10:30 KST since 12 September
+# 2026, his call ("I want to make this a daily post"): with the vein in the
+# rotation alone it posted twice in three days and then sat behind a 3-day
+# cooldown and six debuts. Same one-vein card as --only; the differences are
+# what an UNATTENDED run needs. A day the feed has not advanced since the
+# last post exits 0 and says so rather than reposting the same day's card
+# (daily_already_posted); a withheld or thin vein exits 0 with its reason,
+# where a hand run gets exit 1, so a stalled feed is not a red job in the
+# morning digest. The rotation never picks a daily vein by itself: every post
+# through here refreshes the vein's own cooldown stamp, so the four scheduled
+# runs always find it inside its cooldown.
+DAILY_CAT = next((a[len(_DAILY_PREFIX):] for a in sys.argv
+                  if a.startswith(_DAILY_PREFIX)), None) or None
+if DAILY_CAT:
+    ONLY_CAT = DAILY_CAT
+DAILY = DAILY_CAT is not None
 MAX_POST_CHARS = 285  # buffer under Bluesky's 300-grapheme limit
 SEOUL_TZ = ZoneInfo('Asia/Seoul')
 SOURCE_URL = 'https://data.seoul.go.kr/'
@@ -6762,6 +6781,43 @@ def apply_holds(pool):
     return [f for f in pool if f['cat'] not in held]
 
 
+def daily_data_day(cat):
+    """The data day `cat`'s card is built on ('YYYYMMDD'), read from
+    RANKED_CARD_INFO once the harvest has run, or None for a vein that
+    records none. Only the ranked bus cards carry one ('map_day'); a --daily
+    on any other vein has no same-day guard, and says so in the log."""
+    return (RANKED_CARD_INFO.get(cat) or {}).get('map_day')
+
+
+def daily_already_posted(cat, state):
+    """(True, reason) when the day `cat`'s card would show is the day its
+    last post showed. The stop-level feed lags about four days and had
+    advanced every day for 64 days when this was written (12 September
+    2026), so a stalled feed is the exception this exists for: without it
+    the 10:30 job would put 8 September's card out twice, streak line and
+    all. It reads the DATA DAY, never the clock: a kickstart at 10:00 and
+    the slot at 10:30 build the same day's card, and a day the feed skips
+    is not the same day however long ago the last post was."""
+    day = daily_data_day(cat)
+    if not day:
+        return False, f'no data day recorded for {cat}, so no same-day guard'
+    last = (state.get('daily_last_day') or {}).get(cat)
+    if last == day:
+        return True, (f'{cat}: the newest day in the feed ({day}) is the day '
+                      f'already posted; nothing new')
+    return False, ''
+
+
+def stamp_daily_day(state, primary):
+    """Record the data day `primary` just posted, for daily_already_posted().
+    Stamped on every live post of a vein that carries a day, hand-run or
+    scheduled, so a --only post in the morning stops a --daily repeat of the
+    same day too."""
+    day = daily_data_day(primary)
+    if day:
+        state.setdefault('daily_last_day', {})[primary] = day
+
+
 def apply_cooldown(pool, state, stamp_key, cat, days, label):
     """Drop `cat` from the pool if its last post is younger than `days`.
 
@@ -6794,6 +6850,12 @@ def apply_cooldown(pool, state, stamp_key, cat, days, label):
             except (ValueError, TypeError):
                 age_h = None
             if age_h is not None and age_h < ONLY_MIN_HOURS:
+                if DAILY:
+                    # A kickstart and the slot itself, or two firings after a
+                    # sleep: the same day's card, not a fault. Exit 0.
+                    print(f'--daily={cat}: {label} posted {age_h:.1f}h ago, under '
+                          f'{ONLY_MIN_HOURS}h; not reposting. No post this run.')
+                    sys.exit(0)
                 sys.exit(f'--only={cat}: {label} posted {age_h:.1f}h ago, under '
                          f'{ONLY_MIN_HOURS}h; refusing a duplicate. Pass --force to repost.')
         return pool
@@ -9370,9 +9432,24 @@ def main():
             only = [f for f in pool if f['cat'] == ONLY_CAT]
             need = 2 if ONLY_CAT in TWO_LINE_CATS else 3
             if len(only) < need:
+                if DAILY:
+                    # The vein withheld its card and printed why above (a
+                    # ranking it could not make, an English form it could
+                    # not find). Unattended, that is a quiet day, not a
+                    # failed job.
+                    print(f'--daily={ONLY_CAT}: {len(only)} fact(s) in that vein, '
+                          f'need {need}; the vein withheld its card. No post this run.')
+                    sys.exit(0)
                 sys.exit(f'--only={ONLY_CAT}: {len(only)} fact(s) in that vein, '
                          f'need at least {need} to build a card. Pool has: '
                          f'{", ".join(sorted({f["cat"] for f in pool}))}.')
+            if DAILY:
+                dup, why = daily_already_posted(ONLY_CAT, state)
+                if dup:
+                    print(f'--daily={why}. No post this run.')
+                    sys.exit(0)
+                if why:
+                    print(f'--daily={ONLY_CAT}: {why}.')
             pool, promoted = only, ONLY_CAT
         else:
             pool, promoted = promote_starved(pool, state)
@@ -9636,6 +9713,7 @@ def main():
     state['last_cat'] = primary
     state['last_success_at'] = datetime.now(timezone.utc).isoformat()
     state.setdefault('cat_last_at', {})[primary] = state['last_success_at']
+    stamp_daily_day(state, primary)
     if promoted:
         state['last_promoted_cat'] = promoted
     if primary == 'world':

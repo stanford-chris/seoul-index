@@ -3631,5 +3631,79 @@ class KepcoCards(unittest.TestCase):
             self.assertIn(needle, src)
 
 
+class DailySlot(unittest.TestCase):
+    """--daily=<cat>: busroutes' own 10:30 launchd slot, 12 September 2026.
+    The same-day guard is the point. The stop-level feed lags about four
+    days and had advanced every day for 64 days when the slot was added, so
+    the day it stalls is the one an unattended job must notice: without the
+    guard it posts the same day's card, streak line and all, and nothing
+    else here would call that a fault."""
+
+    def setUp(self):
+        self._info = S.RANKED_CARD_INFO.pop('busroutes', None)
+
+    def tearDown(self):
+        S.RANKED_CARD_INFO.pop('busroutes', None)
+        if self._info is not None:
+            S.RANKED_CARD_INFO['busroutes'] = self._info
+
+    def test_the_same_data_day_is_refused(self):
+        S.RANKED_CARD_INFO['busroutes'] = {'map_day': '20260908'}
+        dup, why = S.daily_already_posted(
+            'busroutes', {'daily_last_day': {'busroutes': '20260908'}})
+        self.assertTrue(dup)
+        self.assertIn('20260908', why)
+
+    def test_a_new_data_day_posts(self):
+        S.RANKED_CARD_INFO['busroutes'] = {'map_day': '20260909'}
+        self.assertEqual(
+            S.daily_already_posted('busroutes', {'daily_last_day': {'busroutes': '20260908'}}),
+            (False, ''))
+
+    def test_a_first_run_posts(self):
+        S.RANKED_CARD_INFO['busroutes'] = {'map_day': '20260908'}
+        self.assertEqual(S.daily_already_posted('busroutes', {}), (False, ''))
+
+    def test_the_guard_reads_the_day_not_the_clock(self):
+        # A day the feed skipped is not the same day, however recent the
+        # last post; and the same day is the same day however old it is.
+        S.RANKED_CARD_INFO['busroutes'] = {'map_day': '20260908'}
+        state = {'daily_last_day': {'busroutes': '20260908'},
+                 'last_busroutes_at': '2026-09-01T00:00:00+00:00'}
+        self.assertTrue(S.daily_already_posted('busroutes', state)[0])
+
+    def test_a_vein_without_a_data_day_has_no_guard_and_says_so(self):
+        dup, why = S.daily_already_posted('kopis', {'daily_last_day': {'kopis': 'x'}})
+        self.assertFalse(dup)
+        self.assertIn('no same-day guard', why)
+
+    def test_the_stamp_records_the_posted_day(self):
+        S.RANKED_CARD_INFO['busroutes'] = {'map_day': '20260908'}
+        state = {}
+        S.stamp_daily_day(state, 'busroutes')
+        self.assertEqual(state['daily_last_day'], {'busroutes': '20260908'})
+
+    def test_the_stamp_leaves_a_vein_without_a_day_alone(self):
+        state = {}
+        S.stamp_daily_day(state, 'kopis')
+        self.assertNotIn('daily_last_day', state)
+
+    def test_the_flag_is_recognised_and_takes_the_only_path(self):
+        # The unknown-argument refusal must exempt --daily=<cat>, or the slot
+        # refuses to run every morning; and a --daily vein must be ONLY_CAT,
+        # or the rotation's selector answers the slot with any card at all.
+        src = Path(S.__file__).read_text()
+        self.assertIn("not a.startswith(_DAILY_PREFIX)", src)
+        self.assertIn("if DAILY_CAT:\n    ONLY_CAT = DAILY_CAT", src)
+        self.assertEqual(S._DAILY_PREFIX, '--daily=')
+
+    def test_the_live_post_stamps_the_day(self):
+        # Beside cat_last_at in the one place a live post is recorded, so a
+        # hand-run --only in the morning also stops a --daily repeat.
+        src = Path(S.__file__).read_text()
+        self.assertIn("state.setdefault('cat_last_at', {})[primary] = state['last_success_at']\n"
+                      "    stamp_daily_day(state, primary)", src)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)
