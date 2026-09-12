@@ -1515,6 +1515,8 @@ def bus_stops_facts(c, d, d_ko):
         return []
     ranks = (('Busiest', '가장 붐빔'), ('2nd-busiest', '두 번째로 붐빔'), ('3rd-busiest', '세 번째로 붐빔'))
     note_en, note_ko = busstop_note(c.get('seoul_stop_count') or 0)
+    note_en = f'{note_en} {latest_note(d, d_ko)[0]}.'
+    note_ko = f'{note_ko} {latest_note(d, d_ko)[1]}.'
     RANKED_CARD_INFO['busstops'] = {
         'day_en': d, 'day_ko': d_ko,
         'opener_en': BUSSTOP_OPENER_EN, 'opener_ko': BUSSTOP_OPENER_KO,
@@ -1949,6 +1951,23 @@ def _span_ko(a, b):
     return f'{da.month}월 {da.day}일~{db.month}월 {db.day}일'
 
 
+# Every bus card's footnote says its dateline is the newest day the feed
+# has, his call, 12 September 2026 (nightbus first, then "do the same for
+# the other bus cards"), since each cites a day about four days behind:
+# "September 8 is the latest date for which data is available." Stated as
+# a rule, never as a lag count, so it stays true on a morning the feed
+# stalls and yesterday's day is still the newest.
+def latest_note(d, d_ko, week=False):
+    """(en, ko) sentence naming the card's day (or, for busweekend, its
+    week) as the newest published, WITHOUT the closing period: each caller
+    ends it or joins it with ' · ', whichever its footnote already uses."""
+    if week:
+        return (f'{d} is the latest week for which data is available',
+                f'{d_ko}은 데이터가 공개된 가장 최근 주')
+    return (f'{d} is the latest date for which data is available',
+            f'{d_ko}은 데이터가 공개된 가장 최근 날짜')
+
+
 def history_bus_facts(h, day, d, d_ko):
     """Build the busmovers, nightbus and busweekend facts for `day` from the
     history, filling RANKED_CARD_INFO for each card actually built and
@@ -1990,8 +2009,10 @@ def history_bus_facts(h, day, d, d_ko):
             'opener_ko': f'서울의 버스 노선, 평소 {wd_ko} 대비',
             'dateline_en': f'Boardings on {d}', 'dateline_ko': f'{d_ko} 승차',
             'note_en': (f'Against each route’s median of its previous {n} {wd_en}s · '
-                        f'trunk and branch routes over 1,000 boardings'),
-            'note_ko': f'각 노선의 이전 {wd_ko} {n}일 중앙값 대비 · 승차 1,000명 이상 간선·지선',
+                        f'trunk and branch routes over 1,000 boardings · '
+                        f'{latest_note(d, d_ko)[0]}'),
+            'note_ko': (f'각 노선의 이전 {wd_ko} {n}일 중앙값 대비 · 승차 1,000명 이상 간선·지선 · '
+                        f'{latest_note(d, d_ko)[1]}'),
             'map_day': day, 'map_caption': caption,
             # Legend matches the rows ("Up the most"), his call, 11 September
             # 2026; it keeps "Route", having no opener to lean on.
@@ -2023,13 +2044,8 @@ def history_bus_facts(h, day, d, d_ko):
             # stays the bare date, since the map's title and alt read it.
             'dateline_en': f'Boardings on {d}', 'dateline_ko': f'{d_ko} 승차',
             'opener_en': NIGHTBUS_OPENER_EN, 'opener_ko': NIGHTBUS_OPENER_KO,
-            # The footnote says the dateline is the newest day the feed has,
-            # his call, 12 September 2026, since the card cites a day several
-            # days behind: "September 8 is the latest date for which data is
-            # available." A rule, not a lag count, so it is true on the morning
-            # the feed stalls too.
-            'note_en': f'Night routes only. {d} is the latest date for which data is available.',
-            'note_ko': f'심야 노선만. {d_ko}은 데이터가 공개된 가장 최근 날짜.',
+            'note_en': f'Night routes only. {latest_note(d, d_ko)[0]}.',
+            'note_ko': f'심야 노선만. {latest_note(d, d_ko)[1]}.',
             'map_day': day, 'map_caption': caption,
             'map_routes': [(f'Busiest: Route {top[0]}', MAP_COLOURS[0], top[0]),
                            (f'2nd-busiest: Route {second[0]}', MAP_COLOURS[1], second[0]),
@@ -2065,8 +2081,10 @@ def history_bus_facts(h, day, d, d_ko):
             'opener_en': 'Seoul’s bus routes, weekend against weekday',
             'opener_ko': '서울의 버스 노선, 주말 대 평일',
             'note_en': ('Saturday and Sunday per day against Monday to Friday per day · '
-                        'trunk and branch routes over 1,000 weekday boardings'),
-            'note_ko': '토·일 하루 평균 대 월~금 하루 평균 · 평일 승차 1,000명 이상 간선·지선',
+                        'trunk and branch routes over 1,000 weekday boardings · '
+                        f'{latest_note(_span_en(week[0], week[6]), _span_ko(week[0], week[6]), week=True)[0]}'),
+            'note_ko': ('토·일 하루 평균 대 월~금 하루 평균 · 평일 승차 1,000명 이상 간선·지선 · '
+                        f'{latest_note(_span_en(week[0], week[6]), _span_ko(week[0], week[6]), week=True)[1]}'),
             'map_day': week[5],
             'map_caption': (f'Stops on each route on Saturday '
                             f'{en_date(_day_dt(week[5]))}: not necessarily its full path'),
@@ -2207,8 +2225,10 @@ def bus_routes_facts(h, day, d, d_ko):
         'dateline_en': f'Boardings per stop served on {d}',
         'dateline_ko': f'{d_ko} 정류장 1곳당 승차 인원',
         'opener_en': BUSROUTES_OPENER_EN, 'opener_ko': BUSROUTES_OPENER_KO,
-        'note_en': ' '.join(x for x in (BUS_ROUTE_CAVEAT_EN, stops_en, streak_en) if x),
-        'note_ko': ' '.join(x for x in (BUS_ROUTE_CAVEAT_KO, stops_ko, streak_ko) if x),
+        'note_en': ' '.join(x for x in (BUS_ROUTE_CAVEAT_EN, stops_en, streak_en,
+                                        latest_note(d, d_ko)[0] + '.') if x),
+        'note_ko': ' '.join(x for x in (BUS_ROUTE_CAVEAT_KO, stops_ko, streak_ko,
+                                        latest_note(d, d_ko)[1] + '.') if x),
         'map_day': day,
         # Same wording and reason as history_bus_facts()'s caption.
         'map_caption': f'Stops on each route, {d}: not necessarily its full path',

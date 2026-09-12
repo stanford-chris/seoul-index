@@ -1757,6 +1757,9 @@ class BusRoutesVein(unittest.TestCase):
         self.assertTrue(info['dateline_en'].startswith('Boardings per stop served on '), info['dateline_en'])
         self.assertIn('Number of stops: Route 100 (10), 1129 (10), 7719 (10).', info['note_en'])
         self.assertTrue(info['note_en'].startswith('Trunk and branch routes with 10 or more stops. '))
+        # Last sentence of the footnote, after the stop counts and any streak.
+        self.assertTrue(info['note_en'].endswith(f"{info['day_en']} is the latest date for which data is available."))
+        self.assertTrue(info['note_ko'].endswith(f"{info['day_ko']}은 데이터가 공개된 가장 최근 날짜."))
         quiet = self.by_id(facts, 'bus_quietest_route')
         self.assertEqual(quiet['label_en'], 'Quietest: 7719')
         self.assertEqual(quiet['value_en'], '1')
@@ -2161,6 +2164,15 @@ class BusHistoryCards(unittest.TestCase):
         self.assertEqual(info['busmovers']['opener_ko'], '서울의 버스 노선, 평소 월요일 대비')
         self.assertEqual(info['busmovers']['dateline_en'], 'Boardings on 7 September')
         self.assertIn('previous 4 Mondays', info['busmovers']['note_en'])
+        # Every bus card's footnote names its dateline as the newest day (or
+        # week) published, his call, 12 September 2026.
+        self.assertTrue(info['busmovers']['note_en'].endswith(
+            ' · 7 September is the latest date for which data is available'), info['busmovers']['note_en'])
+        self.assertTrue(info['busmovers']['note_ko'].endswith(' · 9월 7일은 데이터가 공개된 가장 최근 날짜'))
+        self.assertTrue(info['busweekend']['note_en'].endswith(
+            ' · August 31 to September 6 is the latest week for which data is available'),
+            info['busweekend']['note_en'])
+        self.assertTrue(info['busweekend']['note_ko'].endswith(' · 8월 31일~9월 6일은 데이터가 공개된 가장 최근 주'))
         self.assertEqual([no for _, _, no in info['busmovers']['map_routes']][:1], ['200'])
         self.assertEqual([l.split(':')[0] for l, _, _ in info['busmovers']['map_routes']],
                          ['Up the most', 'Down the most'])
@@ -2668,8 +2680,10 @@ class BusStopsVein(unittest.TestCase):
         # His wording, 11 Sep 2026, with the registered-stop count read live:
         # STOPS holds 12 rows, 11 of them Seoul ('1') ids.
         self.assertEqual(info['note_en'], 'There are 11 bus stops in Seoul. '
-                                          'Where two stops share a name, the busier is shown.')
-        self.assertEqual(info['note_ko'], '서울 시내 버스 정류장은 11곳. 같은 이름의 정류장이 둘이면 승차가 많은 쪽을 표시.')
+                                          'Where two stops share a name, the busier is shown. '
+                                          f"{info['day_en']} is the latest date for which data is available.")
+        self.assertEqual(info['note_ko'], '서울 시내 버스 정류장은 11곳. 같은 이름의 정류장이 둘이면 승차가 많은 쪽을 표시. '
+                                          f"{info['day_ko']}은 데이터가 공개된 가장 최근 날짜.")
         self.assertIn('Hongik University Station', info['map_alt'])
         self.assertNotIn('map_routes', info)
         # The map says what it is: title and caption, not just the date.
