@@ -2023,7 +2023,13 @@ def history_bus_facts(h, day, d, d_ko):
             # stays the bare date, since the map's title and alt read it.
             'dateline_en': f'Boardings on {d}', 'dateline_ko': f'{d_ko} 승차',
             'opener_en': NIGHTBUS_OPENER_EN, 'opener_ko': NIGHTBUS_OPENER_KO,
-            'note_en': 'Night routes only', 'note_ko': '심야 노선만',
+            # The footnote says the dateline is the newest day the feed has,
+            # his call, 12 September 2026, since the card cites a day several
+            # days behind: "September 8 is the latest date for which data is
+            # available." A rule, not a lag count, so it is true on the morning
+            # the feed stalls too.
+            'note_en': f'Night routes only. {d} is the latest date for which data is available.',
+            'note_ko': f'심야 노선만. {d_ko}은 데이터가 공개된 가장 최근 날짜.',
             'map_day': day, 'map_caption': caption,
             'map_routes': [(f'Busiest: Route {top[0]}', MAP_COLOURS[0], top[0]),
                            (f'2nd-busiest: Route {second[0]}', MAP_COLOURS[1], second[0]),

@@ -2169,8 +2169,11 @@ class BusHistoryCards(unittest.TestCase):
         # Fixed opener, his call, 11 September 2026, same mechanism as busmovers.
         self.assertEqual(info['busweekend']['opener_en'], 'Seoul’s bus routes, weekend against weekday')
         self.assertEqual(info['busweekend']['opener_ko'], '서울의 버스 노선, 주말 대 평일')
-        self.assertEqual(info['nightbus']['note_en'], 'Night routes only')
-        self.assertEqual(info['nightbus']['note_ko'], '심야 노선만')
+        # The footnote names the dateline as the newest day published, his
+        # call, 12 September 2026.
+        self.assertEqual(info['nightbus']['note_en'],
+                         'Night routes only. 7 September is the latest date for which data is available.')
+        self.assertEqual(info['nightbus']['note_ko'], '심야 노선만. 9월 7일은 데이터가 공개된 가장 최근 날짜.')
         # His wording, 11 September 2026: the dateline says what the figures
         # are, while day_en stays the bare date the map title and alt read.
         self.assertEqual(info['nightbus']['dateline_en'], 'Boardings on 7 September')
