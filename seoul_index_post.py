@@ -1290,6 +1290,13 @@ _RANKED_ROUTE_RE = re.compile(r'^[1-7]\d{2,3}$')
 # on 11 September 2026, his layout: the footnote keeps the eligibility rule,
 # then the stop counts, then any streak, as sentences.
 BUS_ROUTE_CAVEAT_EN = 'Trunk and branch routes with 10 or more stops.'
+# The opener is Python's since 12 September 2026, his wording ("just On the
+# buses"): the selector wrote "On the buses today" and "Seoul's bus routes,
+# today" over a card whose day is four days behind the feed, so "today" was
+# a false claim on every post. The dateline carries the day; the title
+# carries none. Same arrangement as BUSSTOP_OPENER_EN.
+BUSROUTES_OPENER_EN = 'On the buses'
+BUSROUTES_OPENER_KO = '서울의 버스'
 BUS_ROUTE_CAVEAT_KO = '정류장 10곳 이상 간선·지선.'
 # Stamped into transport_cache; a same-day cache stamped with another rule
 # (or none) is refetched rather than served with a route the current rule
@@ -2180,6 +2187,7 @@ def bus_routes_facts(h, day, d, d_ko):
         'day_en': d, 'day_ko': d_ko,
         'dateline_en': f'Boardings per stop served on {d}',
         'dateline_ko': f'{d_ko} 정류장 1곳당 승차 인원',
+        'opener_en': BUSROUTES_OPENER_EN, 'opener_ko': BUSROUTES_OPENER_KO,
         'note_en': ' '.join(x for x in (BUS_ROUTE_CAVEAT_EN, stops_en, streak_en) if x),
         'note_ko': ' '.join(x for x in (BUS_ROUTE_CAVEAT_KO, stops_ko, streak_ko) if x),
         'map_day': day,
@@ -6692,7 +6700,7 @@ Rules:
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
 - "transport" lines are Seoul's total subway and bus boardings for the most recently published day, plus that day's busiest and quietest subway stations. The subway and bus TOTAL labels already carry the date in the label itself ("Subway boardings on August 26", "Bus boardings the same day") — there is no separate dateline to lean on here, so do NOT put a date anywhere in the opener, and do NOT write a second, different date of your own: a neutral opener with no date at all is enough, e.g. "Through the turnstiles", "Seoul on the move". Never call a station busy, quiet, packed or empty — the four numbers say it.
-- "busroutes" lines are that day's busiest, second-busiest and quietest Seoul bus routes by plain route number ("Busiest: 143"), plus the day's total bus boardings — own post, never mixed with any other category, including "transport" above (that vein's own bus/subway totals are a different card). All FOUR lines are compulsory and must be used together, in that order: this is a complete small ranking, not a selection from it, the same rule "boxoffice" uses for its top four films. The dateline carries the date, so do NOT put a date anywhere in the opener and do NOT write a second one of your own — the opener MUST name buses or bus routes, because the lines carry BARE ROUTE NUMBERS with no "Route" word ("Busiest: 143"), e.g. "Seoul's buses", "On the buses today", and it MUST NOT settle on one wording, so write a fresh one each time. Never call a route busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines: the numbers say it. If the footnote already names a route's winning streak, do not repeat or rephrase that fact in the opener — it would say the same thing twice on one card.
+- "busroutes" lines are that day's busiest, second-busiest and quietest Seoul bus routes by plain route number ("Busiest: 143"), plus the day's total bus boardings — own post, never mixed with any other category, including "transport" above (that vein's own bus/subway totals are a different card). All FOUR lines are compulsory and must be used together, in that order: this is a complete small ranking, not a selection from it, the same rule "boxoffice" uses for its top four films. The dateline carries the date, so do NOT put a date anywhere in the opener and do NOT write a second one of your own — the opener MUST name buses or bus routes, because the lines carry BARE ROUTE NUMBERS with no "Route" word ("Busiest: 143"); like "busstops" its opener is FIXED and written by Python ("On the buses") and whatever opener you write for this card is replaced, and it must never say "today", since the day shown is several days behind. Never call a route busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines: the numbers say it. If the footnote already names a route's winning streak, do not repeat or rephrase that fact in the opener — it would say the same thing twice on one card.
 - "stations" lines are that day's busiest, second-busiest and quietest Seoul SUBWAY stations by official English name ("Busiest: Seoul Station"), plus the day's total subway boardings — own post, never mixed with any other category, including "transport" and "busroutes" above. Exactly the same rules as "busroutes": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the opener MUST name the subway or its stations, because the lines carry BARE STATION NAMES with no "station" word ("Busiest: Seoul Station", "Quietest: Dorimcheon"), e.g. "Seoul's subway, station by station", "Through the turnstiles", and it MUST NOT settle on one wording; never call a station busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines.
 - "busstops" lines are that day's busiest, second-busiest and third-busiest Seoul BUS STOPS ("Busiest: Hongik University Station", one stop per name, the busier side of the road), plus how many stops took at least one boarding that day — own post, never mixed with any other category, including "transport", "busroutes" and "stations" above. Exactly the same rules as "stations": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the lines carry BARE STOP NAMES with no "stop" word, and a stop named after a station reads as the station unless the title says these are bus stops, so like "busmovers" its opener is FIXED and written by Python ("Seoul's bus stops") and whatever opener you write for this card is replaced; never call a stop busy, quiet, packed or empty, and never remark on the gap between the lines. There is no quietest line on this card, by design.
 - "railstations" lines are the four busiest of Seoul's Korail stations by boardings on one day ("Seoul Station", "Yongsan"), from the Korea Railroad Corporation — own post, never mixed with any other category, including "rail" and "stations" above (the subway card is a different thing). All FOUR lines are compulsory, used together, in that order; the dateline carries the date and the footnote the operator note, so do NOT put either in the opener. The lines are BARE STATION NAMES, so like "busmovers" its opener is FIXED and written by Python ("Seoul's railway stations") and whatever opener you write for this card is replaced. Never call a station busy or quiet, and never remark on the gap between the lines.
@@ -6779,6 +6787,29 @@ def apply_holds(pool):
     if n:
         print(f'Held back by HELD_CATS ({", ".join(sorted(held))}): {n} facts withheld.')
     return [f for f in pool if f['cat'] not in held]
+
+
+def route_map_words(info, n_stops):
+    """(caption, alt) for a ranked bus card's route map, `n_stops` being the
+    backdrop's stop count as drawn. Both carry his sentence from the bus
+    stops map ("The map is composed of gray dots that represent each of
+    Seoul’s N bus stops", 11 September 2026): until 12 September the routes
+    map said only "a faint backdrop of every Seoul bus stop" in its alt and
+    nothing about the dots on the picture, and he remembered the fuller
+    wording as being on both. The count is the backdrop actually drawn, so
+    the sentence can never disagree with the picture."""
+    dots = (f'The map is composed of gray dots that represent each of Seoul’s '
+            f'{grouped(n_stops)} bus stops.')
+    base = info['map_caption'].rstrip()
+    if not base.endswith('.'):          # the callers' captions end bare
+        base += '.'
+    caption = f'{base} {dots}'
+    nos = [no for _, _, no in info['map_routes']]
+    alt = (f'Map of {len(nos)} Seoul bus routes, {info["day_en"]}: '
+           + '; '.join(label for label, _, _ in info['map_routes'])
+           + f'. Drawn from each route’s stops in the day’s feed. {dots} '
+             'Not necessarily each route’s full official path.')
+    return caption, alt
 
 
 def daily_data_day(cat):
@@ -9653,14 +9684,10 @@ def main():
                         route_stops, seoul_stops = bus_route_map_stops(api_key, info['map_day'], nos)
                         routes = [(label, colour, route_stops.get(no, []))
                                   for label, colour, no in info['map_routes']]
+                        map_caption, map_alt = route_map_words(info, len(seoul_stops))
                         _, map_size = render_bus_route_map(
                             routes, seoul_stops, map_path, title=info['day_en'],
-                            caption=info['map_caption'])
-                        map_alt = (f'Map of {len(nos)} Seoul bus routes, {info["day_en"]}: '
-                                   + '; '.join(label for label, _, _ in info['map_routes'])
-                                   + '. Drawn from each route’s stops in the day’s feed over a '
-                                     'faint backdrop of every Seoul bus stop. Not necessarily '
-                                     'each route’s full official path.')
+                            caption=map_caption)
                     map_ar = models.AppBskyEmbedDefs.AspectRatio(
                         width=map_size[0], height=map_size[1])
                     bsky.send_image(text='', image=map_path.read_bytes(),

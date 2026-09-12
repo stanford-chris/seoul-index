@@ -3705,5 +3705,48 @@ class DailySlot(unittest.TestCase):
                       "    stamp_daily_day(state, primary)", src)
 
 
+class BusRoutesOpener(unittest.TestCase):
+    """His wording, 12 September 2026: "On the buses", no "today". The card
+    shows a day four days behind the feed, so a selector-written "today"
+    was false on every post. The registry entry is what the fixed-opener
+    pass reads, so the pin is on both the words and the wiring."""
+
+    def test_the_opener_is_his_and_carries_no_today(self):
+        self.assertEqual(S.BUSROUTES_OPENER_EN, 'On the buses')
+        self.assertEqual(S.BUSROUTES_OPENER_KO, '서울의 버스')
+        self.assertNotIn('today', S.BUSROUTES_OPENER_EN)
+        self.assertNotIn('오늘', S.BUSROUTES_OPENER_KO)
+
+    def test_the_registry_entry_carries_it(self):
+        src = Path(S.__file__).read_text()
+        self.assertIn("'opener_en': BUSROUTES_OPENER_EN, 'opener_ko': BUSROUTES_OPENER_KO,", src)
+        # And the selector is told it is replaced, so it stops inventing one.
+        self.assertIn('its opener is FIXED and written by Python ("On the buses")', src)
+
+
+class RouteMapWords(unittest.TestCase):
+    """The route maps' caption and alt carry his bus-stops-map sentence with
+    the backdrop's live count, 12 September 2026."""
+
+    INFO = {'day_en': 'September 8',
+            'map_caption': 'Stops on each route, September 8: not necessarily its full path',
+            'map_routes': [('Busiest: Route 2211', '#d70000', '2211'),
+                           ('2nd-busiest: Route 5515', '#e08a1e', '5515'),
+                           ('Quietest: Route 1226', '#000000', '1226')]}
+
+    def test_caption_and_alt_name_the_dots_and_the_count(self):
+        caption, alt = S.route_map_words(self.INFO, 11236)
+        dots = 'The map is composed of gray dots that represent each of Seoul’s 11,236 bus stops.'
+        self.assertEqual(caption, self.INFO['map_caption'] + '. ' + dots)
+        self.assertIn(dots, alt)
+        self.assertTrue(alt.startswith('Map of 3 Seoul bus routes, September 8: Busiest: Route 2211; '))
+        self.assertTrue(alt.endswith('Not necessarily each route’s full official path.'))
+
+    def test_the_poster_reads_the_count_off_the_backdrop_it_draws(self):
+        src = Path(S.__file__).read_text()
+        self.assertIn('map_caption, map_alt = route_map_words(info, len(seoul_stops))', src)
+        self.assertIn("caption=map_caption)", src)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

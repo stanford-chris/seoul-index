@@ -19,6 +19,7 @@ at CHROME (true on this Mac, where these bots actually run).
 """
 import subprocess
 import sys
+import re
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -183,6 +184,27 @@ class BusRouteMap(unittest.TestCase):
         self.assertIn('stroke="#000000"', doc)
         self.assertIn('Busiest: Route 143', doc)
         self.assertIn('Quietest: Route 8641', doc)
+
+    @patch.object(C, '_shoot')
+    def test_a_long_caption_wraps_and_lifts_the_legend(self, mock_shoot):
+        # With his bus-stops sentence on it (12 September 2026) the caption
+        # runs to ~150 characters, and drawn as one line it was cut at the
+        # right edge. Each extra line lifts the legend by a line height.
+        mock_shoot.return_value = ('out.png', (1200, 1200))
+        routes = [('Busiest: Route 2211', '#d70000', [(127.0, 37.5), (127.01, 37.51)])]
+        stops = [(127.0, 37.5), (127.02, 37.52)]
+        long = ('Stops on each route, September 8: not necessarily its full path. The map '
+                'is composed of gray dots that represent each of Seoul’s 11,236 bus stops.')
+        C.render_bus_route_map(routes, stops, 'out.png', caption='short')
+        one = mock_shoot.call_args[0][0]
+        C.render_bus_route_map(routes, stops, 'out.png', caption=long)
+        two = mock_shoot.call_args[0][0]
+        self.assertEqual(one.count('font-size="9"'), 1)
+        self.assertEqual(two.count('font-size="9"'), 2)
+        self.assertNotIn(long, two)                 # never drawn as one line
+        self.assertIn('11,236 bus stops.', two)     # nothing dropped
+        legend_y = lambda doc: int(re.search(r'<rect x="30" y="(\d+)"', doc).group(1))
+        self.assertEqual(legend_y(one) - legend_y(two), 12)
 
     @patch.object(C, '_shoot')
     def test_a_route_with_no_stops_draws_no_path_but_does_not_crash(self, mock_shoot):

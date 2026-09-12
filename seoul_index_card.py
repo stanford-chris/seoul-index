@@ -56,6 +56,7 @@ Public API:
 Raises CardRenderError on any failure so the poster can fall back to plaintext.
 """
 
+import textwrap
 import html
 import math
 import re
@@ -66,6 +67,7 @@ from pathlib import Path
 CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 SENTINEL = 'FF00FF'          # page background; cropped away. Never appears in art.
 SENTINEL_RGB = (255, 0, 255)
+MAP_CAPTION_WRAP = 100       # characters per caption line on the route map
 CARD_WIDTH = 600             # CSS px; device-scale 2 renders at 1200 px.
 RENDER_HEIGHT = 1000         # generous CSS height; cropped to content after.
 # Escalating per-attempt budgets, not one fixed timeout repeated. A single
@@ -385,10 +387,16 @@ def render_bus_route_map(routes, seoul_stops, out_path, title='', caption=''):
     body.append(f'<g fill="{INK}" opacity="0.16">{"".join(crisp)}</g>')
 
     legend = []
+    # The caption wraps at MAP_CAPTION_WRAP characters (Menlo 9px on a
+    # 600px canvas holds about a hundred): with his bus-stops sentence on it
+    # since 12 September 2026 it runs to ~150 characters, and drawn as one
+    # line it was cut at the right edge ("...gray dots that rep"). Each
+    # extra line lifts the legend by a line height, as extra legend rows do.
+    caption_lines = textwrap.wrap(caption, MAP_CAPTION_WRAP) if caption else []
     # The legend grows upward with its row count so the caption under it
     # stays on the canvas: three rows start at size-84, four at size-103.
     # (A four-route map clipped its caption on 10 September 2026.)
-    ly = size - 84 - 19 * (len(routes) - 3)
+    ly = size - 84 - 19 * (len(routes) - 3) - 12 * max(0, len(caption_lines) - 1)
     legend_top = ly - 20
     for label, colour, pts in routes:
         line_pts = [xy(lon, lat) for lon, lat in pts]
@@ -406,11 +414,14 @@ def render_bus_route_map(routes, seoul_stops, out_path, title='', caption=''):
     # same fix as the card's own legend/caption spacing.
     caption_y = ly + 12
     legend_bg = (f'<rect x="0" y="{legend_top}" width="{size}" '
-                 f'height="{caption_y - legend_top + 10}" fill="{CREAM}" opacity="0.94"/>')
+                 f'height="{caption_y - legend_top + 10 + 12 * max(0, len(caption_lines) - 1)}" '
+                 f'fill="{CREAM}" opacity="0.94"/>')
     title_html = (f'<text x="30" y="25" font-family="Menlo,monospace" font-size="14" '
                   f'font-weight="bold" fill="{RED}">{_esc(title)}</text>' if title else '')
-    caption_html = (f'<text x="30" y="{caption_y}" font-family="Menlo,monospace" '
-                    f'font-size="9" fill="{MUTED}">{_esc(caption)}</text>' if caption else '')
+    caption_html = ''.join(
+        f'<text x="30" y="{caption_y + 12 * i}" font-family="Menlo,monospace" '
+        f'font-size="9" fill="{MUTED}">{_esc(line)}</text>'
+        for i, line in enumerate(caption_lines))
 
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}">'
            f'<defs><filter id="soften" x="-20%" y="-20%" width="140%" height="140%">'
