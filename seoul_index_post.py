@@ -4226,6 +4226,22 @@ MOLIT_BASE = 'http://apis.data.go.kr/1613000'
 MOLIT_UA = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
             'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15')
 
+
+def _curl(url, timeout=30, ua=MOLIT_UA, follow=False):
+    """One curl fetch with a MOLIT/data.go.kr-style user agent, returning
+    stdout as text. Shared shape behind every vein fetch below that used to
+    build this exact subprocess.run() call by hand before diverging into
+    its own JSON/XML parsing. None of those call sites ever checked the
+    exit code -- a failed fetch (non-zero exit, or a timeout) just leaves
+    stdout empty or partial, and the parser that follows raises or returns
+    None on that same input, so this preserves that rather than adding a
+    check nothing here relied on."""
+    cmd = ['curl', '-s']
+    if follow:
+        cmd.append('-L')
+    cmd += ['--max-time', str(timeout), '-A', ua, url]
+    return subprocess.run(cmd, capture_output=True, text=True).stdout
+
 # Seoul's 25 자치구 by 법정동 code prefix (LAWD_CD). Verified 22 Jul 2026
 # against the API itself: each code's May-2026 rows majority-report the same
 # district in estateAgentSggNm.
@@ -4291,13 +4307,12 @@ def _molit_items(service, lawd, ym, key):
     while True:
         url = (f'{MOLIT_BASE}/{service}/get{service}?serviceKey={key}'
                f'&LAWD_CD={lawd}&DEAL_YMD={ym}&numOfRows=1000&pageNo={page}')
-        r = subprocess.run(['curl', '-s', '--max-time', '60', '-A', MOLIT_UA, url],
-                           capture_output=True, text=True)
+        stdout = _curl(url, timeout=60)
         try:
-            root = ET.fromstring(r.stdout)
+            root = ET.fromstring(stdout)
         except ET.ParseError:
             raise RuntimeError(f'MOLIT {service} {lawd}/{ym}: not XML: '
-                               f'{r.stdout[:80]!r}')
+                               f'{stdout[:80]!r}')
         if root.findtext('.//resultCode') != '000':
             raise RuntimeError(f'MOLIT {service} {lawd}/{ym}: '
                                f'{root.findtext(".//resultMsg")!r}')
@@ -4469,10 +4484,9 @@ def _wx_rows(key, start, end, rows=31):
     months, so its caller asks for enough rows to cover the whole window in
     one page (the API returns the full range when numOfRows spans it)."""
     url = WX_BASE.format(key=key, start=start, end=end, rows=rows)
-    r = subprocess.run(['curl', '-s', '--max-time', '30', '-A', MOLIT_UA, url],
-                       capture_output=True, text=True)
+    stdout = _curl(url)
     try:
-        body = json.loads(r.stdout)['response']['body']
+        body = json.loads(stdout)['response']['body']
     except (ValueError, KeyError, TypeError):
         return []
     items = body.get('items')
@@ -4748,10 +4762,9 @@ def _kac_month(key, y, m, route=None):
     """김포's row for one month as {'pax': int, 'flights': int}, or None."""
     extra = f'&routeBe={route}' if route is not None else ''
     url = KAC_BASE.format(key=key, ym=f'{y}{m:02d}', extra=extra)
-    r = subprocess.run(['curl', '-s', '--max-time', '30', '-A', MOLIT_UA, url],
-                       capture_output=True, text=True)
+    stdout = _curl(url)
     try:
-        root = ET.fromstring(r.stdout)
+        root = ET.fromstring(stdout)
     except ET.ParseError:
         return None
     for it in root.iter('item'):
@@ -4862,10 +4875,9 @@ IIAC_COUNTRY_EN = {
 def _iiac_rows(key):
     """This month's passenger rows (paxCode == '여객'), or []."""
     url = IIAC_BASE.format(key=key)
-    r = subprocess.run(['curl', '-s', '--max-time', '30', '-A', MOLIT_UA, url],
-                       capture_output=True, text=True)
+    stdout = _curl(url)
     try:
-        items = json.loads(r.stdout)['response']['body']['items']
+        items = json.loads(stdout)['response']['body']['items']
     except (ValueError, KeyError, TypeError):
         return []
     if not isinstance(items, list):
@@ -4981,10 +4993,9 @@ def _rescue_rows(key, a, b):
     rows, total = [], None
     for page in range(1, RESCUE_MAX_PAGES + 1):
         url = RESCUE_BASE.format(key=key, page=page, a=a, b=b)
-        r = subprocess.run(['curl', '-s', '--max-time', '30', '-A', MOLIT_UA, url],
-                           capture_output=True, text=True)
+        stdout = _curl(url)
         try:
-            body = json.loads(r.stdout)['response']['body']
+            body = json.loads(stdout)['response']['body']
             total = int(body['totalCount'])
             items = body['items']['item'] if body.get('items') else []
         except (ValueError, KeyError, TypeError):
@@ -5085,10 +5096,9 @@ def _kopis_seoul(key, a, b):
     """The 서울 row of prfstsArea for a..b (YYYYMMDD), as {tag: int}, or
     None when the call failed, parsed to nothing, or carried no 서울 row."""
     url = KOPIS_BASE.format(key=key, a=a, b=b)
-    r = subprocess.run(['curl', '-s', '-L', '--max-time', '30', '-A', MOLIT_UA, url],
-                       capture_output=True, text=True)
+    stdout = _curl(url, follow=True)
     try:
-        root = ET.fromstring(r.stdout)
+        root = ET.fromstring(stdout)
     except ET.ParseError:
         return None
     for row in root.findall('prfst'):
@@ -5218,10 +5228,9 @@ def _kepco_rows(key, y, m):
     if (y, m) in _KEPCO_CACHE:
         return _KEPCO_CACHE[(y, m)]
     url = KEPCO_BASE.format(key=key, y=y, m=m)
-    r = subprocess.run(['curl', '-s', '-L', '--max-time', '30', '-A', MOLIT_UA, url],
-                       capture_output=True, text=True)
+    stdout = _curl(url, follow=True)
     try:
-        d = json.loads(r.stdout)
+        d = json.loads(stdout)
         rows = d['data']
     except (ValueError, KeyError, TypeError):
         _KEPCO_CACHE[(y, m)] = None
@@ -5357,10 +5366,9 @@ def _kepco_house_rows(key, y, m):
     if (y, m) in _KEPCO_HOUSE_CACHE:
         return _KEPCO_HOUSE_CACHE[(y, m)]
     url = KEPCO_HOUSE_BASE.format(key=key, y=y, m=m)
-    r = subprocess.run(['curl', '-s', '-L', '--max-time', '30', '-A', MOLIT_UA, url],
-                       capture_output=True, text=True)
+    stdout = _curl(url, follow=True)
     try:
-        rows = json.loads(r.stdout)['data']
+        rows = json.loads(stdout)['data']
     except (ValueError, KeyError, TypeError):
         rows = None
     if not isinstance(rows, list) or len(rows) < KEPCO_HOUSE_MIN_ROWS:
@@ -5490,10 +5498,9 @@ def _korail_fetch(key, op, numofrows, page=1):
     """One page of one Korail operation, as its item list, or []."""
     url = (KORAIL_BASE.format(op=op) +
            f'?serviceKey={key}&pageNo={page}&numOfRows={numofrows}&type=json')
-    r = subprocess.run(['curl', '-s', '--max-time', '45', '-A', MOLIT_UA, url],
-                       capture_output=True, text=True)
+    stdout = _curl(url, timeout=45)
     try:
-        items = json.loads(r.stdout)['response']['body']['items']['item']
+        items = json.loads(stdout)['response']['body']['items']['item']
     except (ValueError, KeyError, TypeError):
         return []
     return items if isinstance(items, list) else []
@@ -6034,10 +6041,9 @@ def hira_facts(key):
     got = []
     for code, en, ko in HEALTH_CONDS:
         url = HIRA_BASE.format(key=key, year=year, code=code)
-        r = subprocess.run(['curl', '-s', '--max-time', '30', '-A', MOLIT_UA,
-                            url], capture_output=True, text=True)
+        stdout = _curl(url)
         try:
-            root = ET.fromstring(r.stdout)
+            root = ET.fromstring(stdout)
         except ET.ParseError:
             continue
         for it in root.iter('item'):
@@ -6157,10 +6163,9 @@ def hira_cost_facts(key):
                   'cond[시도구분::EQ]': '서울', 'cond[주상병코드::EQ]': code,
                   'serviceKey': key, 'returnType': 'JSON'}
         full = url + '?' + urllib.parse.urlencode(params)
-        r = subprocess.run(['curl', '-s', '--max-time', '30', '-A', MOLIT_UA,
-                            full], capture_output=True, text=True)
+        stdout = _curl(full)
         try:
-            row = json.loads(r.stdout)['data'][0]
+            row = json.loads(stdout)['data'][0]
             cost = int(row['요양급여비용총액(선별포함)'])
             patients = int(row['환자수'])
         except (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError):
@@ -6240,10 +6245,9 @@ CULTURE_Y = {'y': None}
 def _culture_rows(key, op, yr):
     """One facility table's Seoul rows (시군구 codes 11xxx)."""
     url = CULTURE_BASE.format(op=op, key=key, yr=yr)
-    r = subprocess.run(['curl', '-s', '--max-time', '60', '-A', MOLIT_UA, url],
-                       capture_output=True, text=True)
+    stdout = _curl(url, timeout=60)
     try:
-        rows = json.loads(r.stdout)['response']['body']['data']
+        rows = json.loads(stdout)['response']['body']['data']
     except (ValueError, KeyError, TypeError):
         return []
     return [x for x in rows if str(x.get('sggCd', '')).startswith('11')]
@@ -6391,10 +6395,9 @@ def tour_facts(key):
     for _ in range(12):
         first = (first - timedelta(days=1)).replace(day=1)
         url = TOUR_BASE.format(key=key, ym=f'{first:%Y%m}')
-        r = subprocess.run(['curl', '-s', '--max-time', '30', '-A', MOLIT_UA,
-                            url], capture_output=True, text=True)
+        stdout = _curl(url)
         try:
-            root = ET.fromstring(r.stdout)
+            root = ET.fromstring(stdout)
         except ET.ParseError:
             return []
         items = list(root.iter('item'))
