@@ -327,6 +327,41 @@ def render_card(opener, lines, out_path, korean=False, footnote='', dateline='')
 MAP_SIZE = 600  # CSS px; device-scale 2 renders at 1200 px, same width as a card.
 
 
+def _seoul_backdrop(seoul_stops, size):
+    """The lon/lat bounding-box projection and the soft-blur-plus-crisp-dot
+    backdrop of every Seoul bus stop, shared by render_bus_route_map() and
+    render_station_map() before each draws its own legend and caption on
+    top of it. Returns (xy, body): xy(lon, lat) projects a coordinate onto
+    the size×size canvas, and body is the two-layer backdrop as a list of
+    SVG elements, for the caller to keep appending routes/stations onto."""
+    pad = size * 0.05
+    lo0 = min(p[0] for p in seoul_stops)
+    lo1 = max(p[0] for p in seoul_stops)
+    la0 = min(p[1] for p in seoul_stops)
+    la1 = max(p[1] for p in seoul_stops)
+    k = math.cos(math.radians((la0 + la1) / 2))
+    scale = min((size - 2 * pad) / ((lo1 - lo0) * k), (size - 2 * pad) / (la1 - la0))
+    ox = (size - (lo1 - lo0) * k * scale) / 2
+    oy = (size - (la1 - la0) * scale) / 2
+
+    def xy(lon, lat):
+        return (ox + (lon - lo0) * k * scale, size - oy - (lat - la0) * scale)
+
+    body = []
+    # A blurred layer first, so the dense cloud of dots merges into a soft
+    # landmass silhouette (real stop density, not a drawn coastline), then
+    # crisp dots on top for texture close up — the same two-pass treatment
+    # the design preview settled on before this was ever wired into main().
+    soft, crisp = [], []
+    for lon, lat in seoul_stops:
+        x, y = xy(lon, lat)
+        soft.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1.05"/>')
+        crisp.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="0.5"/>')
+    body.append(f'<g fill="{MUTED}" opacity="0.5" filter="url(#soften)">{"".join(soft)}</g>')
+    body.append(f'<g fill="{INK}" opacity="0.16">{"".join(crisp)}</g>')
+    return xy, body
+
+
 def render_bus_route_map(routes, seoul_stops, out_path, title='', caption=''):
     """Draw named bus routes over a faint backdrop of every Seoul bus stop —
     the threaded reply for the busroutes card, built entirely from data
@@ -350,18 +385,7 @@ def render_bus_route_map(routes, seoul_stops, out_path, title='', caption=''):
     if not routes or not seoul_stops:
         raise CardRenderError('no route or stop data to draw')
     size = MAP_SIZE
-    pad = size * 0.05
-    lo0 = min(p[0] for p in seoul_stops)
-    lo1 = max(p[0] for p in seoul_stops)
-    la0 = min(p[1] for p in seoul_stops)
-    la1 = max(p[1] for p in seoul_stops)
-    k = math.cos(math.radians((la0 + la1) / 2))
-    scale = min((size - 2 * pad) / ((lo1 - lo0) * k), (size - 2 * pad) / (la1 - la0))
-    ox = (size - (lo1 - lo0) * k * scale) / 2
-    oy = (size - (la1 - la0) * scale) / 2
-
-    def xy(lon, lat):
-        return (ox + (lon - lo0) * k * scale, size - oy - (lat - la0) * scale)
+    xy, body = _seoul_backdrop(seoul_stops, size)
 
     def smooth(pts):
         if len(pts) < 3:
@@ -372,19 +396,6 @@ def render_bus_route_map(routes, seoul_stops, out_path, title='', caption=''):
             d.append(f'Q{pts[i][0]:.1f},{pts[i][1]:.1f} {mx:.1f},{my:.1f}')
         d.append(f'L{pts[-1][0]:.1f},{pts[-1][1]:.1f}')
         return ' '.join(d)
-
-    body = []
-    # A blurred layer first, so the dense cloud of dots merges into a soft
-    # landmass silhouette (real stop density, not a drawn coastline), then
-    # crisp dots on top for texture close up — the same two-pass treatment
-    # the design preview settled on before this was ever wired into main().
-    soft, crisp = [], []
-    for lon, lat in seoul_stops:
-        x, y = xy(lon, lat)
-        soft.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1.05"/>')
-        crisp.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="0.5"/>')
-    body.append(f'<g fill="{MUTED}" opacity="0.5" filter="url(#soften)">{"".join(soft)}</g>')
-    body.append(f'<g fill="{INK}" opacity="0.16">{"".join(crisp)}</g>')
 
     legend = []
     # The caption wraps at MAP_CAPTION_WRAP characters (Menlo 9px on a
@@ -469,27 +480,7 @@ def render_station_map(stations, seoul_stops, out_path, title='', caption=''):
     if not stations or not seoul_stops:
         raise CardRenderError('no station or stop data to draw')
     size = MAP_SIZE
-    pad = size * 0.05
-    lo0 = min(p[0] for p in seoul_stops)
-    lo1 = max(p[0] for p in seoul_stops)
-    la0 = min(p[1] for p in seoul_stops)
-    la1 = max(p[1] for p in seoul_stops)
-    k = math.cos(math.radians((la0 + la1) / 2))
-    scale = min((size - 2 * pad) / ((lo1 - lo0) * k), (size - 2 * pad) / (la1 - la0))
-    ox = (size - (lo1 - lo0) * k * scale) / 2
-    oy = (size - (la1 - la0) * scale) / 2
-
-    def xy(lon, lat):
-        return (ox + (lon - lo0) * k * scale, size - oy - (lat - la0) * scale)
-
-    body = []
-    soft, crisp = [], []
-    for lon, lat in seoul_stops:
-        x, y = xy(lon, lat)
-        soft.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="1.05"/>')
-        crisp.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="0.5"/>')
-    body.append(f'<g fill="{MUTED}" opacity="0.5" filter="url(#soften)">{"".join(soft)}</g>')
-    body.append(f'<g fill="{INK}" opacity="0.16">{"".join(crisp)}</g>')
+    xy, body = _seoul_backdrop(seoul_stops, size)
 
     legend = []
     ly = size - 84 - 19 * (len(stations) - 3)   # see render_bus_route_map
