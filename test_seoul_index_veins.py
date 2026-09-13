@@ -2017,6 +2017,12 @@ class StationsCard(unittest.TestCase):
 
     def setUp(self):
         S.STATION_DAY['en'], S.STATION_DAY['ko'] = '7 September', '9월 7일'
+        # The masthead reads the real date off here for the day of the
+        # week (see en_date_dow()); 20260907 is a Monday.
+        S.STATION_MAP_INFO['day'] = '20260907'
+
+    def tearDown(self):
+        S.STATION_MAP_INFO['day'] = None
 
     def test_shape_matches_the_busroutes_card(self):
         c = self._card()
@@ -2026,13 +2032,16 @@ class StationsCard(unittest.TestCase):
         self.assertEqual([l['label_en'] for l in c['lines']],
                          ['Busiest: Seoul Station', '2nd-busiest: Jamsil', 'Quietest: Oksu',
                           'Total subway boardings'])
-        self.assertEqual(c['dateline_en'], '7 September')
+        # The masthead carries the day of the week, his call, 13 September
+        # 2026; day_en (STATION_DAY, used by the footnote below) stays bare.
+        self.assertEqual(c['dateline_en'], 'Monday, September 7')
         self.assertEqual(c['opener']['emoji'], '🚇')
 
     def test_the_footnote_says_what_the_ranking_counts(self):
         c = self._card()
         # The bus cards' closing sentence, on this card too: his call,
-        # 12 September 2026.
+        # 12 September 2026. The footnote keeps the bare date even though
+        # the masthead above now carries the day of the week.
         self.assertEqual(c['note_en'], 'Stations inside Seoul, all lines combined. '
                                        '7 September is the latest date for which data is available.')
         self.assertEqual(c['note_ko'], '서울 시내 역, 전 노선 합산. 9월 7일은 데이터가 공개된 가장 최근 날짜.')
@@ -2172,10 +2181,10 @@ class BusHistoryCards(unittest.TestCase):
         self.assertTrue(info['busmovers']['note_en'].endswith(
             ' · 7 September is the latest date for which data is available'), info['busmovers']['note_en'])
         self.assertTrue(info['busmovers']['note_ko'].endswith(' · 9월 7일은 데이터가 공개된 가장 최근 날짜'))
-        self.assertTrue(info['busweekend']['note_en'].endswith(
-            ' · August 31 to September 6 is the latest week for which data is available'),
-            info['busweekend']['note_en'])
-        self.assertTrue(info['busweekend']['note_ko'].endswith(' · 8월 31일~9월 6일은 데이터가 공개된 가장 최근 주'))
+        # (Whether this card's own "is the latest week" sentence shows
+        # depends on how far its fixed week (ending 6 September) sits
+        # behind the real calendar day the suite runs on -- see
+        # LatestNoteFreshness for the mechanism pinned independent of that.)
         self.assertEqual([no for _, _, no in info['busmovers']['map_routes']][:1], ['200'])
         self.assertEqual([l.split(':')[0] for l, _, _ in info['busmovers']['map_routes']],
                          ['Up the most', 'Down the most'])
@@ -2983,7 +2992,9 @@ class SeoulStationCard(unittest.TestCase):
         self.facts()
         info = S.RANKED_CARD_INFO['seoulstation']
         self.assertEqual(info['opener_en'], 'Seoul Station')
-        self.assertEqual(info['dateline_en'], 'September 8')
+        # The masthead carries the day of the week, his call, 13 September
+        # 2026; the footnote below keeps the bare date.
+        self.assertEqual(info['dateline_en'], 'Tuesday, September 8')
         self.assertEqual(info['note_en'], 'Typical: the median of the previous 6 Tuesdays. '
                                           'Korail trains only; SRT is a separate operator. '
                                           'September 8 is the latest date for which data is available.')
@@ -3024,7 +3035,7 @@ class SeoulStationCard(unittest.TestCase):
         self.assertTrue(all(l.get('bold') for l in c['lines']))
         self.assertEqual([l['label_en'] for l in c['lines']],
                          ['Boarded', 'Got off', 'Passengers', 'A typical Tuesday'])
-        self.assertEqual(c['dateline_en'], 'September 8')
+        self.assertEqual(c['dateline_en'], 'Tuesday, September 8')
         self.assertEqual(c['opener']['emoji'], '🚆')
         self.assertIn('korail.com', c['src_en'])
 
@@ -3053,13 +3064,16 @@ class SeoulStationCard(unittest.TestCase):
         self.assertEqual(c['dateline_ko'], '9월 25일 추석')
 
     def test_an_ordinary_day_and_a_failed_holiday_lookup_both_show_the_plain_date(self):
+        # "Plain date" now means the day-of-week-prefixed masthead (his
+        # call, 13 September 2026), as against the holiday sentence in
+        # test_a_holiday_is_named_on_the_dateline_in_his_wording above.
         self.facts()
-        self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['dateline_en'], 'September 8')
+        self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['dateline_en'], 'Tuesday, September 8')
         S._KORAIL_RUN.clear()
         S.BUS_HISTORY.write_text('{}')     # no cache; the stubbed curl serves no holiday rows
         self.facts()
-        self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['dateline_en'], 'September 8')
-        self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['dateline_ko'], '9월 8일')
+        self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['dateline_en'], 'Tuesday, September 8')
+        self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['dateline_ko'], '9월 8일 (화요일)')
 
     def test_nothing_of_this_class_is_held(self):
         # seoulstation was held and released on 11 September 2026.
@@ -3135,7 +3149,9 @@ class StationGapCard(unittest.TestCase):
         self._facts()
         info = S.RANKED_CARD_INFO['stationgap']
         self.assertEqual(info['opener_en'], 'Seoul’s subway, one station')
-        self.assertEqual(info['dateline_en'], S.STATION_DAY['en'])
+        # The masthead carries the day of the week, his call, 13 September
+        # 2026; the footnote below keeps the bare date (STATION_DAY).
+        self.assertEqual(info['dateline_en'], S.en_date_dow(S._day_dt(S.STATION_MAP_INFO['day'])))
         self.assertEqual(info['note_en'], S.STATIONGAP_NOTE_EN
                          + f" {S.STATION_DAY['en']} is the latest date for which data is available.")
 
@@ -3314,12 +3330,14 @@ class WxDayCard(unittest.TestCase):
         info = S.RANKED_CARD_INFO['wxday']
         self.assertEqual(info['opener_en'], 'Seoul’s weather yesterday')
         yday = S.datetime.now(S.SEOUL_TZ).date() - S.timedelta(days=1)
-        self.assertEqual(info['dateline_en'], S.en_date(yday))
+        # The masthead carries the day of the week, his call, 13 September
+        # 2026 (see en_date_dow()).
+        self.assertEqual(info['dateline_en'], S.en_date_dow(yday))
         self.assertIn('observing since 1907', info['note_en'])
-        # Every dated card's footnote ends by naming its period as the newest
-        # published, his call, 12 September 2026.
-        self.assertTrue(info['note_en'].endswith(
-            f' · {S.en_date(yday)} is the latest date for which data is available'), info['note_en'])
+        # wxday is always yesterday's reading, which is as fresh as a date
+        # can possibly be, so the "is the latest date" sentence never
+        # applies here: his call, 13 September 2026. See LatestNote.
+        self.assertNotIn('is the latest date', info['note_en'])
 
     def test_no_row_or_no_temperatures_withholds(self):
         self.assertEqual(self.wx(None), [])
@@ -3422,12 +3440,12 @@ class RescueCard(unittest.TestCase):
         self.assertEqual(info['dateline_en'], S._span_en(f'{start:%Y%m%d}', f'{end:%Y%m%d}'))
         self.assertEqual(info['opener_en'], 'Animals rescued in Seoul')
         self.assertIn('25 districts', info['note_en'])
-        # A fragment footnote takes the sentence after a middle dot (the
-        # dollar-rate note joins on the same way), and a week-long card names
-        # its week rather than a date.
-        self.assertTrue(info['note_en'].endswith(
-            f" · {info['dateline_en']} is the latest week for which data is available"), info['note_en'])
-        self.assertTrue(info['note_ko'].endswith(f" · {info['dateline_ko']}은 데이터가 공개된 가장 최근 주"))
+        # The window always ends RESCUE_LAG_DAYS (3) back, well inside a
+        # week of today, which is as fresh as a week can possibly be, so
+        # the "is the latest week" sentence is dropped: his call,
+        # 13 September 2026. See LatestNote.
+        self.assertNotIn('is the latest week', info['note_en'])
+        self.assertNotIn('가장 최근 주', info['note_ko'])
         self.assertEqual(info['line_emoji']['Cats'], '🐈')
         self.assertGreaterEqual(S.RESCUE_LAG_DAYS, 3)   # 94% of notices are filed within three days
 
@@ -3519,8 +3537,10 @@ class KopisCard(unittest.TestCase):
         self.assertEqual(info['opener_en'], 'On stage in Seoul')
         self.assertEqual(info['dateline_en'], S._span_en(f'{start:%Y%m%d}', f'{end:%Y%m%d}'))
         self.assertIn('net of cancellations', info['note_en'])
-        self.assertTrue(info['note_en'].endswith(
-            f" · {info['dateline_en']} is the latest week for which data is available"), info['note_en'])
+        # The window always ends yesterday, which is as fresh as a week can
+        # possibly be, so the "is the latest week" sentence is dropped:
+        # his call, 13 September 2026. See LatestNote.
+        self.assertNotIn('is the latest week', info['note_en'])
         self.assertEqual(info['line_emoji']['Box office'], '💰')
 
     def test_no_seoul_row_bad_xml_or_no_showings_withholds(self):
@@ -3641,10 +3661,10 @@ class KepcoCards(unittest.TestCase):
         self.assertEqual(calls.count((y, m)), 1)          # one fetch feeds both cards
         self.assertEqual(S.RANKED_CARD_INFO['kepcohist']['opener_en'], 'Seoul’s electricity, 20 years apart')
         self.assertNotIn('dateline_en', S.RANKED_CARD_INFO['kepcohist'])   # the periods are in the groups
-        # With no dateline the footnote names the newer month itself.
-        self.assertTrue(S.RANKED_CARD_INFO['kepcohist']['note_en'].endswith(
-            f' · {S.MONTHS_EN[m - 1]} {y} is the latest month for which data is available'),
-            S.RANKED_CARD_INFO['kepcohist']['note_en'])
+        # newest() is always last calendar month, which is as fresh as a
+        # month can possibly be, so the "is the latest month" sentence is
+        # dropped: his call, 13 September 2026. See LatestNoteFreshness.
+        self.assertNotIn('is the latest month', S.RANKED_CARD_INFO['kepcohist']['note_en'])
 
     def test_no_twenty_year_old_month_withholds_only_the_history_card(self):
         y, m = self.newest()
@@ -4048,6 +4068,61 @@ class RailCommuterCard(unittest.TestCase):
         self.assertEqual(S.rail_commuter_facts('G', 'A'), [])
         self.assertEqual(S.rail_commuter_facts(None, 'A'), [])
         self.assertEqual(S.rail_commuter_facts('G', None), [])
+
+
+class LatestNoteFreshness(unittest.TestCase):
+    """latest_is_notable()/latest_clause()/with_latest(): the sentence is
+    dropped when a period is no more than one degree removed from today's
+    own, necessarily-incomplete day/week/month, his call, 13 September
+    2026. Pinned against an injected `today` rather than the real calendar,
+    since the card-level tests above are anchored to fixed fixture dates
+    that drift in and out of "fresh" as real time passes (see busweekend's
+    note in BusHistoryCards)."""
+
+    def setUp(self):
+        self.today = S.date(2026, 9, 13)
+
+    def test_a_date_is_notable_only_when_more_than_a_day_behind(self):
+        self.assertFalse(S.latest_is_notable(S.date(2026, 9, 13), 'date', self.today))  # today
+        self.assertFalse(S.latest_is_notable(S.date(2026, 9, 12), 'date', self.today))  # yesterday
+        self.assertTrue(S.latest_is_notable(S.date(2026, 9, 11), 'date', self.today))   # two days back
+
+    def test_a_week_is_notable_only_when_more_than_seven_days_behind(self):
+        self.assertFalse(S.latest_is_notable(S.date(2026, 9, 12), 'week', self.today))  # ends yesterday
+        self.assertFalse(S.latest_is_notable(S.date(2026, 9, 6), 'week', self.today))   # exactly 7 days back
+        self.assertTrue(S.latest_is_notable(S.date(2026, 9, 5), 'week', self.today))    # 8 days back
+
+    def test_a_month_is_notable_only_when_more_than_a_calendar_month_behind(self):
+        self.assertFalse(S.latest_is_notable(S.date(2026, 8, 1), 'month', self.today))  # last month
+        self.assertFalse(S.latest_is_notable(S.date(2026, 8, 31), 'month', self.today))  # same, later day
+        self.assertTrue(S.latest_is_notable(S.date(2026, 7, 15), 'month', self.today))  # two months back
+        self.assertTrue(S.latest_is_notable(S.date(2025, 9, 1), 'month', self.today))   # a year back
+
+    def test_latest_clause_is_empty_when_not_notable(self):
+        self.assertEqual(S.latest_clause('September 12', '9월 12일', S.date(2026, 9, 12), 'date',
+                                         ), ('', ''))
+        en, ko = S.latest_clause('September 11', '9월 11일', S.date(2026, 9, 11), 'date')
+        self.assertEqual(en, 'September 11 is the latest date for which data is available')
+        self.assertEqual(ko, '9월 11일은 데이터가 공개된 가장 최근 날짜')
+
+    def test_with_latest_leaves_the_footnote_unchanged_when_not_notable(self):
+        note_en, note_ko = S.with_latest('A caveat.', '주의사항.', 'September 12', '9월 12일',
+                                         S.date(2026, 9, 12))
+        self.assertEqual((note_en, note_ko), ('A caveat.', '주의사항.'))
+
+    def test_with_latest_appends_when_notable(self):
+        note_en, note_ko = S.with_latest('A caveat.', '주의사항.', 'September 11', '9월 11일',
+                                         S.date(2026, 9, 11))
+        self.assertEqual(note_en, 'A caveat. September 11 is the latest date for which data is available.')
+        self.assertEqual(note_ko, '주의사항. 9월 11일은 데이터가 공개된 가장 최근 날짜.')
+        # A fragment footnote (no closing period) joins with a middle dot instead.
+        note_en, note_ko = S.with_latest('a fragment', '단편', 'September 11', '9월 11일',
+                                         S.date(2026, 9, 11))
+        self.assertEqual(note_en, 'a fragment · September 11 is the latest date for which data is available')
+
+    def test_latest_is_notable_needs_a_real_unit(self):
+        with self.assertRaises(ValueError):
+            S.latest_is_notable(S.date(2026, 1, 1), 'year', self.today)
 
 
 if __name__ == '__main__':
