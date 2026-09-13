@@ -4286,6 +4286,25 @@ def ko_date_dow(d_ko, dt):
     the weekday in parentheses after the date, same scope restriction."""
     return f'{d_ko} ({WEEKDAY_KO[dt.weekday()]})'
 
+
+def _newest_month(fetch, lookback):
+    """Walk back one month at a time from this month, up to `lookback`
+    months, calling fetch(year, month) until it returns something truthy --
+    the shared shape behind every "find the newest published month" probe
+    below that steps back and tries a per-month fetch until one lands.
+    Returns (year, month, result) on the first truthy result, or None if
+    every month in the window comes back empty. Deliberately not used by
+    _molit_month(), which always steps back exactly two months with no
+    probing at all -- MOLIT filings are guaranteed complete by then, so
+    there is nothing to try and fall back from."""
+    first = datetime.now(SEOUL_TZ).date().replace(day=1)
+    for _ in range(lookback):
+        first = (first - timedelta(days=1)).replace(day=1)
+        result = fetch(first.year, first.month)
+        if result:
+            return first.year, first.month, result
+    return None
+
 # Set by molit_facts() so compose() can put the filing month on the card
 # instead of repeating it on every row (same device as SALES_Q).
 MOLIT_M = {'en': None, 'ko': None}
@@ -4782,19 +4801,12 @@ def kac_facts(key):
     domestic/international split."""
     if not key:
         return []
-    today = datetime.now(SEOUL_TZ).date()
     # Newest published month: last month from the ~5th business day, the
     # month before until then.
-    m_first = today.replace(day=1)
-    now = None
-    for _ in range(2):
-        m_first = (m_first - timedelta(days=1)).replace(day=1)
-        now = _kac_month(key, m_first.year, m_first.month)
-        if now:
-            break
-    if not now:
+    got = _newest_month(lambda y, m: _kac_month(key, y, m), 2)
+    if not got:
         return []
-    y, m = m_first.year, m_first.month
+    y, m, now = got
     mon_en = MONTHS_EN[m - 1]
     # ⚠️ Every label here carries its own month AND the fact carries it again as
     # a period. Both are needed and neither is redundant: on the twenty-year
@@ -5265,13 +5277,7 @@ def _kepco_totals(rows):
 def _kepco_newest(key):
     """(year, month, rows) for the newest published month, walking back from
     last month, or None."""
-    first = datetime.now(SEOUL_TZ).date().replace(day=1)
-    for _ in range(KEPCO_LOOKBACK_MONTHS):
-        first = (first - timedelta(days=1)).replace(day=1)
-        rows = _kepco_rows(key, first.year, first.month)
-        if rows:
-            return first.year, first.month, rows
-    return None
+    return _newest_month(lambda y, m: _kepco_rows(key, y, m), KEPCO_LOOKBACK_MONTHS)
 
 
 def kepco_facts(key):
@@ -5380,13 +5386,8 @@ def _kepco_house_rows(key, y, m):
 def _kepco_house_newest(key):
     """(year, month, rows) for the newest published household month,
     walking back from last month over KEPCO_HOUSE_LOOKBACK_MONTHS, or None."""
-    first = datetime.now(SEOUL_TZ).date().replace(day=1)
-    for _ in range(KEPCO_HOUSE_LOOKBACK_MONTHS):
-        first = (first - timedelta(days=1)).replace(day=1)
-        rows = _kepco_house_rows(key, first.year, first.month)
-        if rows:
-            return first.year, first.month, rows
-    return None
+    return _newest_month(lambda y, m: _kepco_house_rows(key, y, m),
+                         KEPCO_HOUSE_LOOKBACK_MONTHS)
 
 
 def kwh_avg(v):
