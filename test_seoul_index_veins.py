@@ -2174,7 +2174,7 @@ class BusHistoryCards(unittest.TestCase):
         self.assertEqual(info['busmovers']['opener_en'],
                          'Seoul’s bus routes, against their usual Monday')
         self.assertEqual(info['busmovers']['opener_ko'], '서울의 버스 노선, 평소 월요일 대비')
-        self.assertEqual(info['busmovers']['dateline_en'], 'Boardings on 7 September')
+        self.assertEqual(info['busmovers']['dateline_en'], 'Boardings on Monday, September 7')
         self.assertIn('previous 4 Mondays', info['busmovers']['note_en'])
         # Every bus card's footnote names its dateline as the newest day (or
         # week) published, his call, 12 September 2026.
@@ -2200,8 +2200,8 @@ class BusHistoryCards(unittest.TestCase):
         self.assertEqual(info['nightbus']['note_ko'], '심야 노선만. 9월 7일은 데이터가 공개된 가장 최근 날짜.')
         # His wording, 11 September 2026: the dateline says what the figures
         # are, while day_en stays the bare date the map title and alt read.
-        self.assertEqual(info['nightbus']['dateline_en'], 'Boardings on 7 September')
-        self.assertEqual(info['nightbus']['dateline_ko'], '9월 7일 승차')
+        self.assertEqual(info['nightbus']['dateline_en'], 'Boardings on Monday, September 7')
+        self.assertEqual(info['nightbus']['dateline_ko'], '9월 7일 (월요일) 승차')
         self.assertEqual(info['nightbus']['day_en'], '7 September')
 
     def test_the_cards_compose_like_busroutes(self):
@@ -2687,7 +2687,7 @@ class BusStopsVein(unittest.TestCase):
                          ['Busiest: Hongik University Station', '2nd-busiest: Express Bus Terminal',
                           '3rd-busiest: Gangnam Station'])
         self.assertEqual(info['map_pins'][0][2], (126.90, 37.50))
-        self.assertEqual(info['dateline_en'], f"Bus boardings on {info['day_en']}")
+        self.assertEqual(info['dateline_en'], 'Boardings on Saturday, September 12')
         self.assertEqual(info['opener_en'], 'Seoul’s bus stops')
         # His wording, 11 Sep 2026, with the registered-stop count read live:
         # STOPS holds 12 rows, 11 of them Seoul ('1') ids.

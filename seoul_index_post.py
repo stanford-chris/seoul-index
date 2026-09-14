@@ -1515,13 +1515,18 @@ def bus_stops_facts(c, d, d_ko):
         return []
     ranks = (('Busiest', '가장 붐빔'), ('2nd-busiest', '두 번째로 붐빔'), ('3rd-busiest', '세 번째로 붐빔'))
     note_en, note_ko = busstop_note(c.get('seoul_stop_count') or 0)
-    latest_en, latest_ko = latest_clause(d, d_ko, _day_dt(c['date']).date())
+    dow_dt = _day_dt(c['date'])
+    latest_en, latest_ko = latest_clause(d, d_ko, dow_dt.date())
     if latest_en:
         note_en, note_ko = f'{note_en} {latest_en}.', f'{note_ko} {latest_ko}.'
     RANKED_CARD_INFO['busstops'] = {
         'day_en': d, 'day_ko': d_ko,
         'opener_en': BUSSTOP_OPENER_EN, 'opener_ko': BUSSTOP_OPENER_KO,
-        'dateline_en': f'Bus boardings on {d}', 'dateline_ko': f'{d_ko} 버스 승차',
+        # Day of week added and "Bus" dropped 14 September 2026, his call:
+        # the title already says "bus stops", so "Bus boardings" repeated
+        # it, and a bare date gave no sense of which day of the week.
+        'dateline_en': f'Boardings on {en_date_dow(dow_dt)}',
+        'dateline_ko': f'{ko_date_dow(d_ko, dow_dt)} 승차',
         'note_en': note_en, 'note_ko': note_ko,
         'map_day': c['date'],
         # The map says "bus stops" in its title: with the bare date and
@@ -2079,17 +2084,19 @@ def history_bus_facts(h, day, d, d_ko):
     else:
         wd_en, wd_ko = WEEKDAY_EN[mv['wd']], WEEKDAY_KO[mv['wd']]
         n = mv['n_prior']
-        mv_latest_en, mv_latest_ko = latest_clause(d, d_ko, _day_dt(day).date())
+        mv_dow_dt = _day_dt(day)
+        mv_latest_en, mv_latest_ko = latest_clause(d, d_ko, mv_dow_dt.date())
         RANKED_CARD_INFO['busmovers'] = {
             'day_en': d, 'day_ko': d_ko,
             # Opener and dateline are Python's, his wording, 11 September
             # 2026: the selector's own openers ("Where Seoul's buses swung
             # today") never said the card is each route against its own
             # usual figure. Same fixed-opener arrangement as rush; applied
-            # in main() where rush's is.
+            # in main() where rush's is. Day of week added 14 September 2026.
             'opener_en': f'Seoul’s bus routes, against their usual {wd_en}',
             'opener_ko': f'서울의 버스 노선, 평소 {wd_ko} 대비',
-            'dateline_en': f'Boardings on {d}', 'dateline_ko': f'{d_ko} 승차',
+            'dateline_en': f'Boardings on {en_date_dow(mv_dow_dt)}',
+            'dateline_ko': f'{ko_date_dow(d_ko, mv_dow_dt)} 승차',
             'note_en': ' · '.join(x for x in (
                 f'Against each route’s median of its previous {n} {wd_en}s',
                 'trunk and branch routes over 1,000 boardings',
@@ -2122,7 +2129,8 @@ def history_bus_facts(h, day, d, d_ko):
         print(f'Night bus withheld for {d}: {why}.')
     else:
         top, second, bottom = nb['ranked'][0], nb['ranked'][1], nb['ranked'][-1]
-        nb_day = _day_dt(day).date()
+        nb_dow_dt = _day_dt(day)
+        nb_day = nb_dow_dt.date()
         nb_notable = latest_is_notable(nb_day)
         nb_latest_en, nb_latest_ko = latest_clause(d, d_ko, nb_day)
         RANKED_CARD_INFO['nightbus'] = {
@@ -2130,7 +2138,9 @@ def history_bus_facts(h, day, d, d_ko):
             # The dateline says what the figures ARE, his wording, 11 September
             # 2026: "Boardings on 7 September" rather than a bare date. day_en
             # stays the bare date, since the map's title and alt read it.
-            'dateline_en': f'Boardings on {d}', 'dateline_ko': f'{d_ko} 승차',
+            # Day of week added 14 September 2026.
+            'dateline_en': f'Boardings on {en_date_dow(nb_dow_dt)}',
+            'dateline_ko': f'{ko_date_dow(d_ko, nb_dow_dt)} 승차',
             'opener_en': NIGHTBUS_OPENER_EN, 'opener_ko': NIGHTBUS_OPENER_KO,
             'note_en': ('Night routes only.'
                         + (f' {nb_latest_en}.' if nb_notable else '')),
@@ -2316,11 +2326,14 @@ def bus_routes_facts(h, day, d, d_ko):
     stops_en = (f'Number of stops: Route {top[0]} ({top[3]}), {second[0]} ({second[3]}), '
                 f'{bottom[0]} ({bottom[3]}).')
     stops_ko = f'정류장 수: {top[0]}번 ({top[3]}), {second[0]}번 ({second[3]}), {bottom[0]}번 ({bottom[3]}).'
-    br_latest_en, br_latest_ko = _latest_sentence(d, d_ko, _day_dt(day).date())
+    br_dow_dt = _day_dt(day)
+    br_latest_en, br_latest_ko = _latest_sentence(d, d_ko, br_dow_dt.date())
+    # Day of week added 14 September 2026, matching the rest of the bus-card
+    # family; "per stop served" stays, it is the measure, not a redundant word.
     RANKED_CARD_INFO['busroutes'] = {
         'day_en': d, 'day_ko': d_ko,
-        'dateline_en': f'Boardings per stop served on {d}',
-        'dateline_ko': f'{d_ko} 정류장 1곳당 승차 인원',
+        'dateline_en': f'Boardings per stop served on {en_date_dow(br_dow_dt)}',
+        'dateline_ko': f'{ko_date_dow(d_ko, br_dow_dt)} 정류장 1곳당 승차 인원',
         'opener_en': BUSROUTES_OPENER_EN, 'opener_ko': BUSROUTES_OPENER_KO,
         'note_en': ' '.join(x for x in (BUS_ROUTE_CAVEAT_EN, stops_en, streak_en,
                                         br_latest_en) if x),
