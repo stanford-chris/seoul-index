@@ -3104,6 +3104,17 @@ class SeoulStationCard(unittest.TestCase):
         self.assertEqual(info['note_ko'], '평소: 이전 화요일 6회의 중앙값. 코레일 열차 기준, SRT는 별도 운영사. '
                                           '9월 8일은 데이터가 공개된 가장 최근 날짜.')
 
+    def test_the_four_lines_carry_a_fixed_icon_each(self):
+        self.facts()
+        info = S.RANKED_CARD_INFO['seoulstation']
+        self.assertEqual(info['line_emoji']['Boarded'], '⬆️')
+        self.assertEqual(info['line_emoji']['Got off'], '⬇️')
+        self.assertEqual(info['line_emoji']['Passengers'], '👥')
+        # A typical Tuesday et al: a closed set of seven, one per weekday,
+        # never hand-listed drift from WEEKDAY_EN.
+        for wd in S.WEEKDAY_EN:
+            self.assertEqual(info['line_emoji'][f'A typical {wd}'], '📊')
+
     def test_the_feed_wins_and_the_file_learns_the_day(self):
         self.facts()
         h = json.loads(S.KORAIL_HISTORY.read_text())['days']
@@ -3129,12 +3140,12 @@ class SeoulStationCard(unittest.TestCase):
         # two calls; a second fetch for the second card would make it four.
         self.assertEqual(sum('mainLineStationPer' in c for c in calls), 2)
 
-    def test_the_card_composes_bold_labels_no_line_emoji_and_the_train(self):
+    def test_the_card_composes_bold_labels_each_with_its_own_icon_and_the_train(self):
         pool = self.facts()
         sel = {'opener_en': 'x', 'opener_ko': 'x', 'opener_emoji': '🚗',
                'picks': [{'id': f['id']} for f in pool]}
         c = S.compose(sel, pool)
-        self.assertTrue(all(l['emoji'] == '' for l in c['lines']))
+        self.assertEqual([l['emoji'] for l in c['lines']], ['⬆️', '⬇️', '👥', '📊'])
         self.assertTrue(all(l.get('bold') for l in c['lines']))
         self.assertEqual([l['label_en'] for l in c['lines']],
                          ['Boarded', 'Got off', 'Passengers', 'A typical Tuesday'])

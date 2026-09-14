@@ -5742,7 +5742,16 @@ def seoul_station_facts(key):
         'opener_en': 'Seoul Station', 'opener_ko': '서울역',
         'dateline_en': dateline_en, 'dateline_ko': dateline_ko,
         'note_en': seoulstation_note_en,
-        'note_ko': seoulstation_note_ko}
+        'note_ko': seoulstation_note_ko,
+        # Four fixed rows, the same shape as wxday's High/Low/Rain: boarded
+        # and got off are opposite directions through the gates, passengers
+        # is their sum, and the typical-weekday row is a comparison against
+        # all of them -- distinct things, not four instances of one thing,
+        # so a per-row icon earns its place. 'A typical {weekday}' is a
+        # closed set of seven strings, built from WEEKDAY_EN rather than
+        # hand-listed so it can never drift from it.
+        'line_emoji': {'Boarded': '⬆️', 'Got off': '⬇️', 'Passengers': '👥',
+                       **{f'A typical {wd}': '📊' for wd in WEEKDAY_EN}}}
     return [
         fact('railss_boarded', 'seoulstation', 'Boarded', grouped(ride), grouped(ride), pin=True,
              label_ko='승차', num=ride, unit='people'),
