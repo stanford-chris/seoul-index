@@ -1521,6 +1521,10 @@ def bus_stops_facts(c, d, d_ko):
         note_en, note_ko = f'{note_en} {latest_en}.', f'{note_ko} {latest_ko}.'
     RANKED_CARD_INFO['busstops'] = {
         'day_en': d, 'day_ko': d_ko,
+        # The busiest stop's English name, read by apply_cooldown_unless_changed()
+        # against state's last_busstops_leader so a genuine change in who's on
+        # top can post before the cooldown clears, his ask, 14 September 2026.
+        'leader': chosen[0][3],
         'opener_en': BUSSTOP_OPENER_EN, 'opener_ko': BUSSTOP_OPENER_KO,
         # Day of week added and "Bus" dropped 14 September 2026, his call:
         # the title already says "bus stops", so "Bus boardings" repeated
@@ -2332,6 +2336,10 @@ def bus_routes_facts(h, day, d, d_ko):
     # family; "per stop served" stays, it is the measure, not a redundant word.
     RANKED_CARD_INFO['busroutes'] = {
         'day_en': d, 'day_ko': d_ko,
+        # The busiest route's number, read by apply_cooldown_unless_changed()
+        # against state's last_busroutes_leader so a genuine change in who's on
+        # top can post before the cooldown clears, his ask, 14 September 2026.
+        'leader': top[0],
         'dateline_en': f'Boardings per stop served on {en_date_dow(br_dow_dt)}',
         'dateline_ko': f'{ko_date_dow(d_ko, br_dow_dt)} 정류장 1곳당 승차 인원',
         'opener_en': BUSROUTES_OPENER_EN, 'opener_ko': BUSROUTES_OPENER_KO,
@@ -7415,6 +7423,49 @@ def apply_cooldown(pool, state, stamp_key, cat, days, label):
     return cooled
 
 
+def apply_cooldown_unless_changed(pool, state, stamp_key, cat, days, label,
+                                   changed_en, changed_ko):
+    """Like apply_cooldown, except a genuine change in who's on top lets the
+    vein through even inside its own cooldown window. His ask, 14 September
+    2026, after busroutes and busstops came back into the general rotation
+    (see HELD_CATS' history) and a several-days-old leader read as stale: the
+    cooldown should hold back a REPEAT, not a real update.
+
+    Compares RANKED_CARD_INFO[cat]['leader'] (set by bus_routes_facts()/
+    bus_stops_facts() from today's harvest, so it is always fresh by the time
+    this runs) against state[f'last_{cat}_leader'] (set only when the card is
+    actually posted, in main() -- see the last_busroutes_at/last_busstops_at
+    block). Both must be on record, or this falls straight through to the
+    plain apply_cooldown: the first run after this shipped, and any run whose
+    card was withheld rather than posted, have nothing to compare against, and
+    a missing value must never read as "changed".
+
+    When it fires, changed_en/changed_ko are appended to the card's own
+    footnote (mutating RANKED_CARD_INFO[cat] in place, before compose() ever
+    reads it) so a reader sees why this update landed off the usual clock,
+    the same reasoning behind every other "why does this say what it says"
+    line on these cards."""
+    stamp = state.get(stamp_key)
+    if ONLY_CAT == cat or not stamp:
+        return apply_cooldown(pool, state, stamp_key, cat, days, label)
+    try:
+        age = datetime.now(timezone.utc) - datetime.fromisoformat(stamp)
+    except (ValueError, TypeError):
+        return apply_cooldown(pool, state, stamp_key, cat, days, label)
+    if age >= timedelta(days=days):
+        return apply_cooldown(pool, state, stamp_key, cat, days, label)
+    info = RANKED_CARD_INFO.get(cat)
+    last_leader = state.get(f'last_{cat}_leader')
+    cur_leader = info.get('leader') if info else None
+    if not info or last_leader is None or cur_leader is None or cur_leader == last_leader:
+        return apply_cooldown(pool, state, stamp_key, cat, days, label)
+    hours = int(age.total_seconds() // 3600)
+    print(f'{label}: posting {hours}h into its {days * 24}h cooldown — the leader changed.')
+    info['note_en'] = f"{info['note_en']} {changed_en}".strip()
+    info['note_ko'] = f"{info['note_ko']} {changed_ko}".strip()
+    return pool
+
+
 def promote_starved(pool, state):
     """Give a long-unposted vein one card to itself (see STARVE_DAYS).
 
@@ -9946,16 +9997,26 @@ def main():
                               TOURISM_COOLDOWN_DAYS, 'Tourism')
         pool = apply_cooldown(pool, state, 'last_infra_at', 'infra',
                               INFRA_COOLDOWN_DAYS, 'Infrastructure')
-        pool = apply_cooldown(pool, state, 'last_busroutes_at', 'busroutes',
-                              BUSROUTES_COOLDOWN_DAYS, 'Bus routes')
+        # busroutes and busstops: 14 September 2026, his call -- pulled off
+        # their own daily launchd slots (see git log around this date) and
+        # back into the general rotation on the same cooldown every other
+        # ranked card carries, EXCEPT that a genuine change in the busiest
+        # route or stop is allowed through early rather than stuck waiting
+        # out the clock (see apply_cooldown_unless_changed's own docstring).
+        pool = apply_cooldown_unless_changed(
+            pool, state, 'last_busroutes_at', 'busroutes', BUSROUTES_COOLDOWN_DAYS,
+            'Bus routes', 'Posted early: the busiest route changed.',
+            '조기 게시: 1위 노선이 바뀌어 게시.')
         pool = apply_cooldown(pool, state, 'last_stations_at', 'stations',
                               STATIONS_COOLDOWN_DAYS, 'Stations')
         pool = apply_cooldown(pool, state, 'last_nightbus_at', 'nightbus',
                               NIGHTBUS_COOLDOWN_DAYS, 'Night bus')
         pool = apply_cooldown(pool, state, 'last_busweekend_at', 'busweekend',
                               BUSWEEKEND_COOLDOWN_DAYS, 'Weekend swing')
-        pool = apply_cooldown(pool, state, 'last_busstops_at', 'busstops',
-                              BUSSTOPS_COOLDOWN_DAYS, 'Bus stops')
+        pool = apply_cooldown_unless_changed(
+            pool, state, 'last_busstops_at', 'busstops', BUSSTOPS_COOLDOWN_DAYS,
+            'Bus stops', 'Posted early: the busiest stop changed.',
+            '조기 게시: 1위 정류장이 바뀌어 게시.')
         pool = apply_cooldown(pool, state, 'last_railstations_at', 'railstations',
                               RAILSTATIONS_COOLDOWN_DAYS, 'Rail stations')
         pool = apply_cooldown(pool, state, 'last_seoulstation_at', 'seoulstation',
@@ -10290,6 +10351,13 @@ def main():
         state['last_infra_at'] = state['last_success_at']
     if primary == 'busroutes':
         state['last_busroutes_at'] = state['last_success_at']
+        # What the card just told readers, for apply_cooldown_unless_changed()
+        # to compare against next time. Only set on an actual post, never on
+        # a withheld card, so it always reflects what was last SHOWN, not
+        # merely computed.
+        leader = RANKED_CARD_INFO.get('busroutes', {}).get('leader')
+        if leader:
+            state['last_busroutes_leader'] = leader
     if primary == 'stations':
         state['last_stations_at'] = state['last_success_at']
     if primary == 'nightbus':
@@ -10298,6 +10366,9 @@ def main():
         state['last_busweekend_at'] = state['last_success_at']
     if primary == 'busstops':
         state['last_busstops_at'] = state['last_success_at']
+        leader = RANKED_CARD_INFO.get('busstops', {}).get('leader')
+        if leader:
+            state['last_busstops_leader'] = leader
     if primary == 'railstations':
         state['last_railstations_at'] = state['last_success_at']
     if primary == 'seoulstation':

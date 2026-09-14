@@ -2338,6 +2338,109 @@ class InfraCooldown(unittest.TestCase):
         self.assertIn("'last_infra_at', 'infra'", src)
 
 
+class ChangeOverridesCooldown(unittest.TestCase):
+    """apply_cooldown_unless_changed(): busroutes and busstops, pulled off
+    their own daily slots and back into the general rotation on 14 September
+    2026, his ask, except that a genuine change in who's busiest is let
+    through the cooldown early rather than stuck waiting out the clock."""
+
+    CAT = 'busroutes'
+    STAMP_KEY = 'last_busroutes_at'
+    LEADER_KEY = 'last_busroutes_leader'
+
+    def setUp(self):
+        self._only, self._force = S.ONLY_CAT, S.FORCE
+        S.ONLY_CAT, S.FORCE = None, False
+        self._info = dict(S.RANKED_CARD_INFO)
+
+    def tearDown(self):
+        S.ONLY_CAT, S.FORCE = self._only, self._force
+        S.RANKED_CARD_INFO.clear()
+        S.RANKED_CARD_INFO.update(self._info)
+
+    def _pool(self):
+        return [{'cat': self.CAT, 'id': f'x{i}'} for i in range(4)] + \
+               [{'cat': 'other', 'id': f'o{i}'} for i in range(6)]
+
+    def _stamp(self, hours_ago):
+        from datetime import datetime, timezone
+        return (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
+
+    def _card(self, leader):
+        S.RANKED_CARD_INFO.clear()
+        S.RANKED_CARD_INFO[self.CAT] = {'leader': leader, 'note_en': 'Trunk and branch routes only.',
+                                        'note_ko': '간선·지선만.'}
+
+    def _run(self, state):
+        return S.apply_cooldown_unless_changed(
+            self._pool(), state, self.STAMP_KEY, self.CAT, 3, 'Bus routes',
+            'Posted early: the busiest route changed.', '조기 게시: 1위 노선이 바뀌어 게시.')
+
+    def test_an_unchanged_leader_inside_cooldown_is_still_held(self):
+        self._card('2211')
+        state = {self.STAMP_KEY: self._stamp(6), self.LEADER_KEY: '2211'}
+        pool = self._run(state)
+        self.assertEqual(sum(f['cat'] == self.CAT for f in pool), 0)
+        self.assertEqual(S.RANKED_CARD_INFO[self.CAT]['note_en'], 'Trunk and branch routes only.')
+
+    def test_a_changed_leader_inside_cooldown_is_let_through_and_explained(self):
+        self._card('5515')
+        state = {self.STAMP_KEY: self._stamp(6), self.LEADER_KEY: '2211'}
+        pool = self._run(state)
+        self.assertEqual(sum(f['cat'] == self.CAT for f in pool), 4)
+        self.assertEqual(S.RANKED_CARD_INFO[self.CAT]['note_en'],
+                         'Trunk and branch routes only. Posted early: the busiest route changed.')
+        self.assertEqual(S.RANKED_CARD_INFO[self.CAT]['note_ko'],
+                         '간선·지선만. 조기 게시: 1위 노선이 바뀌어 게시.')
+
+    def test_no_prior_leader_on_record_falls_back_to_the_plain_cooldown(self):
+        # First run after this shipped: nothing to compare against yet, so a
+        # missing prior value must never read as "changed".
+        self._card('5515')
+        state = {self.STAMP_KEY: self._stamp(6)}
+        pool = self._run(state)
+        self.assertEqual(sum(f['cat'] == self.CAT for f in pool), 0)
+
+    def test_an_expired_cooldown_passes_through_regardless_of_the_leader(self):
+        self._card('2211')
+        state = {self.STAMP_KEY: self._stamp(26 * 3), self.LEADER_KEY: '2211'}
+        pool = self._run(state)
+        self.assertEqual(sum(f['cat'] == self.CAT for f in pool), 4)
+        # Unchanged, so no early-post note was ever considered.
+        self.assertEqual(S.RANKED_CARD_INFO[self.CAT]['note_en'], 'Trunk and branch routes only.')
+
+    def test_only_cat_still_defers_to_the_plain_duplicate_guard(self):
+        self._card('5515')
+        S.ONLY_CAT = self.CAT
+        state = {self.STAMP_KEY: self._stamp(0.5), self.LEADER_KEY: '2211'}
+        with self.assertRaises(SystemExit) as cm:
+            self._run(state)
+        self.assertIn('refusing a duplicate', str(cm.exception))
+
+    def test_busstops_carries_the_same_wiring(self):
+        S.RANKED_CARD_INFO.clear()
+        S.RANKED_CARD_INFO['busstops'] = {'leader': 'Gangnam Station',
+                                          'note_en': 'x.', 'note_ko': 'x.'}
+        state = {'last_busstops_at': self._stamp(6),
+                 'last_busstops_leader': 'Hongik University Station'}
+        pool = S.apply_cooldown_unless_changed(
+            [{'cat': 'busstops', 'id': f'b{i}'} for i in range(4)]
+            + [{'cat': 'other', 'id': f'o{i}'} for i in range(6)],
+            state, 'last_busstops_at', 'busstops', 3, 'Bus stops',
+            'Posted early: the busiest stop changed.', '조기 게시: 1위 정류장이 바뀌어 게시.')
+        self.assertEqual(sum(f['cat'] == 'busstops' for f in pool), 4)
+        self.assertIn('Posted early', S.RANKED_CARD_INFO['busstops']['note_en'])
+
+    def test_the_leader_state_is_written_only_on_an_actual_post(self):
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertIn("state['last_busroutes_leader'] = leader", src)
+        self.assertIn("state['last_busstops_leader'] = leader", src)
+        # Both sit inside their own `if primary == '<cat>':` block, i.e. only
+        # written when that vein was what actually posted this run.
+        self.assertIn("if primary == 'busroutes':", src)
+        self.assertIn("if primary == 'busstops':", src)
+
+
 class BusRouteStreak(unittest.TestCase):
     """bus_rank_streaks() reads both streaks straight from the history —
     replacing, on 10 Sep 2026, a state counter that had started at 2 the day
