@@ -485,6 +485,17 @@ def render_station_map(stations, seoul_stops, out_path, title='', caption=''):
     legend = []
     ly = size - 84 - 19 * (len(stations) - 3)   # see render_bus_route_map
     legend_top = ly - 20
+    # Each dot's label lands at a fixed offset from that dot alone; two
+    # stations close enough together (Seoul Station / Hongik University,
+    # ~4.4 km apart, collided on the 13 September 2026 card) put their text
+    # on top of each other with nothing here to notice. So each new label is
+    # checked against every label already placed and, on a collision, pushed
+    # straight down in fixed steps until its box is clear — no leader line,
+    # since the label is already colour-matched to its dot and the legend
+    # below names it again.
+    placed = []  # (x_min, x_max, y_min, y_max) of every label drawn so far
+    CHAR_W = 7.3   # Menlo bold 12px is monospace, so this is exact enough
+    LABEL_STEP = 14
     for label, colour, (lon, lat) in stations:
         x, y = xy(lon, lat)
         body.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="7" fill="{colour}" '
@@ -495,7 +506,17 @@ def render_station_map(stations, seoul_stops, out_path, title='', caption=''):
         # off the frame.
         name = label.split(': ', 1)[-1]
         anchor, tx = ('end', x - 11) if x > size * 0.8 else ('start', x + 11)
-        body.append(f'<text x="{tx:.1f}" y="{y + 4:.1f}" text-anchor="{anchor}" '
+        width = len(name) * CHAR_W
+        x_min, x_max = (tx - width, tx) if anchor == 'end' else (tx, tx + width)
+        text_y = y + 4
+        for _ in range(6):
+            y_min, y_max = text_y - 10, text_y + 4
+            if not any(x_min < pxmax and x_max > pxmin and y_min < pymax and y_max > pymin
+                       for pxmin, pxmax, pymin, pymax in placed):
+                break
+            text_y += LABEL_STEP
+        placed.append((x_min, x_max, text_y - 10, text_y + 4))
+        body.append(f'<text x="{tx:.1f}" y="{text_y:.1f}" text-anchor="{anchor}" '
                      f'font-family="Menlo,monospace" font-size="12" font-weight="bold" '
                      f'fill="{colour}" stroke="{CREAM}" stroke-width="3" '
                      f'paint-order="stroke">{_esc(name)}</text>')
