@@ -517,6 +517,132 @@ class TourismBoxofficeCrossPairGroupsBySpan(unittest.TestCase):
         self.assertEqual(found, [])
 
 
+class PropertySpendingCrossPairGroupsBySpan(unittest.TestCase):
+    """period_grouped generalised 18 September 2026 (Chris's standing rule:
+    a card carrying a date shows it on a clear second line under the title,
+    never buried only in the footnote) beyond the one hardcoded pair that
+    had actually shipped (tourism/boxoffice). property (MOLIT_M, a filing
+    MONTH) and spending (SALES_Q, a sales QUARTER) are the second real
+    pair: both carry unit='won', so `cross_vein_pairs()` can link them on a
+    near-magnitude coincidence exactly as it does tourism/boxoffice
+    ('people'), and their periods come from two independent sources, so
+    they can genuinely disagree. Mirrors
+    TourismBoxofficeCrossPairGroupsBySpan above, proving the same mechanism
+    now fires for a pair the old hardcoded `{'tourism', 'boxoffice'} <=
+    precats` check could never have reached."""
+
+    def _pool_and_sel(self):
+        S.MOLIT_M['en'], S.MOLIT_M['ko'] = 'July 2026', '2026년 7월'
+        S.SALES_Q['en'], S.SALES_Q['ko'] = '2026 Q2', '2026년 2분기'
+        pool = [
+            S.fact('apt_1', 'property', 'Apartment sales filed, Gangnam-gu',
+                  '₩820,000,000', '₩820,000,000', pin=True,
+                  num=820_000_000, unit='won'),
+            S.fact('sales_food', 'spending', 'Food and beverage',
+                  '₩790,000,000', '₩790,000,000', pin=True,
+                  num=790_000_000, unit='won'),
+            S.fact('sales_retail', 'spending', 'Retail',
+                  '₩610,000,000', '₩610,000,000', pin=True,
+                  num=610_000_000, unit='won'),
+        ]
+        picks = [{'id': f['id'], 'emoji': ''} for f in pool]
+        sel = {'opener_en': 'Seoul by the numbers',
+              'opener_ko': '숫자로 보는 서울', 'opener_emoji': '', 'picks': picks}
+        return sel, pool
+
+    def tearDown(self):
+        for d in (S.MOLIT_M, S.SALES_Q):
+            for k in list(d):
+                d[k] = None
+
+    def _subheads(self, items):
+        return [it['subhead'] for it in items if 'subhead' in it]
+
+    def _rows_under(self, items, subhead):
+        out, on = [], False
+        for it in items:
+            if 'subhead' in it:
+                on = it['subhead'] == subhead
+                continue
+            if on:
+                out.append(it['label'])
+        return out
+
+    def test_the_card_is_recognised_as_a_cross_pair_and_groups_by_span(self):
+        c = S.compose(*self._pool_and_sel())
+        self.assertTrue(c['period_grouped'])
+        self.assertFalse(c['grouped'], 'not the live+scoped mechanism')
+
+    def test_each_span_heads_only_its_own_lines(self):
+        c = S.compose(*self._pool_and_sel())
+        self.assertEqual(self._subheads(c['items_en']),
+                         ['Apartment filings, July 2026',
+                          'Commercial districts, 2026 Q2'])
+        self.assertEqual(
+            self._rows_under(c['items_en'], 'Apartment filings, July 2026'),
+            ['Apartment sales filed, Gangnam-gu'])
+        # _cross_pair_hints() prefixes every 'spending' line with its own
+        # metric word on a genuine cross-pair card (see _CROSS_HINT) --
+        # unrelated to this fix, but real behaviour the fixture runs into.
+        self.assertEqual(
+            self._rows_under(c['items_en'], 'Commercial districts, 2026 Q2'),
+            ['Quarterly spending, Food and beverage',
+             'Quarterly spending, Retail'])
+
+    def test_korean_card_groups_too(self):
+        c = S.compose(*self._pool_and_sel())
+        self.assertEqual(self._subheads(c['items_ko']),
+                         ['아파트 실거래 신고, 2026년 7월', '상권, 2026년 2분기'])
+
+    def test_the_span_is_not_also_left_in_the_footnote(self):
+        c = S.compose(*self._pool_and_sel())
+        self.assertNotIn('Apartment filings', c['note_en'])
+        self.assertNotIn('Commercial districts', c['note_en'])
+        self.assertEqual(c['en_body'].count('Apartment filings, July 2026'), 1)
+        self.assertEqual(c['en_body'].count('Commercial districts, 2026 Q2'), 1)
+
+    def test_no_masthead_flies_over_the_whole_card(self):
+        c = S.compose(*self._pool_and_sel())
+        self.assertEqual(S._card_payload(c, 'en')[3], '')
+        self.assertEqual(S._card_payload(c, 'ko')[3], '')
+
+    def test_check_masthead_is_not_fooled_by_the_grouping(self):
+        c = S.compose(*self._pool_and_sel())
+        found = S.check_masthead(c['lines'], c['dateline_en'], c['dateline_ko'],
+                                 c['grouped'] or c['period_grouped'],
+                                 log=lambda m: None)
+        self.assertEqual(found, [])
+
+    def test_spending_and_avgbill_sharing_one_period_do_not_double_group(self):
+        """spending and avgbill are two views of the SAME dataset (SALES_Q)
+        and always share its period, so pairing them with EACH OTHER must
+        never trip period_grouped -- there is no real disagreement to draw
+        two subheads over, and the ordinary single-dateline lift (per_pairs,
+        further down in compose()) already handles this card correctly.
+        Needs a genuine cross_vein_pairs() coincidence (near-equal 'won'
+        magnitudes across the two categories) to clear
+        _validate_card_categories at all, same as every other cross-pair
+        test here -- picked purely to exercise that gate, not to resemble a
+        real spending/avgbill pairing (their real magnitudes -- a whole
+        district's turnover against one transaction's size -- are never
+        actually close)."""
+        S.SALES_Q['en'], S.SALES_Q['ko'] = '2026 Q2', '2026년 2분기'
+        pool = [
+            S.fact('sales_food', 'spending', 'Food and beverage',
+                  '₩800,000', '₩800,000', pin=True, num=800_000, unit='won'),
+            S.fact('sales_retail', 'spending', 'Retail',
+                  '₩770,000', '₩770,000', pin=True, num=770_000, unit='won'),
+            S.fact('avg_food', 'avgbill', 'Food and beverage',
+                  '₩780,000', '₩780,000', pin=True, num=780_000, unit='won'),
+        ]
+        picks = [{'id': f['id'], 'emoji': ''} for f in pool]
+        sel = {'opener_en': 'Seoul by the numbers',
+              'opener_ko': '숫자로 보는 서울', 'opener_emoji': '', 'picks': picks}
+        c = S.compose(sel, pool)
+        self.assertFalse(c['period_grouped'])
+        self.assertEqual(c['dateline_en'], '2026 Q2')
+
+
 class BoxofficeScopeMatchesWhatIsActuallyOnTheCard(unittest.TestCase):
     """The footnote must never claim "the day's four most-watched" unless
     all four are actually on this card. TourismBoxofficeCrossPairGroupsBySpan

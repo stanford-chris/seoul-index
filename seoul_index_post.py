@@ -8586,12 +8586,13 @@ def compose(sel, pool):
         and all(heads) and all(by_id[p['id']].get('period_en') for p in picks)
         and all(n >= 2 for n in tally.values()))
 
-    # A cross-pair card mixing 'tourism' (one MONTH of visitors) and
-    # 'boxoffice' (one DAY of admissions) puts two different spans of time on
-    # one card. per_pairs further down already refuses to lift either as a
-    # single masthead dateline when they disagree (correctly — neither span
-    # covers the whole card), but that left both spans stranded together in
-    # one footnote line with nothing to say which line either one explains:
+    # A cross-pair card mixing two DATED_PERIOD_CATS veins covering DIFFERENT
+    # spans of time (a whole MONTH of visitors beside one DAY of admissions,
+    # say) puts two spans of time on one card. per_pairs further down already
+    # refuses to lift either as a single masthead dateline when they disagree
+    # (correctly — neither span covers the whole card), but that left both
+    # spans stranded together in one footnote line with nothing to say which
+    # line either one explains:
     # https://bsky.app/profile/seoul-index.bsky.social/post/3mudkt6v5d42v
     # (30 Aug 2026) read "Admissions, The Odyssey: 92,090" directly above two
     # tourism lines with no visual break, and a footnote reading "Paid-
@@ -8599,31 +8600,100 @@ def compose(sel, pool):
     # watched, 30 August" some way below it — accurate, but disconnected
     # from which line either clause covers.
     #
-    # So this specific pair groups like the weather then-and-now cards do:
-    # each span drawn once as a subhead over the lines it covers. Worded
-    # around the SPAN rather than reused from the standalone cards' own
-    # footnote text, which names a count ("the day's four most-watched")
-    # that stops being true once only one or two of those four are on a
-    # cross-pair card. Scoped tightly to this one pair rather than every
-    # DATED_PERIOD_CATS combination: the other members (property, spending,
-    # avgbill, rush, airport) either share no unit with tourism/boxoffice
-    # (won vs people, so cross_vein_pairs() can never link them in) or carry
-    # their period a different way (airport's rides per-line, not a module
-    # global) — generalising this without a second real example to test
-    # against would be guessing.
-    period_grouped = (
-        not spotlight and not maybe_grouped and not metric_grouped
-        and {'tourism', 'boxoffice'} <= precats
-        and bool(TOUR_M['month_en']) and bool(BOXOFFICE_D['month_en']))
-    period_subheads = {}
-    if period_grouped:
+    # So any such pair groups like the weather then-and-now cards do: each
+    # span drawn once as a subhead over the lines it covers, rather than a
+    # single masthead making a claim that is only true of some of the rows
+    # under it.
+    #
+    # Standing rule, 18 September 2026: any card carrying a date shows it on
+    # a clear second line under the title — a dateline/masthead — never
+    # buried only in the footnote. See the London Index counter-example this
+    # generalises against, where a mixed-period card shipped with no
+    # dateline at all: https://bsky.app/profile/london-index.bsky.social/post/3mvqfhjc3wh24
+    #
+    # This used to be hardcoded to the one pair that had actually shipped
+    # (tourism/boxoffice), on the reasoning that generalising without a
+    # second real example to test against would be guessing. There now is
+    # one: `_validate_card_categories` only lets a DATED_PERIOD_CATS pair
+    # share a card when `cross_vein_pairs()` found them a near-magnitude
+    # coincidence, which needs a shared `unit` — and DATED_PERIOD_CATS
+    # splits into exactly two such unit clusters, {tourism, boxoffice, rush}
+    # ('people') and {property, spending, avgbill} ('won'), so
+    # property+spending or property+avgbill is exactly as reachable as
+    # tourism+boxoffice is (spending+avgbill themselves never disagree —
+    # see SALES_Q below — so that pairing is not a case this needs to
+    # handle). `period_group_entries` is the registry any such pair, current
+    # or future, reads from.
+    #
+    # airport, incheon and rail are DATED_PERIOD_CATS members left OUT of the
+    # registry, and that is not an oversight: their period is read off each
+    # LINE once `lines` is built (kac_period/iiac_period/korail_period,
+    # further down in this function), because their harvesters stamp a
+    # period per FACT rather than into one shared module-level global the
+    # way tour_facts()/boxoffice_facts()/molit_facts()/sales_facts()/
+    # rush_facts() do — and `lines` is itself built from the picks ORDER
+    # this very check decides, so their period cannot be known this early
+    # without reordering the function, which is out of scope for this fix.
+    period_group_entries = {}
+    if TOUR_M['en']:
+        period_group_entries['tourism'] = (
+            TOUR_M['en'], TOUR_M['ko'],
+            f'The entire month of {TOUR_M["month_en"]}',
+            f'{TOUR_M["month_ko"]} 한 달 전체')
+    if BOXOFFICE_D['en']:
         # The box office span is just its date (BOXOFFICE_D['en']/['ko']
         # already read "30 August" / "8월 30일") — a bare date reads as one
         # day on its own, with nothing more needed to say so.
-        period_subheads['boxoffice'] = (BOXOFFICE_D['en'], BOXOFFICE_D['ko'])
-        period_subheads['tourism'] = (
-            f'The entire month of {TOUR_M["month_en"]}',
-            f'{TOUR_M["month_ko"]} 한 달 전체')
+        period_group_entries['boxoffice'] = (
+            BOXOFFICE_D['en'], BOXOFFICE_D['ko'],
+            BOXOFFICE_D['en'], BOXOFFICE_D['ko'])
+    if MOLIT_M['en']:
+        # Same "descriptor, period" shape the footnote entry below carries
+        # (see uses_molit) — reused verbatim as the subhead rather than
+        # hand-worded like tourism/boxoffice, since a filing month has no
+        # own-vein count claim to go stale the way boxoffice's does.
+        period_group_entries['property'] = (
+            MOLIT_M['en'], MOLIT_M['ko'],
+            f'Apartment filings, {MOLIT_M["en"]}',
+            f'아파트 실거래 신고, {MOLIT_M["ko"]}')
+    if SALES_Q['en']:
+        # spending and avgbill are two views of the SAME dataset (see
+        # SALES_Q below) and always share its period, so pairing them with
+        # EACH OTHER never disagrees and never reaches period_grouped —
+        # only pairing either with a differently-sourced dated vein
+        # (property) can.
+        _spending_subhead_en = f'Commercial districts, {SALES_Q["en"]}'
+        _spending_subhead_ko = f'상권, {SALES_Q["ko"]}'
+        period_group_entries['spending'] = (
+            SALES_Q['en'], SALES_Q['ko'],
+            _spending_subhead_en, _spending_subhead_ko)
+        period_group_entries['avgbill'] = (
+            SALES_Q['en'], SALES_Q['ko'],
+            _spending_subhead_en, _spending_subhead_ko)
+    if RUSH_M['en']:
+        period_group_entries['rush'] = (
+            RUSH_M['en'], RUSH_M['ko'],
+            f'The total monthly boardings during the designated hour, '
+            f'{RUSH_M["en"]}',
+            f'해당 시간대 승차 인원, 한 달 합계, {RUSH_M["ko"]}')
+
+    # The categories actually on this card that the registry above can speak
+    # to. Grouping needs two or more of them AND a genuine disagreement (the
+    # identity string, position 0/1 of each entry) — without the second
+    # check, two categories that happen to share one period (spending +
+    # avgbill, always; property + spending on a month that lands in the same
+    # quarter, occasionally) would be split into two redundant subheads
+    # saying the same thing instead of being left to the ordinary single-
+    # dateline lift further down.
+    _pg_present = precats & set(period_group_entries)
+    period_grouped = (
+        not spotlight and not maybe_grouped and not metric_grouped
+        and len(_pg_present) >= 2
+        and len({period_group_entries[c][0] for c in _pg_present}) > 1)
+    period_subheads = {}
+    if period_grouped:
+        for c in _pg_present:
+            period_subheads[c] = period_group_entries[c][2:4]
 
     # A spotlight card is one place read along a clock — now, then the usual for
     # this hour, then the hours ahead. Sorting that by size would scramble the
@@ -8890,9 +8960,22 @@ def compose(sel, pool):
     # carries no line of that category at all.
     iiac_period = ('', '')
     korail_period = ('', '')
+    # Captured per category so period_grouped (below) can strip exactly the
+    # entries it promotes to a subhead, without reconstructing the same
+    # f-strings a second time and risking the two copies drifting apart —
+    # same device tour_scope_pair/boxoffice_scope_pair used before this was
+    # generalised, now keyed by category so any DATED_PERIOD_CATS member in
+    # period_group_entries can be captured and stripped the same way.
+    dated_scope_pair = {}
     if ('spending' in cats or 'avgbill' in cats) and SALES_Q['en']:
-        scope_en.append(('Commercial districts', SALES_Q['en']))
-        scope_ko.append(('상권', SALES_Q['ko']))
+        _spending_pair = (('Commercial districts', SALES_Q['en']),
+                          ('상권', SALES_Q['ko']))
+        scope_en.append(_spending_pair[0])
+        scope_ko.append(_spending_pair[1])
+        if 'spending' in cats:
+            dated_scope_pair['spending'] = _spending_pair
+        if 'avgbill' in cats:
+            dated_scope_pair['avgbill'] = _spending_pair
     if uses_kosis or lib_ratio:
         src_en += ' · Statistics Korea'
         src_ko += ' · 통계청'
@@ -8908,8 +8991,11 @@ def compose(sel, pool):
         src_en += ' · MOLIT'
         src_ko += ' · 국토교통부'
         if MOLIT_M['en']:
-            scope_en.append(('Apartment filings', MOLIT_M['en']))
-            scope_ko.append(('아파트 실거래 신고', MOLIT_M['ko']))
+            _property_pair = (('Apartment filings', MOLIT_M['en']),
+                              ('아파트 실거래 신고', MOLIT_M['ko']))
+            scope_en.append(_property_pair[0])
+            scope_ko.append(_property_pair[1])
+            dated_scope_pair['property'] = _property_pair
     if uses_apqa:
         src_en += ' · Animal and Plant Quarantine Agency'
         src_ko += ' · 농림축산검역본부'
@@ -9032,9 +9118,12 @@ def compose(sel, pool):
         # month dateline, which reads as one evening and is out by about
         # thirtyfold. The dateline says WHICH month; only this says that each
         # figure is the whole of it.
-        scope_en.append(('The total monthly boardings during the designated hour',
-                         RUSH_M['en']))
-        scope_ko.append(('해당 시간대 승차 인원, 한 달 합계', RUSH_M['ko']))
+        _rush_pair = (('The total monthly boardings during the designated hour',
+                      RUSH_M['en']),
+                     ('해당 시간대 승차 인원, 한 달 합계', RUSH_M['ko']))
+        scope_en.append(_rush_pair[0])
+        scope_ko.append(_rush_pair[1])
+        dated_scope_pair['rush'] = _rush_pair
     if 'stations' in cats and STATION_DAY['en']:
         # Same shape as busroutes directly above, but with the day of the
         # week in front: his call, 13 September 2026, on seeing this card's
@@ -9117,20 +9206,17 @@ def compose(sel, pool):
         if CULTURE_Y['y']:
             scope_en.append((f'Culture-facility survey, {CULTURE_Y["y"]} figures', None))
             scope_ko.append((f'문화기반시설총람, {CULTURE_Y["y"]}년 기준', None))
-    # Captured so period_grouped (below) can strip exactly the entries it
-    # promotes to a subhead, without reconstructing the same f-strings a
-    # second time and risking the two copies drifting apart.
-    tour_scope_pair = boxoffice_scope_pair = None
     if uses_tour:
         # Paid-admission scope and the (months-old) data month are keys to
         # the figures; both ride the card.
         src_en += ' · KCTI'
         src_ko += ' · 한국문화관광연구원'
         if TOUR_M['en']:
-            tour_scope_pair = (('Paid-admission sites', TOUR_M['en']),
-                               ('유료 관광지 입장객', TOUR_M['ko']))
-            scope_en.append(tour_scope_pair[0])
-            scope_ko.append(tour_scope_pair[1])
+            _tour_pair = (('Paid-admission sites', TOUR_M['en']),
+                          ('유료 관광지 입장객', TOUR_M['ko']))
+            scope_en.append(_tour_pair[0])
+            scope_ko.append(_tour_pair[1])
+            dated_scope_pair['tourism'] = _tour_pair
     if uses_kobis:
         # The scope is doing real work here, not decoration: admissions on
         # SEOUL screens are a different number from the national ones every
@@ -9165,7 +9251,7 @@ def compose(sel, pool):
             # Spelled out, as the card spells out months: "the day's 5
             # most-watched" is prose, not a figure, and the only numerals on
             # this card should be the ones being reported.
-            boxoffice_scope_pair = (
+            _boxoffice_pair = (
                 (f'Seoul screens, the day’s '
                  f'{SMALL_NUMBERS_EN.get(BOXOFFICE_N, BOXOFFICE_N)} '
                  f'most-watched', BOXOFFICE_D['en']),
@@ -9174,8 +9260,13 @@ def compose(sel, pool):
                 (f'서울 지역 상영, 그날 관객수 상위 '
                  f'{SMALL_NUMBERS_KO.get(BOXOFFICE_N, BOXOFFICE_N)} 편',
                  BOXOFFICE_D['ko']))
-            scope_en.append(boxoffice_scope_pair[0])
-            scope_ko.append(boxoffice_scope_pair[1])
+            scope_en.append(_boxoffice_pair[0])
+            scope_ko.append(_boxoffice_pair[1])
+            # Deliberately NOT captured into dated_scope_pair: this branch is
+            # gated on cats == {'boxoffice'} above, i.e. boxoffice is the
+            # card's ONLY category, so period_grouped (which needs 2+
+            # DATED_PERIOD_CATS members) can never be true here and there is
+            # nothing for it to strip.
         elif BOXOFFICE_D['en']:
             # A cross-pair: boxoffice contributed only one or two lines, not
             # the vein's own complete four (complete_boxoffice deliberately
@@ -9186,22 +9277,24 @@ def compose(sel, pool):
             # day's four most-watched" over a card carrying a single film
             # line. State the scope and the date; the card itself already
             # shows the reader how many films are on it.
-            boxoffice_scope_pair = (
+            _boxoffice_pair = (
                 ('Seoul screens', BOXOFFICE_D['en']),
                 ('서울 지역 상영', BOXOFFICE_D['ko']))
-            scope_en.append(boxoffice_scope_pair[0])
-            scope_ko.append(boxoffice_scope_pair[1])
+            scope_en.append(_boxoffice_pair[0])
+            scope_ko.append(_boxoffice_pair[1])
+            dated_scope_pair['boxoffice'] = _boxoffice_pair
     if period_grouped:
-        # Both entries just appended are about to head their own group as a
-        # subhead (see period_subheads / _items below) instead of sitting
-        # inline in the footnote — drop them here so the card does not say
-        # either span twice.
-        if tour_scope_pair:
-            scope_en = [e for e in scope_en if e != tour_scope_pair[0]]
-            scope_ko = [e for e in scope_ko if e != tour_scope_pair[1]]
-        if boxoffice_scope_pair:
-            scope_en = [e for e in scope_en if e != boxoffice_scope_pair[0]]
-            scope_ko = [e for e in scope_ko if e != boxoffice_scope_pair[1]]
+        # Every entry just captured above (tourism/boxoffice/property/
+        # spending/avgbill/rush, whichever are actually on this card) is
+        # about to head its own group as a subhead (see period_subheads /
+        # _items below) instead of sitting inline in the footnote — drop it
+        # here so the card does not say the same span twice. Only categories
+        # period_group_entries actually promoted are captured in
+        # dated_scope_pair in the first place, so this never strips a
+        # descriptor that stayed in the footnote.
+        for _pr_en, _pr_ko in dated_scope_pair.values():
+            scope_en = [e for e in scope_en if e != _pr_en]
+            scope_ko = [e for e in scope_ko if e != _pr_ko]
     if uses_books and BOOKS_WINDOW['days']:
         # ⚠️ The window is the whole reason this vein is publishable and it is
         # not in the API: 서울도서관 states it on its own page and the harvester
