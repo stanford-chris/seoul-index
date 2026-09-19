@@ -4,15 +4,22 @@ Post the Seoul Index methodology / "about" thread as prose cards, then pin it.
 
 This is STATIC content, not part of the daily automation (no launchd). Run it by
 hand — in particular as the first thing after a fresh-start wipe, so the pinned
-thread carries the new card look. Posting it stands up a 7-post thread:
+thread carries the new card look. Posting it stands up a 12-post thread — this
+list was last true at 6 cards + 1 reply and had drifted with every card CARDS
+gained since; keep it in step with CARDS itself, not the other way round:
 
   1. EN "About this account" card   (image, no caption)
-  2. EN "About the crowd figures" card
-  3. EN "About the comparisons" card
-  4. KO "이 계정에 대하여" card
-  5. KO "인구 수치에 대하여" card
-  6. KO "비교 수치에 대하여" card
-  7. a short reply with clickable source links
+  2. EN "About the counts" card
+  3. EN "About the crowd figures" card
+  4. EN "About the comparisons" card
+  5. EN "About the artwork" card
+  6. KO "이 계정에 대하여" card
+  7. KO "고정 수치에 대하여" card
+  8. KO "인구 수치에 대하여" card
+  9. KO "비교 수치에 대하여" card
+  10. KO "그림에 대하여" card
+  11. a short reply with clickable source links
+  12. a short reply crediting the source code, since 19 September 2026
 
 Each card's full text is its alt text. The link stays clickable because it lives
 in the trailing text reply, not the image (Bluesky renders post text above the
@@ -204,6 +211,14 @@ CARDS = [
 # all, which is how --replace tells a methodology thread from any other thread
 # it might find pinned. Kept as its own constant so the recogniser and the line
 # itself cannot drift apart.
+#
+# A second, separate trailing reply (below) carries the source-code credit.
+# It is NOT folded into this line or into SOURCE_DOMAINS: that list drives the
+# bio's own "+N more · 출처 M곳" count, and GitHub is not a data publisher.
+# It is also its own post rather than appended text, because SOURCE_LINE is
+# already 279 of 300 characters and grows every time a vein gains a source --
+# a fixed suffix here would eventually break a release that has nothing to do
+# with the source-code line at all.
 SOURCE_PREFIX = 'Sources · 출처: '
 SOURCE_LINE = (SOURCE_PREFIX + 'data.seoul.go.kr, kosis.kr, data-explorer.oecd.org, '
                'rt.molit.go.kr, data.kma.go.kr, airport.co.kr, airport.kr, korail.com, '
@@ -301,6 +316,19 @@ def _source_tb():
     return tb
 
 
+CODE_PREFIX = '\U0001f4bb Code: '
+CODE_URL = 'https://github.com/stanford-chris/seoul-index'
+
+
+def _code_tb():
+    """The source-code credit, as its own trailing reply after the sources
+    one. See the comment above SOURCE_PREFIX for why it lives here rather
+    than in SOURCE_LINE."""
+    tb = client_utils.TextBuilder()
+    tb.text(CODE_PREFIX).link('GitHub', CODE_URL)
+    return tb
+
+
 def render_all(out_dir):
     out = []
     for i, card in enumerate(CARDS):
@@ -319,6 +347,7 @@ def main():
         print(f'  [{card["lang"]}] {card["emoji"]} {card["heading"]} — {size}  {path}')
     clickable = ', '.join(dom for dom, _ in SOURCE_DOMAINS)
     print(f'  [reply] {_source_tb().build_text()!r} (clickable: {clickable})')
+    print(f'  [reply] {_code_tb().build_text()!r} (clickable: GitHub -> {CODE_URL})')
 
     if DRY_RUN:
         print(f'  [bio] would set +{len(SOURCE_DOMAINS) - BIO_NAMED} more · 출처 {len(SOURCE_DOMAINS)}곳')
@@ -353,9 +382,12 @@ def main():
         prev_ref = models.create_strong_ref(post)
         if root_ref is None:
             root_ref = prev_ref
-    # Trailing clickable source reply.
-    bsky.send_post(text=_source_tb(), reply_to=_reply(prev_ref, root_ref))
-    print(f'\nPosted methodology thread ({len(CARDS)} cards + source reply).')
+    # Trailing clickable source reply, then the code credit as its own reply
+    # after it -- see the comment above SOURCE_PREFIX for why it is separate.
+    source_post = bsky.send_post(text=_source_tb(), reply_to=_reply(prev_ref, root_ref))
+    source_ref = models.create_strong_ref(source_post)
+    bsky.send_post(text=_code_tb(), reply_to=_reply(source_ref, root_ref))
+    print(f'\nPosted methodology thread ({len(CARDS)} cards + source and code replies).')
 
     if PIN:
         pin_post(bsky, root_ref)
@@ -429,15 +461,32 @@ def is_methodology_thread(recs):
     thread no longer matched a nine-card script. The thread being replaced is
     by definition the PREVIOUS shape, so measuring it against the current one
     is the one comparison guaranteed to fail exactly when it is needed.
+
+    ⚠️ Accepts ONE trailing text reply (the sources line alone, every thread
+    posted before 19 September 2026) or TWO (sources then the code credit,
+    every thread after). Without this a --replace run right after that change
+    would fail to recognise the live one-reply thread as one of ours at all,
+    and refuse to delete it rather than risk taking the wrong thing — the
+    same "PREVIOUS shape" reasoning as the len(CARDS) note above, just for
+    the tail instead of the cards.
     """
     if not 3 <= len(recs) <= MAX_THREAD_RECORDS:
         return False
-    *cards, last = recs
+    texts = []
+    i = len(recs) - 1
+    while i >= 0 and (recs[i]['value'].get('text') or ''):
+        texts.insert(0, recs[i]['value']['text'])
+        i -= 1
+    cards = recs[:i + 1]
+    if not cards or not (1 <= len(texts) <= 2):
+        return False
     if any((r['value'].get('text') or '') for r in cards):
         return False
     if not all((r['value'].get('embed') or {}).get('images') for r in cards):
         return False
-    return (last['value'].get('text') or '').startswith(SOURCE_PREFIX)
+    if len(texts) == 1:
+        return texts[0].startswith(SOURCE_PREFIX)
+    return texts[0].startswith(SOURCE_PREFIX) and texts[1].startswith(CODE_PREFIX)
 
 
 def replace_old_thread(bsky, old_root_uri):

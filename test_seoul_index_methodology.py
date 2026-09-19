@@ -119,6 +119,12 @@ def _thread(cards=None, last=None):
         _credits() if last is None else last]
 
 
+def _code_reply(text=None):
+    return {'uri': 'at://did/app.bsky.feed.post/z', 'value': {
+        'text': M.CODE_PREFIX + 'GitHub' if text is None else text,
+        'createdAt': '2026-09-19T00:00:02Z'}}
+
+
 class ReplaceRecognisesItsOwnThread(unittest.TestCase):
     """Guards --replace, which deletes whatever was pinned when it started.
 
@@ -178,6 +184,34 @@ class ReplaceRecognisesItsOwnThread(unittest.TestCase):
         refuse to clean up after itself, silently, one run too late.
         """
         self.assertTrue(M.SOURCE_LINE.startswith(M.SOURCE_PREFIX))
+
+    def test_a_thread_with_the_code_reply_is_recognised(self):
+        """Since 19 September 2026 a thread may end in TWO text replies
+        (sources, then the code credit) rather than one. Both shapes must be
+        recognised: the one-reply shape is every thread already live the
+        moment this code shipped, and --replace has to find and delete
+        exactly that thread on its first run under the new code.
+        """
+        thread = _thread(last=_credits())
+        thread.append(_code_reply())
+        self.assertTrue(M.is_methodology_thread(thread))
+
+    def test_a_code_reply_with_the_wrong_text_is_refused(self):
+        thread = _thread(last=_credits())
+        thread.append(_code_reply('Just a plain reply, not the code credit'))
+        self.assertFalse(M.is_methodology_thread(thread))
+
+    def test_a_third_trailing_text_reply_is_refused(self):
+        """Two trailing text replies is the most this recogniser accepts.
+        A third (of any wording) is not a shape this script ever posts, so
+        --replace must not mistake it for one."""
+        thread = _thread(last=_credits())
+        thread.append(_code_reply())
+        thread.append(_code_reply('one more, unexpectedly'))
+        self.assertFalse(M.is_methodology_thread(thread))
+
+    def test_the_code_reply_still_opens_with_its_prefix(self):
+        self.assertTrue(M._code_tb().build_text().startswith(M.CODE_PREFIX))
 
     def test_the_bio_figures_follow_the_source_list(self):
         # The bio is not in this repo and drifted three releases running
