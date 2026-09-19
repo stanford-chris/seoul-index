@@ -1346,12 +1346,167 @@ BUS_RANK_RULE = 'trunk-branch'
 # footnote says what the card counts.
 STATION_DAY = {'en': None, 'ko': None}
 STATION_MAP_INFO = {'day': None, 'stations': None}   # [(label_en, lon, lat)] ×3
+# The streak footnote clause for the stations card (see STATION_STREAK_MIN's
+# block below), set alongside STATION_DAY when the card is built and read at
+# composition time, same pattern as STATION_DAY/STATION_MAP_INFO themselves.
+STATION_STREAK = {'en': '', 'ko': ''}
 STATION_CAVEAT_EN = 'Stations inside Seoul, all lines combined'
 STATION_CAVEAT_KO = '서울 시내 역, 전 노선 합산'
 STATION_IN_SEOUL_KM = 0.3
 STATION_QUIET_FLOOR = 10     # the transport vein's own feed-artifact floor
 # Stamped into transport_cache beside bus_rank_rule, same reasoning.
 STATION_RANK_RULE = 'seoul-summed-2'   # -2: the transport lines follow it too
+
+# The stations card ranks by raw daily boardings, and 9 of 9 days measured
+# 7-15 September 2026 had Seoul Station busiest and Dorimcheon quietest
+# every single time (2nd-busiest alone varied, Jamsil 7/9 and Hongik
+# University on the two weekend days) — the identical shape already found
+# and fixed for busroutes on 10 September (raw boardings there fixed on the
+# longest route, not the busiest one). Unlike busroutes, Seoul Station
+# genuinely is the country's busiest station by any measure, so the ranking
+# itself is not wrong the way raw route boardings were; the card just has no
+# way to say that plainly instead of repeating it in silence. His call, 19
+# September 2026: keep the ranking honest and say the streak out loud
+# (mirroring busroutes' own _streak_note), plus log the one day it actually
+# breaks — never the days it doesn't, which is the KBO_ORDER_SINCE reasoning
+# applied here: a report that says "still Seoul Station" every week is how a
+# report stops being read for a fact that is close to permanent by nature.
+STATION_RANK_HISTORY = Path(__file__).with_name('station_rank_history.json')
+# A 1- or 2-day streak isn't a pattern yet; same threshold and reasoning as
+# BUS_ROUTE_STREAK_MIN.
+STATION_STREAK_MIN = 3
+
+
+def load_station_rank_history():
+    try:
+        h = json.loads(STATION_RANK_HISTORY.read_text())
+    except (OSError, ValueError):
+        h = {}
+    h.setdefault('days', {})
+    return h
+
+
+def save_station_rank_history(h):
+    write_json_atomic(STATION_RANK_HISTORY, h, ensure_ascii=False)
+
+
+def station_rank_history_add(h, day, top, top_v, bottom, bottom_v):
+    """Record `day`'s busiest and quietest station (Korean fold-names, the
+    identity that's stable day to day). Idempotent per day, same contract as
+    bus_history_add: a day already held is left alone, so a re-fetch under a
+    changed rule cannot rewrite history. Only the extremes are kept — unlike
+    bus_route_history.json, nothing here ever needs the full rank table."""
+    if day in h['days']:
+        return False
+    h['days'][day] = {'top': top, 'top_v': top_v, 'bottom': bottom, 'bottom_v': bottom_v}
+    return True
+
+
+def station_rank_streaks(h, day):
+    """How long `day`'s busiest and quietest have held those places, read
+    from the history: (top, top_days, bottom, bottom_days, recorded,
+    first_day). Mirrors bus_rank_streaks exactly, at one station per day
+    instead of a full per-route rank table. A missing day ends the walk
+    rather than being bridged. None if `day` itself was never recorded."""
+    rec = h['days'].get(day)
+    if not rec:
+        return None
+    top, bottom = rec['top'], rec['bottom']
+    top_days = bottom_days = recorded = 0
+    top_alive = bottom_alive = True
+    d = day
+    first = day
+    while True:
+        rr = h['days'].get(d)
+        if rr is None:
+            break
+        recorded += 1
+        first = d
+        if top_alive and rr['top'] == top:
+            top_days += 1
+        else:
+            top_alive = False
+        if bottom_alive and rr['bottom'] == bottom:
+            bottom_days += 1
+        else:
+            bottom_alive = False
+        d = (datetime.strptime(d, '%Y%m%d') - timedelta(days=1)).strftime('%Y%m%d')
+    return top, top_days, bottom, bottom_days, recorded, first
+
+
+def _station_streak_note(streak, top_en, bottom_en, top_ko, bottom_ko):
+    """(en, ko) footnote clause for the stations card, or ('', ''). Mirrors
+    _streak_note's three-branch shape (both/top-only/bottom-only), but the
+    Korean always uses the FULL '이었다' copula, never the vowel-only
+    contraction '였다': the station names filled in here end in every kind
+    of batchim (서울역, 잠실, 도림천, 홍대입구...), and only the uncontracted
+    form is guaranteed grammatical whichever one shows up, so the subject
+    particle is kept on the fixed word '역' ("station") rather than ever
+    landing on the station name itself."""
+    if not streak:
+        return '', ''
+    top, td, bottom, bd, recorded, first = streak
+    if td < STATION_STREAK_MIN and bd < STATION_STREAK_MIN:
+        return '', ''
+    fd = datetime.strptime(first, '%Y%m%d')
+    first_en, first_ko = en_date(fd), f'{fd.month}월 {fd.day}일'
+    if td >= STATION_STREAK_MIN and bd >= STATION_STREAK_MIN and td == bd == recorded:
+        return (f'{top_en} was the busiest and {bottom_en} the quietest on every day '
+                f'recorded, {recorded} since {first_en}.',
+                f'기록된 {recorded}일({first_ko}부터) 내내 가장 붐빈 역은 {top_ko}이었다. '
+                f'가장 한산한 역은 {bottom_ko}이었다.')
+    en, ko = [], []
+    if td >= STATION_STREAK_MIN:
+        if td == recorded:
+            en.append(f'{top_en} has led every day recorded, {recorded} since {first_en}.')
+            ko.append(f'가장 붐빈 역은 기록된 {recorded}일({first_ko}부터) 내내 {top_ko}이었다.')
+        else:
+            en.append(f'{top_en} has led for the past {td} days.')
+            ko.append(f'가장 붐빈 역은 최근 {td}일간 매일 {top_ko}이었다.')
+    if bd >= STATION_STREAK_MIN:
+        if bd == recorded:
+            en.append(f'{bottom_en} was the quietest on every day recorded, {recorded} since {first_en}.')
+            ko.append(f'가장 한산한 역은 기록된 {recorded}일({first_ko}부터) 내내 {bottom_ko}이었다.')
+        else:
+            en.append(f'{bottom_en} was the quietest for the past {bd} days.')
+            ko.append(f'가장 한산한 역은 최근 {bd}일간 매일 {bottom_ko}이었다.')
+    return ' '.join(en), ' '.join(ko)
+
+
+def _observe_station_rank_change(h, day, top, bottom):
+    """Tell the estate's shared log the one day the stations card's busiest
+    or quietest actually changes — never while it holds, which for a fact
+    this close to permanent would put an identical 'still Seoul Station'
+    finding in the report every week. A flip is news; the steady state is
+    not. Same shape as bot_scout_collect.py's gated-source probe.
+
+    ⚠️ Dry runs report nothing, same guard as every other _observe_* helper
+    in this file: a test filing a synthetic flip with the Sunday review
+    invents a fault that never happened.
+    """
+    if not reporting():
+        return
+    prev_day = (datetime.strptime(day, '%Y%m%d') - timedelta(days=1)).strftime('%Y%m%d')
+    prev = h['days'].get(prev_day)
+    if not prev:
+        return   # no prior day to compare against: a first recorded day is not a change
+    changes = []
+    if prev['top'] != top:
+        changes.append(f'busiest moved from {en_lookup(prev["top"], "stations") or prev["top"]} '
+                        f'to {en_lookup(top, "stations") or top}')
+    if prev['bottom'] != bottom:
+        changes.append(f'quietest moved from {en_lookup(prev["bottom"], "stations") or prev["bottom"]} '
+                        f'to {en_lookup(bottom, "stations") or bottom}')
+    if not changes:
+        return
+    text = f'Stations card, {en_date(datetime.strptime(day, "%Y%m%d"))}: ' + '; '.join(changes)
+    try:
+        subprocess.run(
+            ['python3', str(OBSERVE), 'add', '--source', 'seoul-index-stations',
+             '--kind', 'change', '--key', 'seoul-index-stations-rank-change', text],
+            check=False, capture_output=True, timeout=20)
+    except Exception:                       # noqa: BLE001
+        pass
 
 
 # --- the bus stops card ------------------------------------------------------
@@ -2435,6 +2590,21 @@ def transport_facts(api_key, state):
                          if n in coords}
         except RuntimeError as e:
             print(f'Stations card withheld: coordinate feeds unavailable ({e}).')
+        # The stations card's own streak history (see STATION_STREAK_MIN's
+        # block): the day's extremes, before the English-name/coordinate
+        # gate below, so a streak isn't broken by an unrelated lookup
+        # failure on a day the underlying ranking didn't actually change.
+        # Idempotent per day, so a second post the same day neither
+        # rewrites history nor re-fires the change log.
+        station_streak = None
+        if st_ranked and st_bottom:
+            shist = load_station_rank_history()
+            is_new_day = station_rank_history_add(
+                shist, day, st_ranked[0][0], st_ranked[0][1], st_bottom[0], st_bottom[1])
+            if is_new_day:
+                save_station_rank_history(shist)
+                _observe_station_rank_change(shist, day, st_ranked[0][0], st_bottom[0])
+            station_streak = station_rank_streaks(shist, day)
         # The transport vein's own busiest/quietest station lines: summed
         # per station, Seoul-only when membership is known, else all-network.
         if st_ranked and st_bottom:
@@ -2488,6 +2658,7 @@ def transport_facts(api_key, state):
              'bus_rank_rule': BUS_RANK_RULE,
              'st_ranked': st_ranked, 'st_bottom': st_bottom, 'st_coords': st_coords,
              'st_in_seoul': st_count, 'st_rule': STATION_RANK_RULE,
+             'station_streak': station_streak,
              # The station gap card's day cache (see STATIONGAP_RULE).
              'gap': gap, 'gap_rule': STATIONGAP_RULE,
              # The bus stops card's day cache: the raw top BUSSTOP_KEEP stops,
@@ -2558,6 +2729,7 @@ def transport_facts(api_key, state):
     st_bottom = c.get('st_bottom')
     STATION_DAY['en'] = STATION_DAY['ko'] = None
     STATION_MAP_INFO['day'] = STATION_MAP_INFO['stations'] = None
+    STATION_STREAK['en'] = STATION_STREAK['ko'] = ''
     RANKED_CARD_INFO.pop('stations', None)
     if st_top and st_second and st_bottom:
         st_en = {n: en_lookup(n, 'stations') for n, _ in (st_top, st_second, st_bottom)}
@@ -2572,6 +2744,9 @@ def transport_facts(api_key, state):
         else:
             STATION_DAY['en'], STATION_DAY['ko'] = d, d_ko
             STATION_MAP_INFO['day'] = c['date']
+            STATION_STREAK['en'], STATION_STREAK['ko'] = _station_streak_note(
+                c.get('station_streak'), st_en[st_top[0]], st_en[st_bottom[0]],
+                st_top[0], st_bottom[0])
             # A registry entry for the fixed opener and the --daily guard's
             # data day only: no map_routes or map_pins, so the generic map
             # reply is not triggered; the station map keeps its own path
@@ -9831,6 +10006,13 @@ def compose(sel, pool):
                                    _day_dt(STATION_MAP_INFO['day']).date())
             if en:
                 note_en, note_ko = f'{note_en}. {en}.', f'{note_ko}. {ko}.'
+        # The streak clause (see STATION_STREAK_MIN's block): says out loud
+        # what nine days measured — Seoul Station and Dorimcheon holding the
+        # extremes almost every day — instead of letting the card repeat it
+        # in silence.
+        if STATION_STREAK['en']:
+            note_en = f'{note_en}. {STATION_STREAK["en"]}'
+            note_ko = f'{note_ko}. {STATION_STREAK["ko"]}'
     elif any(rc in cats and rc in RANKED_CARD_INFO for rc in RANKED_CATS):
         info = next(RANKED_CARD_INFO[rc] for rc in RANKED_CATS
                     if rc in cats and rc in RANKED_CARD_INFO)

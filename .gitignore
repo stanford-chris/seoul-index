@@ -63,6 +63,11 @@ feeds_history.jsonl.bak-*
 # Per-route daily bus totals, regenerable by bus_route_history_backfill.py
 bus_route_history.json
 
+# The stations card's own busiest/quietest streak history, seeded from the
+# live feed for 7-15 September 2026 (each day cross-checked against what
+# was already posted) and appended to by transport_facts() from then on.
+station_rank_history.json
+
 # Every Korail station's daily boardings and alightings, for as long as the
 # bot has run: the feed prunes at about a year, so older days exist only
 # here (and on the NAS). Initial fill by korail_station_history_backfill.py.
