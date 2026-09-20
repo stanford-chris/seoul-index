@@ -1350,8 +1350,13 @@ STATION_MAP_INFO = {'day': None, 'stations': None}   # [(label_en, lon, lat)] ×
 # block below), set alongside STATION_DAY when the card is built and read at
 # composition time, same pattern as STATION_DAY/STATION_MAP_INFO themselves.
 STATION_STREAK = {'en': '', 'ko': ''}
-STATION_CAVEAT_EN = 'Stations inside Seoul, all lines combined'
-STATION_CAVEAT_KO = '서울 시내 역, 전 노선 합산'
+# "Inside Seoul" was cut from both caveats on 20 September 2026, his call:
+# a reader on a Seoul account assumes it, and only someone who knows the
+# feed reaches Gyeonggi learns anything from it. "All lines combined"
+# stays because it changes who is named: per row Gangnam leads, summed
+# Seoul Station does. The rule itself (STATION_IN_SEOUL_KM) is unchanged.
+STATION_CAVEAT_EN = 'All lines combined'
+STATION_CAVEAT_KO = '전 노선 합산'
 STATION_IN_SEOUL_KM = 0.3
 STATION_QUIET_FLOOR = 10     # the transport vein's own feed-artifact floor
 # Stamped into transport_cache beside bus_rank_rule, same reasoning.
@@ -1797,8 +1802,8 @@ STATIONGAP_RULE = 'seoul-abs-1'  # stamped into transport_cache beside st_rule
 STATIONGAP_OPENER_EN = 'Seoul’s subway, one station'
 STATIONGAP_OPENER_KO = '서울 지하철, 역 하나'
 STATIONGAP_NOTE_EN = ('The station with the day’s widest gap between getting off and getting on. '
-                      'Stations inside Seoul, all lines combined.')
-STATIONGAP_NOTE_KO = '하차와 승차의 차이가 그날 가장 큰 역. 서울 시내 역, 전 노선 합산.'
+                      'All lines combined.')
+STATIONGAP_NOTE_KO = '하차와 승차의 차이가 그날 가장 큰 역. 전 노선 합산.'
 
 
 def station_gap(srows, in_seoul):

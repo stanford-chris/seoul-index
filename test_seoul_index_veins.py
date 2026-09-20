@@ -2043,9 +2043,9 @@ class StationsCard(unittest.TestCase):
         # The bus cards' closing sentence, on this card too: his call,
         # 12 September 2026. The footnote keeps the bare date even though
         # the masthead above now carries the day of the week.
-        self.assertEqual(c['note_en'], 'Stations inside Seoul, all lines combined. '
+        self.assertEqual(c['note_en'], 'All lines combined. '
                                        '7 September is the latest date for which data is available.')
-        self.assertEqual(c['note_ko'], '서울 시내 역, 전 노선 합산. 9월 7일은 데이터가 공개된 가장 최근 날짜.')
+        self.assertEqual(c['note_ko'], '전 노선 합산. 9월 7일은 데이터가 공개된 가장 최근 날짜.')
 
     def test_the_streak_follows_the_latest_date_sentence_with_one_period(self):
         # The 16 September 2026 card (posted 20 September) read
@@ -2057,14 +2057,14 @@ class StationsCard(unittest.TestCase):
             'Seoul Station', 'Dorimcheon', '서울역', '도림천')
         c = self._card()
         self.assertEqual(c['note_en'],
-                         'Stations inside Seoul, all lines combined. '
+                         'All lines combined. '
                          '7 September is the latest date for which data is available. '
                          'Seoul Station was the busiest and Dorimcheon the quietest on every day '
                          'recorded, 10 since September 7.')
         self.assertNotIn('..', c['note_en'])
         self.assertNotIn('..', c['note_ko'])
         self.assertEqual(c['note_ko'],
-                         '서울 시내 역, 전 노선 합산. 9월 7일은 데이터가 공개된 가장 최근 날짜. '
+                         '전 노선 합산. 9월 7일은 데이터가 공개된 가장 최근 날짜. '
                          '기록된 10일(9월 7일부터) 내내 가장 붐빈 역은 서울역이었다. '
                          '가장 한산한 역은 도림천이었다.')
 
@@ -2077,7 +2077,7 @@ class StationsCard(unittest.TestCase):
             'Seoul Station', 'Dorimcheon', '서울역', '도림천')
         c = self._card()
         self.assertTrue(c['note_en'].startswith(
-            'Stations inside Seoul, all lines combined. Seoul Station was the busiest'))
+            'All lines combined. Seoul Station was the busiest'))
         self.assertNotIn('..', c['note_en'])
 
     def test_picking_two_of_four_completes_the_ranking(self):
