@@ -1958,12 +1958,19 @@ class StationsVein(unittest.TestCase):
         self.assertIn('Seoul Station', self.by_id(facts, 'sub_busiest')['label_en'])
         self.assertIsNotNone(self.by_id(facts, 'bus_busiest_route'))
 
-    def test_the_map_info_carries_the_three_stations_coordinates_in_rank_order(self):
+    def test_the_registry_carries_the_three_stations_pins_in_rank_order(self):
+        # The pins ride RANKED_CARD_INFO like the busstops card's, so the one
+        # generic fifth-reply block in main() draws the station map too; a
+        # separate stations block would post it twice.
         self._facts()
-        labels = [x[0] for x in S.STATION_MAP_INFO['stations']]
-        self.assertEqual(labels, ['Busiest: Seoul Station', '2nd-busiest: Jamsil', 'Quietest: Oksu'])
-        lon, lat = S.STATION_MAP_INFO['stations'][0][1:]
+        pins = S.RANKED_CARD_INFO['stations']['map_pins']
+        self.assertEqual([x[0] for x in pins], ['Busiest: Seoul Station', '2nd-busiest: Jamsil', 'Quietest: Oksu'])
+        self.assertEqual([x[1] for x in pins], list(S.MAP_COLOURS[:3]))
+        lon, lat = pins[0][2]
         self.assertAlmostEqual(lon, 126.9721); self.assertAlmostEqual(lat, 37.5562)
+        self.assertIn('Map of three Seoul subway stations', S.RANKED_CARD_INFO['stations']['map_alt'])
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertNotIn("if primary == 'stations' and STATION_MAP_INFO", src)
 
     def test_a_same_day_cache_without_the_station_rule_is_refetched(self):
         with Stub({'CardSubwayStatsNew': ok('CardSubwayStatsNew', self.SUB_ROWS)}):
@@ -2368,8 +2375,8 @@ class InfraCooldown(unittest.TestCase):
 
     def test_the_stamp_the_poster_writes_is_the_one_the_cooldown_reads(self):
         src = open(S.__file__, encoding='utf-8').read()
-        self.assertIn("state['last_infra_at'] = state['last_success_at']", src)
-        self.assertIn("'last_infra_at', 'infra'", src)
+        self.assertIn('infra', S.COOLDOWNS)
+        self.assertIn('infra', S.COOLDOWNS)  # cooled AND stamped through the one table
 
 
 class ChangeOverridesCooldown(unittest.TestCase):
@@ -2467,12 +2474,11 @@ class ChangeOverridesCooldown(unittest.TestCase):
 
     def test_the_leader_state_is_written_only_on_an_actual_post(self):
         src = open(S.__file__, encoding='utf-8').read()
-        self.assertIn("state['last_busroutes_leader'] = leader", src)
-        self.assertIn("state['last_busstops_leader'] = leader", src)
-        # Both sit inside their own `if primary == '<cat>':` block, i.e. only
-        # written when that vein was what actually posted this run.
-        self.assertIn("if primary == 'busroutes':", src)
-        self.assertIn("if primary == 'busstops':", src)
+        self.assertEqual(S.LEADER_CATS, ('busroutes', 'busstops'))
+        # Written inside `if primary in LEADER_CATS:`, i.e. only when that
+        # vein was what actually posted this run.
+        self.assertIn("if primary in LEADER_CATS:", src)
+        self.assertIn("state[f'last_{primary}_leader'] = leader", src)
 
 
 class BusRouteStreak(unittest.TestCase):
@@ -2948,8 +2954,8 @@ class BusStopsCard(unittest.TestCase):
         self.assertIn('busstops', S.ORDERED_CATS)
         self.assertGreaterEqual(S.BUSSTOPS_COOLDOWN_DAYS, 3)
         src = open(S.__file__, encoding='utf-8').read()
-        self.assertIn("'last_busstops_at', 'busstops'", src)
-        self.assertIn("state['last_busstops_at'] = state['last_success_at']", src)
+        self.assertIn('busstops', S.COOLDOWNS)  # cooled AND stamped through the one table
+        self.assertIn('busstops', S.COOLDOWNS)
         self.assertIn('- "busstops" lines are', src)
 
 
@@ -3047,8 +3053,8 @@ class RailStationsCard(unittest.TestCase):
         self.assertIn('railstations', S.RANKED_CATS)
         self.assertIn('railstations', S.ORDERED_CATS)
         src = open(S.__file__, encoding='utf-8').read()
-        self.assertIn("'last_railstations_at', 'railstations'", src)
-        self.assertIn("state['last_railstations_at'] = state['last_success_at']", src)
+        self.assertIn('railstations', S.COOLDOWNS)  # cooled AND stamped through the one table
+        self.assertIn('railstations', S.COOLDOWNS)
         self.assertIn('- "railstations" lines are', src)
         self.assertIn("uses_korail = bool({'rail', 'railstations', 'seoulstation', 'railcommuter'} & cats)", src)
 
@@ -3192,8 +3198,8 @@ class SeoulStationCard(unittest.TestCase):
         self.assertIn('seoulstation', S.ORDERED_CATS)
         self.assertGreaterEqual(S.SEOULSTATION_COOLDOWN_DAYS, 7)
         src = open(S.__file__, encoding='utf-8').read()
-        self.assertIn("'last_seoulstation_at', 'seoulstation'", src)
-        self.assertIn("state['last_seoulstation_at'] = state['last_success_at']", src)
+        self.assertIn('seoulstation', S.COOLDOWNS)  # cooled AND stamped through the one table
+        self.assertIn('seoulstation', S.COOLDOWNS)
         self.assertIn('- "seoulstation" lines are', src)
         self.assertIn("'seoulstation', 'railcommuter'} & cats", src)
 
@@ -3330,8 +3336,8 @@ class StationGapCard(unittest.TestCase):
         self.assertIn('stationgap', S.ORDERED_CATS)
         self.assertGreaterEqual(S.STATIONGAP_COOLDOWN_DAYS, 7)
         src = open(S.__file__, encoding='utf-8').read()
-        self.assertIn("'last_stationgap_at', 'stationgap'", src)
-        self.assertIn("state['last_stationgap_at'] = state['last_success_at']", src)
+        self.assertIn('stationgap', S.COOLDOWNS)  # cooled AND stamped through the one table
+        self.assertIn('stationgap', S.COOLDOWNS)
         self.assertIn('- "stationgap" lines are', src)
 
 
@@ -3526,8 +3532,8 @@ class WxDayCard(unittest.TestCase):
         self.assertIn('wxday', S.RANKED_CATS)
         self.assertIn('wxday', S.ORDERED_CATS)
         src = open(S.__file__, encoding='utf-8').read()
-        self.assertIn("'last_wxday_at', 'wxday'", src)
-        self.assertIn("state['last_wxday_at'] = state['last_success_at']", src)
+        self.assertIn('wxday', S.COOLDOWNS)  # cooled AND stamped through the one table
+        self.assertIn('wxday', S.COOLDOWNS)
         self.assertIn('- "wxday" lines are', src)
         self.assertIn("uses_kma = bool({'weather', 'river', 'wxday'} & cats)", src)
 
@@ -3624,8 +3630,8 @@ class RescueCard(unittest.TestCase):
         self.assertIn('rescue', S.RANKED_CATS)
         self.assertIn('rescue', S.ORDERED_CATS)
         src = open(S.__file__, encoding='utf-8').read()
-        self.assertIn("'last_rescue_at', 'rescue'", src)
-        self.assertIn("state['last_rescue_at'] = state['last_success_at']", src)
+        self.assertIn('rescue', S.COOLDOWNS)  # cooled AND stamped through the one table
+        self.assertIn('rescue', S.COOLDOWNS)
         self.assertIn('- "rescue" lines are', src)
         self.assertIn("uses_apqa = 'rescue' in cats", src)
         self.assertIn("('animal.go.kr', 'https://www.animal.go.kr')", src)
@@ -3705,8 +3711,8 @@ class KopisCard(unittest.TestCase):
         self.assertIn('kopis', S.ORDERED_CATS)
         self.assertIn('kopis', S.WON_CATS)
         src = open(S.__file__, encoding='utf-8').read()
-        self.assertIn("'last_kopis_at', 'kopis'", src)
-        self.assertIn("state['last_kopis_at'] = state['last_success_at']", src)
+        self.assertIn('kopis', S.COOLDOWNS)  # cooled AND stamped through the one table
+        self.assertIn('kopis', S.COOLDOWNS)
         self.assertIn('- "kopis" lines are', src)
         self.assertIn("uses_kopis = 'kopis' in cats", src)
         self.assertIn("('kopis.or.kr', 'https://www.kopis.or.kr')", src)
@@ -4087,11 +4093,10 @@ class KepcoCards(unittest.TestCase):
             self.assertIn(c, S.WON_CATS)
         self.assertIn('kepco', S.ORDERED_CATS)
         self.assertNotIn('kepcohist', S.ORDERED_CATS)   # compose() orders the pairs by metric, newest first
+        self.assertIn('kepco', S.COOLDOWNS)       # cooled AND stamped through the one table
+        self.assertIn('kepcohist', S.COOLDOWNS)
         src = open(S.__file__, encoding='utf-8').read()
-        for needle in ("'last_kepco_at', 'kepco'", "'last_kepcohist_at', 'kepcohist'",
-                       "state['last_kepco_at'] = state['last_success_at']",
-                       "state['last_kepcohist_at'] = state['last_success_at']",
-                       '- "kepco" lines are', '- "kepcohist" lines set',
+        for needle in ('- "kepco" lines are', '- "kepcohist" lines set',
                        "uses_kepco = bool({'kepco', 'kepcohist', 'kepcohouse'} & cats)",
                        "('bigdata.kepco.co.kr', 'https://bigdata.kepco.co.kr')",
                        "pool += kepco_facts(kepco_key, kosis_key)", "pool += kepco_hist_facts(kepco_key)",
@@ -4240,15 +4245,17 @@ class SlottedBusCards(unittest.TestCase):
             self.assertIn("'opener_en'", self._entry(cat), cat)
 
     def test_the_subway_opener_is_fixed_and_carries_no_today(self):
-        # stations joined the slots on 12 September 2026 (14:30 daily). Its
-        # registry entry carries only the day and the opener: no map fields,
-        # so the generic map reply stays off and the station map's own path
-        # keeps posting it.
+        # stations joined the slots on 12 September 2026 (14:30 daily). Since
+        # 20 September its registry entry also carries the map pins, so the
+        # one generic fifth-reply block posts the station map; it must NOT
+        # carry day_en, which compose() would fly as a second masthead line
+        # over the one STATION_DAY already gives this card.
         self.assertEqual(S.STATIONS_OPENER_EN, 'On the subway')
         self.assertEqual(S.STATIONS_OPENER_KO, '서울의 지하철')
         entry = self._entry('stations')
         self.assertNotIn('map_routes', entry)
-        self.assertNotIn('map_pins', entry)
+        self.assertIn("'map_pins'", entry)
+        self.assertNotIn("'day_en'", entry)
         src = Path(S.__file__).read_text()
         self.assertIn('its opener is FIXED and written by Python ("On the subway")', src)
 

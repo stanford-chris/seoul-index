@@ -444,7 +444,12 @@ def render_bus_route_map(routes, seoul_stops, out_path, title='', caption=''):
         f'<text x="30" y="{caption_y + 12 * i}" font-family="Menlo,monospace" '
         f'font-size="9" fill="{MUTED}">{_esc(line)}</text>'
         for i, line in enumerate(caption_lines))
+    return _shoot_map(body, legend_bg, legend, title_html, caption_html, size, out_path)
 
+
+def _shoot_map(body, legend_bg, legend, title_html, caption_html, size, out_path):
+    """Wrap a map's drawn parts in the square SVG document both map renderers
+    share (cream ground, the 'soften' blur filter) and screenshot it."""
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}">'
            f'<defs><filter id="soften" x="-20%" y="-20%" width="140%" height="140%">'
            f'<feGaussianBlur stdDeviation="2.2"/></filter></defs>'
@@ -453,7 +458,6 @@ def render_bus_route_map(routes, seoul_stops, out_path, title='', caption=''):
            f'</svg>')
     doc = f'<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">{svg}</body></html>'
     return _shoot(doc, out_path, size=(size, size))
-
 
 
 def render_station_map(stations, seoul_stops, out_path, title='', caption=''):
@@ -531,14 +535,7 @@ def render_station_map(stations, seoul_stops, out_path, title='', caption=''):
                   f'font-weight="bold" fill="{RED}">{_esc(title)}</text>' if title else '')
     caption_html = (f'<text x="30" y="{caption_y}" font-family="Menlo,monospace" '
                     f'font-size="9" fill="{MUTED}">{_esc(caption)}</text>' if caption else '')
-    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}">'
-           f'<defs><filter id="soften" x="-20%" y="-20%" width="140%" height="140%">'
-           f'<feGaussianBlur stdDeviation="2.2"/></filter></defs>'
-           f'<rect width="{size}" height="{size}" fill="{CREAM}"/>'
-           f'{"".join(body)}{legend_bg}{"".join(legend)}{title_html}{caption_html}'
-           f'</svg>')
-    doc = f'<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">{svg}</body></html>'
-    return _shoot(doc, out_path, size=(size, size))
+    return _shoot_map(body, legend_bg, legend, title_html, caption_html, size, out_path)
 
 # Source domains get bolded wherever they appear in prose body text.
 PROSE_BOLD_TERMS = ('data.seoul.go.kr', 'kosis.kr')

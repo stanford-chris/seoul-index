@@ -196,11 +196,9 @@ if DAILY_CAT:
 DAILY = DAILY_CAT is not None
 MAX_POST_CHARS = 285  # buffer under Bluesky's 300-grapheme limit
 SEOUL_TZ = ZoneInfo('Asia/Seoul')
-SOURCE_URL = 'https://data.seoul.go.kr/'
 
-# How many recently-used line ids / categories to keep off the next post.
+# How many recently-used line ids to keep off the next post.
 RECENT_IDS_KEEP = 24
-RECENT_CATS_KEEP = 2
 
 # recent_ids is advisory: it goes to the selector as AVOID_IDS, the last and
 # weakest rule in a long prompt, and the selector demonstrably ignores it when a
@@ -1345,7 +1343,8 @@ BUS_RANK_RULE = 'trunk-branch'
 # STATION_IN_SEOUL_KM with a measured gap on either side of it, and the
 # footnote says what the card counts.
 STATION_DAY = {'en': None, 'ko': None}
-STATION_MAP_INFO = {'day': None, 'stations': None}   # [(label_en, lon, lat)] ×3
+STATION_MAP_INFO = {'day': None}   # the card's data day, YYYYMMDD; the map's
+                                   # pins ride RANKED_CARD_INFO['stations'] like busstops'
 # The streak footnote clause for the stations card (see STATION_STREAK_MIN's
 # block below), set alongside STATION_DAY when the card is built and read at
 # composition time, same pattern as STATION_DAY/STATION_MAP_INFO themselves.
@@ -1407,36 +1406,47 @@ def station_rank_history_add(h, day, top, top_v, bottom, bottom_v):
     return True
 
 
-def station_rank_streaks(h, day):
-    """How long `day`'s busiest and quietest have held those places, read
-    from the history: (top, top_days, bottom, bottom_days, recorded,
-    first_day). Mirrors bus_rank_streaks exactly, at one station per day
-    instead of a full per-route rank table. A missing day ends the walk
-    rather than being bridged. None if `day` itself was never recorded."""
-    rec = h['days'].get(day)
-    if not rec:
+def _rank_streaks(day, extremes):
+    """How long `day`'s busiest and quietest have held those places:
+    (top, top_days, bottom, bottom_days, recorded, first_day), or None if
+    `day` itself cannot be ranked. `extremes(d)` gives a day's (top, bottom)
+    or None. `recorded` is the run of consecutive days ending at `day` that
+    the history can rank at all, and `first_day` its start; a streak equal
+    to `recorded` is "every day recorded", which is all the record can say.
+    A missing day ends the walk rather than being bridged."""
+    pair = extremes(day)
+    if pair is None:
         return None
-    top, bottom = rec['top'], rec['bottom']
+    top, bottom = pair
     top_days = bottom_days = recorded = 0
     top_alive = bottom_alive = True
     d = day
     first = day
     while True:
-        rr = h['days'].get(d)
-        if rr is None:
+        pair = extremes(d)
+        if pair is None:
             break
         recorded += 1
         first = d
-        if top_alive and rr['top'] == top:
+        if top_alive and pair[0] == top:
             top_days += 1
         else:
             top_alive = False
-        if bottom_alive and rr['bottom'] == bottom:
+        if bottom_alive and pair[1] == bottom:
             bottom_days += 1
         else:
             bottom_alive = False
         d = (datetime.strptime(d, '%Y%m%d') - timedelta(days=1)).strftime('%Y%m%d')
     return top, top_days, bottom, bottom_days, recorded, first
+
+
+def station_rank_streaks(h, day):
+    """_rank_streaks over the station history: one busiest and one quietest
+    station per day, instead of bus_rank_streaks' full per-route rank table."""
+    def extremes(d):
+        rec = h['days'].get(d)
+        return (rec['top'], rec['bottom']) if rec else None
+    return _rank_streaks(day, extremes)
 
 
 def _station_streak_note(streak, top_en, bottom_en, top_ko, bottom_ko):
@@ -2408,36 +2418,12 @@ def bus_intensity_rank(h, day):
 
 
 def bus_rank_streaks(h, day):
-    """How long the day's busiest and quietest (per stop) have held those
-    places, read from the history: (top, top_days, bottom, bottom_days,
-    recorded, first_day). `recorded` is the run of consecutive days ending
-    at `day` that the history can rank at all, and `first_day` its start;
-    a streak equal to `recorded` is "every day recorded", which is all the
-    record can say. A missing day ends the walk rather than being bridged."""
-    r, _ = bus_intensity_rank(h, day)
-    if r is None:
-        return None
-    top, bottom = r['ranked'][0][0], r['ranked'][-1][0]
-    top_days = bottom_days = recorded = 0
-    top_alive = bottom_alive = True
-    d = day
-    first = day
-    while True:
-        rr, _ = bus_intensity_rank(h, d)
-        if rr is None:
-            break
-        recorded += 1
-        first = d
-        if top_alive and rr['ranked'][0][0] == top:
-            top_days += 1
-        else:
-            top_alive = False
-        if bottom_alive and rr['ranked'][-1][0] == bottom:
-            bottom_days += 1
-        else:
-            bottom_alive = False
-        d = (datetime.strptime(d, '%Y%m%d') - timedelta(days=1)).strftime('%Y%m%d')
-    return top, top_days, bottom, bottom_days, recorded, first
+    """_rank_streaks over the bus history: the day's busiest and quietest
+    route by boardings per stop served, from bus_intensity_rank."""
+    def extremes(d):
+        r, _ = bus_intensity_rank(h, d)
+        return (r['ranked'][0][0], r['ranked'][-1][0]) if r else None
+    return _rank_streaks(day, extremes)
 
 
 def _streak_note(h, day):
@@ -2733,7 +2719,7 @@ def transport_facts(api_key, state):
     st_second = c['st_ranked'][1] if len(c.get('st_ranked') or []) >= 2 else None
     st_bottom = c.get('st_bottom')
     STATION_DAY['en'] = STATION_DAY['ko'] = None
-    STATION_MAP_INFO['day'] = STATION_MAP_INFO['stations'] = None
+    STATION_MAP_INFO['day'] = None
     STATION_STREAK['en'] = STATION_STREAK['ko'] = ''
     RANKED_CARD_INFO.pop('stations', None)
     if st_top and st_second and st_bottom:
@@ -2752,19 +2738,30 @@ def transport_facts(api_key, state):
             STATION_STREAK['en'], STATION_STREAK['ko'] = _station_streak_note(
                 c.get('station_streak'), st_en[st_top[0]], st_en[st_bottom[0]],
                 st_top[0], st_bottom[0])
-            # A registry entry for the fixed opener and the --daily guard's
-            # data day only: no map_routes or map_pins, so the generic map
-            # reply is not triggered; the station map keeps its own path
-            # (STATION_MAP_INFO), unchanged.
+            # The registry entry: the fixed opener, the --daily guard's data
+            # day, and the map pins the generic fifth-reply block in main()
+            # draws through render_station_map, exactly as the busstops
+            # card's. Until 20 September 2026 the station map had a block of
+            # its own in main() and this entry deliberately carried no pins,
+            # since the two blocks together would have posted it twice.
+            names = [st_en[st_top[0]], st_en[st_second[0]], st_en[st_bottom[0]]]
             RANKED_CARD_INFO['stations'] = {
                 'map_day': c['date'],
                 'opener_en': STATIONS_OPENER_EN, 'opener_ko': STATIONS_OPENER_KO,
+                # map_title, not day_en: compose() reads day_en as a second
+                # masthead line, and this card's masthead comes from STATION_DAY.
+                'map_title': d,
+                'map_caption': 'Boardings summed across each station’s lines; stations inside Seoul',
+                'map_pins': [(f'Busiest: {names[0]}', MAP_COLOURS[0], tuple(coords[st_top[0]])),
+                             (f'2nd-busiest: {names[1]}', MAP_COLOURS[1], tuple(coords[st_second[0]])),
+                             (f'Quietest: {names[2]}', MAP_COLOURS[2], tuple(coords[st_bottom[0]]))],
+                'map_alt': (
+                    f'Map of three Seoul subway stations on {d}: '
+                    f'busiest ({names[0]}), second-busiest ({names[1]}) and quietest '
+                    f'({names[2]}), each marked and named over a faint backdrop of every '
+                    f'Seoul bus stop. Boardings are summed across each station’s lines; '
+                    f'stations inside Seoul only.'),
             }
-            STATION_MAP_INFO['stations'] = [
-                (f'Busiest: {st_en[st_top[0]]}', *coords[st_top[0]]),
-                (f'2nd-busiest: {st_en[st_second[0]]}', *coords[st_second[0]]),
-                (f'Quietest: {st_en[st_bottom[0]]}', *coords[st_bottom[0]]),
-            ]
             facts += [
                 fact('st_busiest', 'stations', f'Busiest: {st_en[st_top[0]]}',
                      grouped(st_top[1]), grouped(st_top[1]), pin=True,
@@ -5181,10 +5178,10 @@ def iiac_facts(key):
 # window; noticeSdt spills past its end).
 # ⚠️ A zero-row week is an outage, not a quiet week: the smallest weekly
 # count in six weeks of history was 31, so an empty answer withholds.
+RESCUE_SEOUL_CODE = '6110000'
 RESCUE_BASE = ('https://apis.data.go.kr/1543061/abandonmentPublicService_v2/'
                'abandonmentPublic_v2?serviceKey={key}&_type=json&numOfRows=1000'
-               '&pageNo={page}&upr_cd=6110000&bgnde={a}&endde={b}')
-RESCUE_SEOUL_CODE = '6110000'
+               '&pageNo={page}&upr_cd=' + RESCUE_SEOUL_CODE + '&bgnde={a}&endde={b}')
 RESCUE_LAG_DAYS = 3
 RESCUE_WINDOW_DAYS = 7
 RESCUE_COOLDOWN_DAYS = 7
@@ -7826,6 +7823,72 @@ def stamp_daily_day(state, primary):
     day = daily_data_day(primary)
     if day:
         state.setdefault('daily_last_day', {})[primary] = day
+
+
+# Every vein that sits out for a while after posting: cat -> (days, label),
+# or (days, label, changed_en, changed_ko) for the two that may post early
+# when their leader changes (apply_cooldown_unless_changed). ONE table drives
+# both the cooldown ladder in main() and the stamp written after a post, so a
+# vein cannot be cooled on one key and stamped on another: until 20 September
+# 2026 those were two hand-kept lists of 25 lines each, and adding a vein
+# meant editing both. The order is the ladder's order, kept as it was. The
+# stamp key is last_<cat>_at (stamp_key()), which is what the tests and every
+# state file on disk use; `nation` is stamped the same way but cooled in
+# nation_facts() rather than here, so it is not in this table.
+COOLDOWNS = {
+    'world':        (WORLD_COOLDOWN_DAYS, 'World'),
+    'spending':     (SPENDING_COOLDOWN_DAYS, 'Spending'),
+    'bike':         (BIKE_COOLDOWN_DAYS, 'Bike'),
+    'traffic':      (TRAFFIC_COOLDOWN_DAYS, 'Traffic'),
+    'transport':    (TRANSPORT_COOLDOWN_DAYS, 'Transport'),
+    'national':     (NATIONAL_COOLDOWN_DAYS, 'National'),
+    'tourism':      (TOURISM_COOLDOWN_DAYS, 'Tourism'),
+    'infra':        (INFRA_COOLDOWN_DAYS, 'Infrastructure'),
+    # busroutes and busstops: 14 September 2026, his call -- pulled off their
+    # own daily launchd slots and back into the general rotation on the same
+    # cooldown every other ranked card carries, EXCEPT that a genuine change
+    # in the busiest route or stop is allowed through early rather than stuck
+    # waiting out the clock (see apply_cooldown_unless_changed's docstring).
+    'busroutes':    (BUSROUTES_COOLDOWN_DAYS, 'Bus routes',
+                     'Posted early: the busiest route changed.',
+                     '조기 게시: 1위 노선이 바뀌어 게시.'),
+    'stations':     (STATIONS_COOLDOWN_DAYS, 'Stations'),
+    'nightbus':     (NIGHTBUS_COOLDOWN_DAYS, 'Night bus'),
+    'busweekend':   (BUSWEEKEND_COOLDOWN_DAYS, 'Weekend swing'),
+    'busstops':     (BUSSTOPS_COOLDOWN_DAYS, 'Bus stops',
+                     'Posted early: the busiest stop changed.',
+                     '조기 게시: 1위 정류장이 바뀌어 게시.'),
+    'railstations': (RAILSTATIONS_COOLDOWN_DAYS, 'Rail stations'),
+    'seoulstation': (SEOULSTATION_COOLDOWN_DAYS, 'Seoul Station'),
+    'stationgap':   (STATIONGAP_COOLDOWN_DAYS, 'Station gap'),
+    'wxday':        (WXDAY_COOLDOWN_DAYS, 'Weather day'),
+    'rescue':       (RESCUE_COOLDOWN_DAYS, 'Rescued animals'),
+    'kopis':        (KOPIS_COOLDOWN_DAYS, 'Performances'),
+    'kepco':        (KEPCO_COOLDOWN_DAYS, 'Electricity'),
+    'kepcohist':    (KEPCO_COOLDOWN_DAYS, 'Electricity then-and-now'),
+    'kepcohouse':   (KEPCO_HOUSE_COOLDOWN_DAYS, 'Household electricity'),
+    'railcommuter': (RAILCOMMUTER_COOLDOWN_DAYS, 'Commuter rail'),
+}
+# The two veins whose card names a leader, remembered so the next run can
+# tell whether it changed (apply_cooldown_unless_changed).
+LEADER_CATS = ('busroutes', 'busstops')
+
+
+def stamp_key(cat):
+    """The state key holding when `cat` last posted."""
+    return f'last_{cat}_at'
+
+
+def apply_cooldowns(pool, state):
+    """Every cooldown in COOLDOWNS, in order."""
+    for cat, spec in COOLDOWNS.items():
+        days, label, *changed = spec
+        if changed:
+            pool = apply_cooldown_unless_changed(pool, state, stamp_key(cat), cat, days,
+                                                 label, *changed)
+        else:
+            pool = apply_cooldown(pool, state, stamp_key(cat), cat, days, label)
+    return pool
 
 
 def apply_cooldown(pool, state, stamp_key, cat, days, label):
@@ -10543,67 +10606,12 @@ def main():
         if len(pool) < 5:
             sys.exit(f'Pool too small ({len(pool)} facts) — data sources may be down.')
 
-        # Vein cooldowns (see WORLD_COOLDOWN_DAYS, SPENDING_COOLDOWN_DAYS, the
-        # bike/traffic/transport trio added 31 Aug 2026, and tourism added
-        # 9 Sep 2026 for the same frozen-pair reason as spending). Applied
-        # before the rotation below, so that a post held back here is dropped
-        # from the running rather than merely deferred to the next post.
-        pool = apply_cooldown(pool, state, 'last_world_at', 'world',
-                              WORLD_COOLDOWN_DAYS, 'World')
-        pool = apply_cooldown(pool, state, 'last_spending_at', 'spending',
-                              SPENDING_COOLDOWN_DAYS, 'Spending')
-        pool = apply_cooldown(pool, state, 'last_bike_at', 'bike',
-                              BIKE_COOLDOWN_DAYS, 'Bike')
-        pool = apply_cooldown(pool, state, 'last_traffic_at', 'traffic',
-                              TRAFFIC_COOLDOWN_DAYS, 'Traffic')
-        pool = apply_cooldown(pool, state, 'last_transport_at', 'transport',
-                              TRANSPORT_COOLDOWN_DAYS, 'Transport')
-        pool = apply_cooldown(pool, state, 'last_national_at', 'national',
-                              NATIONAL_COOLDOWN_DAYS, 'National')
-        pool = apply_cooldown(pool, state, 'last_tourism_at', 'tourism',
-                              TOURISM_COOLDOWN_DAYS, 'Tourism')
-        pool = apply_cooldown(pool, state, 'last_infra_at', 'infra',
-                              INFRA_COOLDOWN_DAYS, 'Infrastructure')
-        # busroutes and busstops: 14 September 2026, his call -- pulled off
-        # their own daily launchd slots (see git log around this date) and
-        # back into the general rotation on the same cooldown every other
-        # ranked card carries, EXCEPT that a genuine change in the busiest
-        # route or stop is allowed through early rather than stuck waiting
-        # out the clock (see apply_cooldown_unless_changed's own docstring).
-        pool = apply_cooldown_unless_changed(
-            pool, state, 'last_busroutes_at', 'busroutes', BUSROUTES_COOLDOWN_DAYS,
-            'Bus routes', 'Posted early: the busiest route changed.',
-            '조기 게시: 1위 노선이 바뀌어 게시.')
-        pool = apply_cooldown(pool, state, 'last_stations_at', 'stations',
-                              STATIONS_COOLDOWN_DAYS, 'Stations')
-        pool = apply_cooldown(pool, state, 'last_nightbus_at', 'nightbus',
-                              NIGHTBUS_COOLDOWN_DAYS, 'Night bus')
-        pool = apply_cooldown(pool, state, 'last_busweekend_at', 'busweekend',
-                              BUSWEEKEND_COOLDOWN_DAYS, 'Weekend swing')
-        pool = apply_cooldown_unless_changed(
-            pool, state, 'last_busstops_at', 'busstops', BUSSTOPS_COOLDOWN_DAYS,
-            'Bus stops', 'Posted early: the busiest stop changed.',
-            '조기 게시: 1위 정류장이 바뀌어 게시.')
-        pool = apply_cooldown(pool, state, 'last_railstations_at', 'railstations',
-                              RAILSTATIONS_COOLDOWN_DAYS, 'Rail stations')
-        pool = apply_cooldown(pool, state, 'last_seoulstation_at', 'seoulstation',
-                              SEOULSTATION_COOLDOWN_DAYS, 'Seoul Station')
-        pool = apply_cooldown(pool, state, 'last_stationgap_at', 'stationgap',
-                              STATIONGAP_COOLDOWN_DAYS, 'Station gap')
-        pool = apply_cooldown(pool, state, 'last_wxday_at', 'wxday',
-                              WXDAY_COOLDOWN_DAYS, 'Weather day')
-        pool = apply_cooldown(pool, state, 'last_rescue_at', 'rescue',
-                              RESCUE_COOLDOWN_DAYS, 'Rescued animals')
-        pool = apply_cooldown(pool, state, 'last_kopis_at', 'kopis',
-                              KOPIS_COOLDOWN_DAYS, 'Performances')
-        pool = apply_cooldown(pool, state, 'last_kepco_at', 'kepco',
-                              KEPCO_COOLDOWN_DAYS, 'Electricity')
-        pool = apply_cooldown(pool, state, 'last_kepcohist_at', 'kepcohist',
-                              KEPCO_COOLDOWN_DAYS, 'Electricity then-and-now')
-        pool = apply_cooldown(pool, state, 'last_kepcohouse_at', 'kepcohouse',
-                              KEPCO_HOUSE_COOLDOWN_DAYS, 'Household electricity')
-        pool = apply_cooldown(pool, state, 'last_railcommuter_at', 'railcommuter',
-                              RAILCOMMUTER_COOLDOWN_DAYS, 'Commuter rail')
+        # Vein cooldowns (COOLDOWNS: each vein reached for far more often,
+        # relative to how much genuinely different content it can produce,
+        # than its share of the pool warrants). Applied before the rotation
+        # below, so that a post held back here is dropped from the running
+        # rather than merely deferred to the next post.
+        pool = apply_cooldowns(pool, state)
         pool = apply_holds(pool)
 
         # The floor under the veins the selector never reaches for. Applied
@@ -10776,52 +10784,20 @@ def main():
             p3_ref = models.create_strong_ref(p3)
             p4 = bsky.send_post(text=ko_source, reply_to=_reply(p3_ref, root_ref), langs=['ko'])
             print('\nPosted (4-post thread: EN card, EN source, KO card, KO source).')
-            if primary == 'stations' and STATION_MAP_INFO['day']:
-                # The station card's fifth post. Its own broad except, on
-                # purpose: the four-post thread above is already public and
-                # the state write (last_cat, cooldown stamps, recent_ids)
-                # happens AFTER this block, so anything escaping here — a
-                # TypeError from a malformed API envelope, an OSError on the
-                # temp file, an atproto error at send time — would abort the
-                # run with the post out and the state unsaved, and the next
-                # run could repost the same card. A lost map is a lost reply;
-                # a lost state write is a duplicate thread. The generic block
-                # below (busroutes and the history cards) follows the same
-                # contract for the same reason.
-                try:
-                    labels = STATION_MAP_INFO['stations']
-                    pins = [(labels[0][0], RED, (labels[0][1], labels[0][2])),
-                            (labels[1][0], '#e08a1e', (labels[1][1], labels[1][2])),
-                            (labels[2][0], '#000000', (labels[2][1], labels[2][2]))]
-                    map_path = Path(tempfile.mkdtemp()) / 'station_map.png'
-                    _, map_size = render_station_map(
-                        pins, seoul_bus_stop_coords(api_key), map_path,
-                        title=STATION_DAY['en'],
-                        caption='Boardings summed across each station’s lines; stations inside Seoul')
-                    names = [l[0].split(': ', 1)[-1] for l in labels]
-                    map_alt = (
-                        f'Map of three Seoul subway stations on {STATION_DAY["en"]}: '
-                        f'busiest ({names[0]}), second-busiest ({names[1]}) and quietest '
-                        f'({names[2]}), each marked and named over a faint backdrop of every '
-                        f'Seoul bus stop. Boardings are summed across each station’s lines; '
-                        f'stations inside Seoul only.')
-                    map_ar = models.AppBskyEmbedDefs.AspectRatio(
-                        width=map_size[0], height=map_size[1])
-                    bsky.send_image(text='', image=map_path.read_bytes(),
-                                    image_alt=map_alt, langs=['en'],
-                                    reply_to=_reply(models.create_strong_ref(p4), root_ref),
-                                    image_aspect_ratio=map_ar)
-                    print('Posted a 5th reply: the station map.')
-                except Exception as e:  # noqa: BLE001 — deliberately broad, see above
-                    print(f'\nStation map failed ({type(e).__name__}: {e}); '
-                          f'thread already posted without it.')
             if primary in RANKED_CARD_INFO and (RANKED_CARD_INFO[primary].get('map_routes')
                                                  or RANKED_CARD_INFO[primary].get('map_pins')):
-                # The history cards' fifth post: the same route map as
+                # The ranked cards' fifth post: the same route map as
                 # busroutes, drawn for whichever routes the card named; or,
-                # for the bus stops card, three pinned stops through the
-                # stations map's renderer. Same broad-except contract, same
-                # reason.
+                # for the stations and bus stops cards, three pins through
+                # render_station_map. Its own broad except, on purpose: the
+                # four-post thread above is already public and the state
+                # write (last_cat, cooldown stamps, recent_ids) happens AFTER
+                # this block, so anything escaping here — a TypeError from a
+                # malformed API envelope, an OSError on the temp file, an
+                # atproto error at send time — would abort the run with the
+                # post out and the state unsaved, and the next run could
+                # repost the same card. A lost map is a lost reply; a lost
+                # state write is a duplicate thread.
                 try:
                     info = RANKED_CARD_INFO[primary]
                     map_path = Path(tempfile.mkdtemp()) / f'{primary}_map.png'
@@ -10850,7 +10826,7 @@ def main():
                                     reply_to=_reply(models.create_strong_ref(p4), root_ref),
                                     image_aspect_ratio=map_ar)
                     print(f'Posted a 5th reply: the {primary} map.')
-                except Exception as e:  # noqa: BLE001 — deliberately broad, see the station map
+                except Exception as e:  # noqa: BLE001 — deliberately broad, see above
                     print(f'\n{primary} map failed ({type(e).__name__}: {e}); '
                           f'thread already posted without it.')
     else:
@@ -10898,64 +10874,18 @@ def main():
     stamp_daily_day(state, primary)
     if promoted:
         state['last_promoted_cat'] = promoted
-    if primary == 'world':
-        state['last_world_at'] = state['last_success_at']
-    if primary == 'spending':
-        state['last_spending_at'] = state['last_success_at']
-    if primary == 'nation':
-        state['last_nation_at'] = state['last_success_at']
-    if primary == 'bike':
-        state['last_bike_at'] = state['last_success_at']
-    if primary == 'traffic':
-        state['last_traffic_at'] = state['last_success_at']
-    if primary == 'transport':
-        state['last_transport_at'] = state['last_success_at']
-    if primary == 'national':
-        state['last_national_at'] = state['last_success_at']
-    if primary == 'tourism':
-        state['last_tourism_at'] = state['last_success_at']
-    if primary == 'infra':
-        state['last_infra_at'] = state['last_success_at']
-    if primary == 'busroutes':
-        state['last_busroutes_at'] = state['last_success_at']
+    # nation's cooldown is read in nation_facts(), not through COOLDOWNS, but
+    # it is stamped the same way.
+    if primary in COOLDOWNS or primary == 'nation':
+        state[stamp_key(primary)] = state['last_success_at']
+    if primary in LEADER_CATS:
         # What the card just told readers, for apply_cooldown_unless_changed()
         # to compare against next time. Only set on an actual post, never on
         # a withheld card, so it always reflects what was last SHOWN, not
         # merely computed.
-        leader = RANKED_CARD_INFO.get('busroutes', {}).get('leader')
+        leader = RANKED_CARD_INFO.get(primary, {}).get('leader')
         if leader:
-            state['last_busroutes_leader'] = leader
-    if primary == 'stations':
-        state['last_stations_at'] = state['last_success_at']
-    if primary == 'nightbus':
-        state['last_nightbus_at'] = state['last_success_at']
-    if primary == 'busweekend':
-        state['last_busweekend_at'] = state['last_success_at']
-    if primary == 'busstops':
-        state['last_busstops_at'] = state['last_success_at']
-        leader = RANKED_CARD_INFO.get('busstops', {}).get('leader')
-        if leader:
-            state['last_busstops_leader'] = leader
-    if primary == 'railstations':
-        state['last_railstations_at'] = state['last_success_at']
-    if primary == 'seoulstation':
-        state['last_seoulstation_at'] = state['last_success_at']
-    if primary == 'stationgap':
-        state['last_stationgap_at'] = state['last_success_at']
-    if primary == 'wxday':
-        state['last_wxday_at'] = state['last_success_at']
-    if primary == 'rescue':
-        state['last_rescue_at'] = state['last_success_at']
-    if primary == 'kopis':
-        state['last_kopis_at'] = state['last_success_at']
-    if primary == 'kepco':
-        state['last_kepco_at'] = state['last_success_at']
-    if primary == 'kepcohist':
-        state['last_kepcohist_at'] = state['last_success_at']
-    if primary == 'kepcohouse':
-        state['last_kepcohouse_at'] = state['last_success_at']
-    if primary == 'railcommuter':
-        state['last_railcommuter_at'] = state['last_success_at']
+            state[f'last_{primary}_leader'] = leader
     write_json_atomic(STATE, state, ensure_ascii=False, indent=2)
 
     log_card(c, sel, primary, posted_uri, handle, fallback=cards is None)

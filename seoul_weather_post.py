@@ -55,9 +55,9 @@ from atproto import Client, client_utils, models
 import net_guard
 from seoul_index_card import render_card, CardRenderError, curly
 from seoul_index_post import (
-    KMA_NOW_NX, KMA_NOW_NY, SEOUL_TZ, KEYCHAIN_SERVICE, TAGS,
-    http_get_json, keychain_password, write_json_atomic, strip_emoji,
-    source_reply, tag_line, LINK_DOMAINS, _wx_rows, _wx_num,
+    KMA_NOW_NX, KMA_NOW_NY, SEOUL_TZ, KEYCHAIN_SERVICE,
+    http_get_json, keychain_password, strip_emoji,
+    source_reply, tag_line, _wx_rows, _wx_num,
 )
 
 HERE = Path(__file__).parent
