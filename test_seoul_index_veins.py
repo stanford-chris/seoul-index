@@ -2830,7 +2830,12 @@ class BusStopsVein(unittest.TestCase):
                          ['Busiest: Hongik University Station', '2nd-busiest: Express Bus Terminal',
                           '3rd-busiest: Gangnam Station'])
         self.assertEqual(info['map_pins'][0][2], (126.90, 37.50))
-        self.assertEqual(info['dateline_en'], 'Boardings on Saturday, September 12')
+        # The stub answers for any day, so _latest_daily() lands on the real
+        # clock's today minus 2 (its first probe); the day of the week must
+        # follow it. A literal date here went red two days after it was written.
+        stub_day = S.datetime.now(S.SEOUL_TZ) - S.timedelta(days=2)
+        self.assertEqual(info['map_day'], stub_day.strftime('%Y%m%d'))
+        self.assertEqual(info['dateline_en'], f'Boardings on {S.en_date_dow(stub_day)}')
         self.assertEqual(info['opener_en'], 'Seoul’s bus stops')
         # His wording, 11 Sep 2026, with the registered-stop count read live:
         # STOPS holds 12 rows, 11 of them Seoul ('1') ids.
@@ -4510,25 +4515,29 @@ class LatestNoteFreshness(unittest.TestCase):
         self.assertTrue(S.latest_is_notable(S.date(2025, 9, 1), 'month', self.today))   # a year back
 
     def test_latest_clause_is_empty_when_not_notable(self):
+        # Against the injected today (13 September), never the real clock:
+        # written without it, these two tests went red on 14 September when
+        # the 12th stopped being yesterday.
         self.assertEqual(S.latest_clause('September 12', '9월 12일', S.date(2026, 9, 12), 'date',
-                                         ), ('', ''))
-        en, ko = S.latest_clause('September 11', '9월 11일', S.date(2026, 9, 11), 'date')
+                                         today=self.today), ('', ''))
+        en, ko = S.latest_clause('September 11', '9월 11일', S.date(2026, 9, 11), 'date',
+                                today=self.today)
         self.assertEqual(en, 'September 11 is the latest date for which data is available')
         self.assertEqual(ko, '9월 11일은 데이터가 공개된 가장 최근 날짜')
 
     def test_with_latest_leaves_the_footnote_unchanged_when_not_notable(self):
         note_en, note_ko = S.with_latest('A caveat.', '주의사항.', 'September 12', '9월 12일',
-                                         S.date(2026, 9, 12))
+                                         S.date(2026, 9, 12), today=self.today)
         self.assertEqual((note_en, note_ko), ('A caveat.', '주의사항.'))
 
     def test_with_latest_appends_when_notable(self):
         note_en, note_ko = S.with_latest('A caveat.', '주의사항.', 'September 11', '9월 11일',
-                                         S.date(2026, 9, 11))
+                                         S.date(2026, 9, 11), today=self.today)
         self.assertEqual(note_en, 'A caveat. September 11 is the latest date for which data is available.')
         self.assertEqual(note_ko, '주의사항. 9월 11일은 데이터가 공개된 가장 최근 날짜.')
         # A fragment footnote (no closing period) joins with a middle dot instead.
         note_en, note_ko = S.with_latest('a fragment', '단편', 'September 11', '9월 11일',
-                                         S.date(2026, 9, 11))
+                                         S.date(2026, 9, 11), today=self.today)
         self.assertEqual(note_en, 'a fragment · September 11 is the latest date for which data is available')
 
     def test_latest_is_notable_needs_a_real_unit(self):

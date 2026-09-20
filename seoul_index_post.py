@@ -2194,34 +2194,34 @@ def latest_note(d, d_ko, unit='date'):
             f'{d_ko}은 데이터가 공개된 가장 최근 {u_ko}')
 
 
-def latest_clause(d, d_ko, end_date, unit='date'):
+def latest_clause(d, d_ko, end_date, unit='date', today=None):
     """(en, ko) sentence from latest_note(), or ('', '') when `end_date` is
     not more than one degree removed from today (latest_is_notable()) --
     for callers that build their footnote as a list of clauses joined with
     ' '.join(x for x in (...) if x) or similar, rather than through
-    with_latest()."""
-    if not latest_is_notable(end_date, unit):
+    with_latest(). `today` is for tests, as on latest_is_notable()."""
+    if not latest_is_notable(end_date, unit, today):
         return '', ''
     return latest_note(d, d_ko, unit)
 
 
-def _latest_sentence(d, d_ko, end_date, unit='date'):
+def _latest_sentence(d, d_ko, end_date, unit='date', today=None):
     """latest_clause() with a closing period, or ('', '') when not notable
     -- for callers (busroutes) whose footnote is ' '.join()-ed sentences
     rather than ' · '-joined fragments."""
-    en, ko = latest_clause(d, d_ko, end_date, unit)
+    en, ko = latest_clause(d, d_ko, end_date, unit, today)
     return (f'{en}.', f'{ko}.') if en else ('', '')
 
 
-def with_latest(note_en, note_ko, d, d_ko, end_date, unit='date'):
+def with_latest(note_en, note_ko, d, d_ko, end_date, unit='date', today=None):
     """The (en, ko) footnote with latest_note()'s sentence on the end, or
     the footnote unchanged when `end_date` is not more than one degree
     removed from today (latest_is_notable()). A footnote written as
     sentences (ending in a period) gets it as the next sentence; a fragment
     (rescue, kopis, kepco) gets it after a middle dot, the busmovers
     arrangement, so the dollar-rate note compose() joins on with ' · '
-    never follows a full stop."""
-    if not latest_is_notable(end_date, unit):
+    never follows a full stop. `today` is for tests, as on latest_is_notable()."""
+    if not latest_is_notable(end_date, unit, today):
         return note_en, note_ko
     en, ko = latest_note(d, d_ko, unit)
     if note_en.endswith('.'):
