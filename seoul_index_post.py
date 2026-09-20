@@ -10010,9 +10010,13 @@ def compose(sel, pool):
         # what nine days measured — Seoul Station and Dorimcheon holding the
         # extremes almost every day — instead of letting the card repeat it
         # in silence.
+        # ⚠️ The latest-date sentence above already closes with a period,
+        # so strip one before adding ours: the first streak card to carry
+        # both (16 September 2026's, posted 20 September) read "...for
+        # which data is available.. Seoul Station was...", his catch.
         if STATION_STREAK['en']:
-            note_en = f'{note_en}. {STATION_STREAK["en"]}'
-            note_ko = f'{note_ko}. {STATION_STREAK["ko"]}'
+            note_en = f'{note_en.rstrip(".")}. {STATION_STREAK["en"]}'
+            note_ko = f'{note_ko.rstrip(".")}. {STATION_STREAK["ko"]}'
     elif any(rc in cats and rc in RANKED_CARD_INFO for rc in RANKED_CATS):
         info = next(RANKED_CARD_INFO[rc] for rc in RANKED_CATS
                     if rc in cats and rc in RANKED_CARD_INFO)
