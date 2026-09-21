@@ -9749,6 +9749,24 @@ def compose(sel, pool):
             scope_en.append(_tour_pair[0])
             scope_ko.append(_tour_pair[1])
             dated_scope_pair['tourism'] = _tour_pair
+    # ⚠️ The boxhist card carries no dateline of its own (each row is a
+    # different year and names it) and, alone among the veins, its credit
+    # rides the CARD rather than a threaded source reply — chosen 28 August
+    # 2026 after a reader asked for the source on
+    # https://bsky.app/profile/seoul-index.bsky.social/post/3mu5baibvie24.
+    # It flew as the masthead until 22 September 2026, when he moved it to
+    # the footnote ("On cards like this, the source should be in the
+    # footnote"), so the masthead is empty as on any other undated card and
+    # the credit sits where every other card's caveats and scope sit. Gated
+    # on the card being ENTIRELY the boxhist vein (never true today — boxhist
+    # never shares a post with boxoffice or anything else — but this is what
+    # stops a future cross-category boxhist card from losing another
+    # publisher's credit to a footnote that only explains part of the card).
+    # `credit_on_card` also drops the credit from the trailing source line
+    # (see _body below) and from the threaded source reply (see main()), so
+    # the card and a reply don't say the same thing twice. Settled here,
+    # ahead of the scope block, because the boxhist scope note reads off it.
+    credit_on_card = (cats == {'boxhist'})
     if uses_kobis:
         # The scope is doing real work here, not decoration: admissions on
         # SEOUL screens are a different number from the national ones every
@@ -9757,6 +9775,12 @@ def compose(sel, pool):
         src_en += ' · KOFIC'
         src_ko += ' · 영화진흥위원회'
         if 'boxhist' in cats:
+            # ⚠️ This branch stays FIRST and unconditional, whether or not the
+            # scope below is appended: a boxhist card that fell through to the
+            # boxoffice branches beneath would pick up "Seoul screens" and the
+            # box office DAY as its masthead, over rows that are each a
+            # different year (measured, 22 September 2026, by gating this
+            # `if` on credit_on_card and watching the test fail that way).
             # No dateline: every line is a different year and carries its own.
             # What the footnote must supply is what the number counts, since
             # the labels are titles and the values are bare counts.
@@ -9768,8 +9792,15 @@ def compose(sel, pool):
             # KOBIS's own rank matched the admissions order every time and the
             # sales order on 2 of 20. The Korean says 관객수 1위 for the same
             # reason: a bare 1위 does not say what it won.
-            scope_en.append(('Screens showing each year’s most-watched film', None))
-            scope_ko.append(('각 연도 관객수 1위 영화의 상영 스크린 수', None))
+            # ⚠️ Only on a CROSS-category card, which does not exist today. On
+            # the own-vein card the opener is required to say the figures are
+            # screens for the most-watched film (see the selector prompt), so
+            # this line repeated the title word for word under the rows: cut
+            # 22 September 2026, his call ("it repeats the title"). The
+            # footnote there carries the credit instead (credit_on_card).
+            if not credit_on_card:
+                scope_en.append(('Screens showing each year’s most-watched film', None))
+                scope_ko.append(('각 연도 관객수 1위 영화의 상영 스크린 수', None))
         elif BOXOFFICE_D['en'] and cats == {'boxoffice'}:
             # The card is the day's top four, in order, always -- but that is
             # only true of an OWN-VEIN card (complete_boxoffice's own test for
@@ -9973,21 +10004,9 @@ def compose(sel, pool):
     if per_pairs and len({pe for pe, _ in per_pairs}) == 1:
         dateline_en, dateline_ko = per_pairs[0]
 
-    # ⚠️ The boxhist card carries no dateline of its own (each row is a
-    # different year and names it), which leaves the masthead sitting empty
-    # while the credit rides a full extra reply post underneath. Flying the
-    # credit there instead was chosen 28 August 2026 after a reader asked for
-    # it on https://bsky.app/profile/seoul-index.bsky.social/post/3mu5baibvie24.
-    # Gated on the card being ENTIRELY the boxhist vein (never true today —
-    # boxhist never shares a post with boxoffice or anything else — but this
-    # is what stops a future cross-category boxhist card from losing its real
-    # dateline, or another publisher's credit, to a masthead that only
-    # explains part of the card). `credit_on_card` also drops the credit from
-    # the trailing source line (see _body below) and from the threaded source
-    # reply (see main()), so the two posts don't say the same thing twice.
-    credit_on_card = (cats == {'boxhist'})
-    if credit_on_card:
-        dateline_en, dateline_ko = src_en, src_ko
+    # credit_on_card (settled above) no longer touches the dateline: the
+    # boxhist masthead is empty, and the credit joins the footnote below,
+    # after the notes and scope, in the order every other card keeps.
 
     # Confirm the grouped layout now the period is settled: a live+dated cross
     # pair groups only if a single month was actually lifted. When it groups, the
@@ -10100,6 +10119,13 @@ def compose(sel, pool):
         if STATION_STREAK['en']:
             note_en = f'{note_en.rstrip(".")}. {STATION_STREAK["en"]}'
             note_ko = f'{note_ko.rstrip(".")}. {STATION_STREAK["ko"]}'
+        # And the change override's "Posted early" sentence, when
+        # apply_cooldown_unless_changed() let this card through inside its
+        # cooldown (see the 'leader' key on the registry entry).
+        early = RANKED_CARD_INFO.get('stations') or {}
+        if early.get('note_en'):
+            note_en = f'{note_en.rstrip(".")}. {early["note_en"]}'
+            note_ko = f'{note_ko.rstrip(".")}. {early["note_ko"]}'
     elif any(rc in cats and rc in RANKED_CARD_INFO for rc in RANKED_CATS):
         info = next(RANKED_CARD_INFO[rc] for rc in RANKED_CATS
                     if rc in cats and rc in RANKED_CARD_INFO)
@@ -10140,6 +10166,12 @@ def compose(sel, pool):
     # sits one post below and would otherwise repeat the card verbatim.
     note_en = ' · '.join([p for p in [note_en, *scope_en] if p])
     note_ko = ' · '.join([p for p in [note_ko, *scope_ko] if p])
+    # credit_on_card: the credit is the footnote's LAST item, after any caveat
+    # and scope, since a source is neither. On the boxhist card as it stands
+    # the footnote is the credit alone.
+    if credit_on_card:
+        note_en = ' · '.join(p for p in [note_en, src_en] if p)
+        note_ko = ' · '.join(p for p in [note_ko, src_ko] if p)
 
     cat_list = [by_id[p['id']]['cat'] for p in picks]
     primary = max(set(cat_list), key=cat_list.count)
@@ -10320,18 +10352,20 @@ def compose(sel, pool):
     def _body(op, items, note, src, tail, masthead):
         parts = [it['subhead'] if 'subhead' in it
                  else _pl(it['emoji'], it['label'], it['value']) for it in items]
-        # src is blanked (never just short) for a credit_on_card card, so the
-        # trailing line is dropped rather than left as a bare '\n': every other
-        # card still gets its usual '\nSource: ...' tail unchanged.
+        # src is blanked (never just short) for a credit_on_card card, whose
+        # footnote already ends with the credit, so the trailing line is
+        # dropped rather than left as a bare '\n': every other card still gets
+        # its usual '\nSource: ...' tail unchanged.
         src_tail = f'\n{src}{tail}' if (src or tail) else ''
         return curly(op + ':\n' + (f'{masthead}\n' if masthead else '')
                      + '\n'.join(parts)
                      + (f'\n{note}' if note else '') + src_tail)
-    # credit_on_card: the masthead line above IS src_en/src_ko now, so passing
-    # it again here would print the credit twice in the same plaintext body
-    # (once as the masthead, once as its usual trailing line). source_reply()
-    # still hyperlinks kobis.or.kr wherever it sits in the body, so the domain
-    # stays clickable in the plaintext-fallback path even with src blanked here.
+    # credit_on_card: the footnote (note_en/note_ko) already ends with
+    # src_en/src_ko, so passing it again here would print the credit twice in
+    # the same plaintext body (once in the footnote, once as its usual
+    # trailing line). source_reply() still hyperlinks kobis.or.kr wherever it
+    # sits in the body, so the domain stays clickable in the plaintext-fallback
+    # path even with src blanked here.
     en_body = _body(op_en, items_en, note_en, '' if credit_on_card else src_en,
                     tail_en, '' if grouped else dateline_en)
     ko_body = _body(op_ko, items_ko, note_ko, '' if credit_on_card else src_ko,
@@ -10720,7 +10754,7 @@ def main():
     print(f'\nEN alt / fallback ({len(en_alt)} chars):\n{"-"*46}\n{en_alt}\n{"-"*46}')
     print(f'\nKO alt / fallback ({len(ko_alt)} chars):\n{"-"*46}\n{ko_alt}\n{"-"*46}')
     if c.get('credit_on_card'):
-        print('\n(credit rides the card masthead — no source reply will be posted)')
+        print('\n(credit rides the card footnote — no source reply will be posted)')
     else:
         print(f'\nEN source post: {en_source.build_text()!r}\nKO source post: {ko_source.build_text()!r}')
 

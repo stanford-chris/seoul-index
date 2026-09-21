@@ -1075,6 +1075,63 @@ class ScreensFrameComparesLikeWithLike(unittest.TestCase):
         self.assertEqual(S.SCREENS_YEARS, (5, 10))
         self.assertLessEqual(max(S.SCREENS_YEARS), 17)
 
+class ScreensCardCreditRidesTheFootnote(unittest.TestCase):
+    """The boxhist card is the one card whose credit rides the card itself
+    rather than a threaded source reply, and since 22 September 2026 it rides
+    the FOOTNOTE, his call: "On cards like this, the source should be in the
+    footnote." Until then it flew as the red masthead (from 28 August 2026),
+    over a footnote reading "Screens showing each year's most-watched film",
+    which repeats the title the selector is required to write, so that line
+    went at the same time ("it repeats the title").
+
+    The alt text is built from the same pieces as the card, so it is what
+    these tests read: the credit must appear exactly once, at the end, and
+    the masthead must be empty, as on any other card with no single period.
+    """
+
+    def card(self):
+        with Stub({'searchDailyBoxOfficeList': _bo_rows(FIVE), **TITLES}):
+            facts = S.boxoffice_facts('KEY')
+        hist = [f for f in facts if f['cat'] == 'boxhist']
+        self.assertEqual(len(hist), 3, 'the fixture should give three years')
+        sel = {'opener_en': 'Screens for Seoul’s most-watched film, same date',
+               'opener_ko': '서울에서 가장 많이 본 영화의 상영관 수, 같은 날짜',
+               'opener_emoji': '🎬',
+               'picks': [{'id': f['id'], 'emoji': ''} for f in hist]}
+        return S.compose(sel, hist)
+
+    def test_the_credit_is_the_footnote_and_the_masthead_is_empty(self):
+        c = self.card()
+        self.assertTrue(c['credit_on_card'])
+        self.assertEqual(c['note_en'], c['src_en'])
+        self.assertEqual(c['note_ko'], c['src_ko'])
+        self.assertTrue(c['src_en'].startswith('Source: kobis.or.kr'))
+        self.assertEqual(c['dateline_en'], '')
+        self.assertEqual(c['dateline_ko'], '')
+
+    def test_the_credit_reaches_the_alt_exactly_once_and_last(self):
+        c = self.card()
+        for body, src in ((c['en_body'], c['src_en']), (c['ko_body'], c['src_ko'])):
+            self.assertEqual(body.count(src), 1, body)
+            self.assertTrue(body.endswith(src), body)
+            # Never a bare trailing line where the dropped source tail was.
+            self.assertFalse(body.endswith('\n'))
+
+    def test_the_line_that_repeated_the_title_is_gone(self):
+        c = self.card()
+        self.assertNotIn('Screens showing', c['note_en'])
+        self.assertNotIn('Screens showing', c['en_body'])
+        self.assertNotIn('관객수 1위 영화의 상영 스크린 수', c['ko_body'])
+
+    def test_the_rendered_card_reads_the_same_way(self):
+        """_card_payload is what render_pair draws from: footnote carries the
+        credit, dateline slot is empty."""
+        c = self.card()
+        _, _, note, dl = S._card_payload(c, 'en')
+        self.assertEqual(note, c['src_en'])
+        self.assertEqual(dl, '')
+
+
 class AirportMonthRidesTheMasthead(unittest.TestCase):
     """The month a Gimpo card covers belongs on the masthead when the card is one
     month, and on every row when it is two.

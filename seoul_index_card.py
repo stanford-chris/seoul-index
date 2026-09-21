@@ -15,8 +15,9 @@ card, and Source usually is not either — the poster normally keeps it as real,
 clickable text under the image, which a rendered PNG cannot be. ⚠️ The one
 exception is compose()'s `credit_on_card` (added 28 Aug 2026, for the boxhist
 "then and now" card, which has no dateline of its own): there the credit rides
-the dateline slot below as plain red text, unlinked, and the poster drops the
-source reply entirely rather than say it twice.
+the card as the last item of the muted footnote, unlinked (in the dateline slot
+until 22 Sep 2026, his call to move it), and the poster drops the source reply
+entirely rather than say it twice.
 
 The card is rendered on a magenta sentinel background and cropped to content, so
 3-line, 4-line, and wrapped-long-label posts all come out tight with no guessed
