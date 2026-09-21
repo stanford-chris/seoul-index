@@ -8287,12 +8287,74 @@ def clean_opener(text, fallback):
     return cut.rstrip(' ,;:·-') or fallback
 
 
+# Every code point Unicode 18 lists as Emoji=Yes but Emoji_Presentation=No:
+# the ones that draw as a black TEXT glyph unless U+FE0F (VS16) follows them.
+# Derived from unicode.org/Public/UCD/latest/ucd/emoji/emoji-data.txt (dated
+# 30 January 2026), ASCII digits, # and * left out because the keycap guard
+# already refuses them. Read by _valid_emoji; see the comment there for why
+# only the BMP half of this set is enforced.
+_TEXT_PRESENTATION = frozenset(o for a, b in (
+    (0x00A9, 0x00A9), (0x00AE, 0x00AE), (0x203C, 0x203C), (0x2049, 0x2049),
+    (0x2122, 0x2122), (0x2139, 0x2139), (0x2194, 0x2199), (0x21A9, 0x21AA),
+    (0x2328, 0x2328), (0x23CF, 0x23CF), (0x23ED, 0x23EF), (0x23F1, 0x23F2),
+    (0x23F8, 0x23FA), (0x24C2, 0x24C2), (0x25AA, 0x25AB), (0x25B6, 0x25B6),
+    (0x25C0, 0x25C0), (0x25FB, 0x25FC), (0x2600, 0x2604), (0x260E, 0x260E),
+    (0x2611, 0x2611), (0x2618, 0x2618), (0x261D, 0x261D), (0x2620, 0x2620),
+    (0x2622, 0x2623), (0x2626, 0x2626), (0x262A, 0x262A), (0x262E, 0x262F),
+    (0x2638, 0x263A), (0x2640, 0x2640), (0x2642, 0x2642), (0x265F, 0x2660),
+    (0x2663, 0x2663), (0x2665, 0x2666), (0x2668, 0x2668), (0x267B, 0x267B),
+    (0x267E, 0x267E), (0x2692, 0x2692), (0x2694, 0x2697), (0x2699, 0x2699),
+    (0x269B, 0x269C), (0x26A0, 0x26A0), (0x26A7, 0x26A7), (0x26B0, 0x26B1),
+    (0x26C8, 0x26C8), (0x26CF, 0x26CF), (0x26D1, 0x26D1), (0x26D3, 0x26D3),
+    (0x26E9, 0x26E9), (0x26F0, 0x26F1), (0x26F4, 0x26F4), (0x26F7, 0x26F9),
+    (0x2702, 0x2702), (0x2708, 0x2709), (0x270C, 0x270D), (0x270F, 0x270F),
+    (0x2712, 0x2712), (0x2714, 0x2714), (0x2716, 0x2716), (0x271D, 0x271D),
+    (0x2721, 0x2721), (0x2733, 0x2734), (0x2744, 0x2744), (0x2747, 0x2747),
+    (0x2763, 0x2764), (0x27A1, 0x27A1), (0x2934, 0x2935), (0x2B05, 0x2B07),
+    (0x3030, 0x3030), (0x303D, 0x303D), (0x3297, 0x3297), (0x3299, 0x3299),
+    (0x1F170, 0x1F171), (0x1F17E, 0x1F17F), (0x1F202, 0x1F202),
+    (0x1F237, 0x1F237), (0x1F321, 0x1F321), (0x1F324, 0x1F32C),
+    (0x1F336, 0x1F336), (0x1F37D, 0x1F37D), (0x1F396, 0x1F397),
+    (0x1F399, 0x1F39B), (0x1F39E, 0x1F39F), (0x1F3CB, 0x1F3CE),
+    (0x1F3D4, 0x1F3DF), (0x1F3F3, 0x1F3F3), (0x1F3F5, 0x1F3F5),
+    (0x1F3F7, 0x1F3F7), (0x1F43F, 0x1F43F), (0x1F441, 0x1F441),
+    (0x1F4FD, 0x1F4FD), (0x1F549, 0x1F54A), (0x1F56F, 0x1F570),
+    (0x1F573, 0x1F579), (0x1F587, 0x1F587), (0x1F58A, 0x1F58D),
+    (0x1F590, 0x1F590), (0x1F5A5, 0x1F5A5), (0x1F5A8, 0x1F5A8),
+    (0x1F5B1, 0x1F5B2), (0x1F5BC, 0x1F5BC), (0x1F5C2, 0x1F5C4),
+    (0x1F5D1, 0x1F5D3), (0x1F5DC, 0x1F5DE), (0x1F5E1, 0x1F5E1),
+    (0x1F5E3, 0x1F5E3), (0x1F5E8, 0x1F5E8), (0x1F5EF, 0x1F5EF),
+    (0x1F5F3, 0x1F5F3), (0x1F5FA, 0x1F5FA), (0x1F6CB, 0x1F6CB),
+    (0x1F6CD, 0x1F6CF), (0x1F6E0, 0x1F6E5), (0x1F6E9, 0x1F6E9),
+    (0x1F6F0, 0x1F6F0), (0x1F6F3, 0x1F6F3),
+) for o in range(a, b + 1))
+VS16 = 0xFE0F
+
+
 def _valid_emoji(s):
     """Return a single tasteful emoji if `s` is one, else ''. The card design
     lets the selector tag lines with an emoji, but numbers must stay Python's
     alone: reject anything carrying a digit or a keycap (0-9, #, *) so a figure
     can never reach a post through an emoji. Also reject non-emoji text so a
-    stray label word can't slip in."""
+    stray label word can't slip in.
+
+    ⚠️ A text-presentation glyph without VS16 is refused too (22 September
+    2026, his call, "Have _valid_emoji refuse text-presentation glyphs like
+    ☎"): the selector picked a bare ☎ for the 2021 row of the screens card
+    and Chrome drew it from the text font, a small black telephone beside two
+    colour emoji, because U+260E defaults to text presentation and only
+    ☎️ (U+260E U+FE0F) asks for the emoji glyph. MEASURED before the rule was
+    written, by rendering all 207 text-presentation code points bare through
+    the card renderer on this Mac: every BMP one (© through ㊙, 118 of them)
+    came out as a text glyph except ⛹, and every SMP one (🅰 onward, 89)
+    came out in colour regardless, because no text font here carries them
+    and Apple Color Emoji is the only fallback. So the rule enforces the BMP
+    half only: refusing bare 🌧, 🎟 and 🕷 would strip emoji from cards that
+    render perfectly (the wxday and KOPIS registries and the selector prompt's
+    own examples all carry them bare). ⛹ is refused with its neighbours
+    rather than special-cased. If the fonts ever change, drop the `< 0x10000`
+    and re-render the grid.
+    """
     if not s or not s.strip():
         return ''
     s = s.strip()
@@ -8301,6 +8363,10 @@ def _valid_emoji(s):
     cps = [ord(ch) for ch in s]
     if 0x20E3 in cps or ord('#') in cps or ord('*') in cps or len(cps) > 8:
         return ''
+    for i, o in enumerate(cps):
+        if (o < 0x10000 and o in _TEXT_PRESENTATION
+                and (i + 1 >= len(cps) or cps[i + 1] != VS16)):
+            return ''
 
     def emoji_ish(o):
         return (0x1F000 <= o <= 0x1FAFF or 0x2600 <= o <= 0x27BF or

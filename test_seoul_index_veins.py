@@ -979,6 +979,49 @@ class BoxOfficeEmojiAreAllOrNone(unittest.TestCase):
         S.even_out_emoji(lines, {'boxoffice', 'crowd'})
         self.assertEqual([l['emoji'] for l in lines], ['', '', '👥'])
 
+class TextPresentationGlyphsAreRefused(unittest.TestCase):
+    """_valid_emoji refuses a bare text-presentation glyph (22 September 2026,
+    his call, after the selector put a bare ☎ on the screens card and Chrome
+    drew it as a small black telephone from the text font). The same glyph
+    with VS16 is the colour emoji and passes. Only the BMP half of the set is
+    enforced, because every SMP one was measured to render in colour bare on
+    this Mac; refusing 🌧 or 🎟 would strip emoji from cards that are fine.
+    """
+
+    def test_a_bare_bmp_text_glyph_is_refused(self):
+        for glyph in ('☎', '☀', '✈', '❤', '⬆', '©', '⛹'):
+            self.assertEqual(S._valid_emoji(glyph), '', glyph)
+
+    def test_the_same_glyph_with_vs16_passes(self):
+        for glyph in ('☎️', '☀️', '✈️', '❤️', '⬆️', '⛹️'):
+            self.assertEqual(S._valid_emoji(glyph), glyph, glyph)
+
+    def test_vs16_must_follow_the_glyph_itself(self):
+        # A VS16 elsewhere in a ZWJ sequence does not rescue a bare heart.
+        self.assertEqual(S._valid_emoji('❤\u200d🔥'), '')
+        self.assertEqual(S._valid_emoji('❤️\u200d🔥'), '❤️\u200d🔥')
+
+    def test_smp_text_presentation_glyphs_pass_bare(self):
+        """The wxday and KOPIS registries and the selector prompt's own
+        examples carry these bare, and they render in colour: refusing them
+        would take the emoji off every one of those cards."""
+        for glyph in ('🌧', '🌨', '🌤', '🎟', '🕷', '🏛', '🎞'):
+            self.assertEqual(S._valid_emoji(glyph), glyph, glyph)
+
+    def test_emoji_presentation_glyphs_are_untouched(self):
+        for glyph in ('📞', '⚡', '⚡️', '🔺', '☕', '⛔'):
+            self.assertEqual(S._valid_emoji(glyph), glyph, glyph)
+
+    def test_the_set_is_unicodes_not_a_guess(self):
+        """207 code points: Unicode 18's Emoji=Yes minus Emoji_Presentation=Yes,
+        minus the three ASCII keycap bases. Pinned so a hand edit that drops
+        a range is noticed."""
+        self.assertEqual(len(S._TEXT_PRESENTATION), 207)
+        self.assertIn(0x260E, S._TEXT_PRESENTATION)
+        self.assertNotIn(0x1F4DE, S._TEXT_PRESENTATION)
+        self.assertNotIn(0x26A1, S._TEXT_PRESENTATION)
+
+
 def _scr_rows(scrn, cd, ko):
     r = _bo_row(cd, ko, 50000, 1)
     r['scrnCnt'] = str(scrn)
