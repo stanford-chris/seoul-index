@@ -178,7 +178,12 @@ ONLY_CAT = next((a[len(_ONLY_PREFIX):] for a in sys.argv
 FORCE = '--force' in sys.argv
 ONLY_MIN_HOURS = 6
 # --daily=<cat>: the scheduled form of --only=<cat>, for a vein that has a
-# launchd slot of its own. busroutes has one at 10:30 KST since 12 September
+# launchd slot of its own. ⚠️ Only busweekend (Fridays 11:00) and wxday (09:10)
+# still have one: the daily bus/subway slots were retired one by one
+# (nightbus 13 Sep, busroutes/busstops 14 Sep, stations 22 Sep 2026) once the
+# leaders were measured to be fixed, and those veins post through the
+# rotation with a change override instead (apply_cooldown_unless_changed).
+# The history: busroutes got a 10:30 KST slot on 12 September
 # 2026, his call ("I want to make this a daily post"): with the vein in the
 # rotation alone it posted twice in three days and then sat behind a 3-day
 # cooldown and six debuts. Same one-vein card as --only; the differences are
@@ -1315,7 +1320,8 @@ BUSROUTES_OPENER_KO = '서울의 버스'
 NIGHTBUS_OPENER_EN = 'On the night buses'
 NIGHTBUS_OPENER_KO = '서울의 심야버스'
 # The stations card's opener, Python's since 12 September 2026 when it got
-# its own 14:30 slot ("can we add a daily subway post?"): same reason and
+# its own 14:30 slot ("can we add a daily subway post?", retired 22 September
+# 2026, see COOLDOWNS['stations']): same reason and
 # same shape as the bus cards above. The card's day rides the dateline.
 STATIONS_OPENER_EN = 'On the subway'
 STATIONS_OPENER_KO = '서울의 지하철'
@@ -2763,6 +2769,16 @@ def transport_facts(api_key, state):
             RANKED_CARD_INFO['stations'] = {
                 'map_day': c['date'],
                 'opener_en': STATIONS_OPENER_EN, 'opener_ko': STATIONS_OPENER_KO,
+                # The busiest station's English name, read by
+                # apply_cooldown_unless_changed() against state's
+                # last_stations_leader, the bus cards' override: since 22
+                # September 2026, his call, this card has no daily slot and
+                # posts early only when who's on top actually changes.
+                # note_en/note_ko start empty because the footnote is built
+                # in compose() from STATION_CAVEAT/STATION_DAY/STATION_STREAK;
+                # the override appends its sentence here and compose() adds
+                # whatever it finds.
+                'leader': names[0], 'note_en': '', 'note_ko': '',
                 # map_title, not day_en: compose() reads day_en as a second
                 # masthead line, and this card's masthead comes from STATION_DAY.
                 'map_title': d,
@@ -7867,7 +7883,15 @@ COOLDOWNS = {
     'busroutes':    (BUSROUTES_COOLDOWN_DAYS, 'Bus routes',
                      'Posted early: the busiest route changed.',
                      '조기 게시: 1위 노선이 바뀌어 게시.'),
-    'stations':     (STATIONS_COOLDOWN_DAYS, 'Stations'),
+    # stations: 22 September 2026, his call ("Do (1)"): its 14:30 daily slot
+    # (com.chrisstanford.seoulindex-stations) booted out and disabled, back
+    # into the rotation with the same change override as busroutes/busstops.
+    # Measured that morning: Seoul Station led all 14 days in the history,
+    # 2211 led 26 of 30 bus days (5515 the four Sundays), so a daily card
+    # restated one fact every day; the override posts the day it changes.
+    'stations':     (STATIONS_COOLDOWN_DAYS, 'Stations',
+                     'Posted early: the busiest station changed.',
+                     '조기 게시: 1위 역이 바뀌어 게시.'),
     'nightbus':     (NIGHTBUS_COOLDOWN_DAYS, 'Night bus'),
     'busweekend':   (BUSWEEKEND_COOLDOWN_DAYS, 'Weekend swing'),
     'busstops':     (BUSSTOPS_COOLDOWN_DAYS, 'Bus stops',
@@ -7884,9 +7908,9 @@ COOLDOWNS = {
     'kepcohouse':   (KEPCO_HOUSE_COOLDOWN_DAYS, 'Household electricity'),
     'railcommuter': (RAILCOMMUTER_COOLDOWN_DAYS, 'Commuter rail'),
 }
-# The two veins whose card names a leader, remembered so the next run can
+# The three veins whose card names a leader, remembered so the next run can
 # tell whether it changed (apply_cooldown_unless_changed).
-LEADER_CATS = ('busroutes', 'busstops')
+LEADER_CATS = ('busroutes', 'busstops', 'stations')
 
 
 def stamp_key(cat):

@@ -2529,9 +2529,34 @@ class ChangeOverridesCooldown(unittest.TestCase):
         self.assertEqual(sum(f['cat'] == 'busstops' for f in pool), 4)
         self.assertIn('Posted early', S.RANKED_CARD_INFO['busstops']['note_en'])
 
+    def test_a_changed_station_leader_posts_early_with_the_sentence(self):
+        # stations joined the override on 22 September 2026 when its daily
+        # slot went. Its registry entry starts with EMPTY notes, since the
+        # footnote is assembled in compose() from STATION_CAVEAT/STATION_DAY/
+        # STATION_STREAK; the override appends here and compose() reads it.
+        S.RANKED_CARD_INFO['stations'] = {'leader': 'Jamsil', 'note_en': '', 'note_ko': ''}
+        state = {'last_stations_at': self._stamp(6), 'last_stations_leader': 'Seoul Station'}
+        days, label, en, ko = S.COOLDOWNS['stations']
+        pool = S.apply_cooldown_unless_changed(
+            [{'cat': 'stations', 'id': f's{i}'} for i in range(4)]
+            + [{'cat': 'other', 'id': f'o{i}'} for i in range(6)],
+            state, 'last_stations_at', 'stations', days, label, en, ko)
+        self.assertEqual(sum(f['cat'] == 'stations' for f in pool), 4)
+        self.assertEqual(S.RANKED_CARD_INFO['stations']['note_en'], en)
+        self.assertEqual(S.RANKED_CARD_INFO['stations']['note_ko'], ko)
+        # compose()'s stations branch appends whatever the override left.
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertIn("early = RANKED_CARD_INFO.get('stations') or {}", src)
+        self.assertIn("'leader': names[0], 'note_en': '', 'note_ko': ''", src)
+
     def test_the_leader_state_is_written_only_on_an_actual_post(self):
         src = open(S.__file__, encoding='utf-8').read()
-        self.assertEqual(S.LEADER_CATS, ('busroutes', 'busstops'))
+        self.assertEqual(S.LEADER_CATS, ('busroutes', 'busstops', 'stations'))
+        # Every leader vein's cooldown entry must carry the two "Posted early"
+        # sentences, or apply_cooldowns() runs it through the plain cooldown
+        # and the leader it records is never compared against anything.
+        for cat in S.LEADER_CATS:
+            self.assertEqual(len(S.COOLDOWNS[cat]), 4, cat)
         # Written inside `if primary in LEADER_CATS:`, i.e. only when that
         # vein was what actually posted this run.
         self.assertIn("if primary in LEADER_CATS:", src)
@@ -4291,6 +4316,10 @@ class SlottedBusCards(unittest.TestCase):
     must be Python's, since a selector's "today" is false on a card four
     days behind the feed."""
 
+    # ⚠️ None of these has a live slot any more (nightbus retired 13 Sep,
+    # busroutes/busstops 14 Sep, stations 22 Sep 2026; busweekend's Friday
+    # slot stays), but --daily=<cat> is still how a hand-run posts one, so
+    # the registry contract holds for all five.
     SLOTTED = ('busroutes', 'busstops', 'nightbus', 'busweekend', 'stations')
 
     def _entry(self, cat):
