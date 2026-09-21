@@ -239,7 +239,18 @@ SELECT_RETRIES = 3
 # rather than putting the feed on rails for two days: exceptions are a vein that
 # has never led a card at all, and a vein stuck past SEVERE_STARVE_DAYS (see
 # below), both of which may run on. See promote_starved.
-STARVE_DAYS = 5
+#
+# ⚠️ 12, not 5, since 22 September 2026, his call. The floor has to be a
+# number the rotation can actually honor: with 49 veins in cat_last_at and four
+# rotation slots a day, an even turn comes round every ~12 days, so a 5-day
+# floor left the oldest vein at 13-15 days on EVERY run, SEVERE_STARVE_DAYS
+# permanently tripped, and every post from 15 to 21 September a promotion of
+# the single oldest vein: the selector chose nothing, no cooldown ever bit and
+# the feed was a strict oldest-first round robin (measured from the launchd
+# log: 26 of 26 completed runs). At 12 the floor catches a vein that really has
+# been passed over and the selector picks freely otherwise. Re-derive it if the
+# roster changes much: veins / (slots a day), rounded up.
+STARVE_DAYS = 12
 # A promoted vein must be able to fill a card on its own. 'air' had only 2 facts
 # until 11 September 2026 and so could never be promoted — it could only ride
 # along on someone else's card. It carries 4 now (see air_facts).
@@ -1980,8 +1991,12 @@ def kr_holiday_names(h, year):
     return {d: tuple(v) for d, v in names.items()}
 
 
-WEEKDAY_EN = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-WEEKDAY_KO = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일']
+# ⚠️ Indexed by datetime.weekday() (0 = Monday). Named NAMES_ so it cannot shadow
+# the WEEKDAY_EN/WEEKDAY_KO dicts near spotlight_facts(), keyed 'Mon'..'Sun': a
+# same-named list here crashed every spotlight run from 12 to 21 September 2026
+# with "'list' object has no attribute 'get'" (seven runs lost).
+WEEKDAY_NAMES_EN = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+WEEKDAY_NAMES_KO = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일']
 
 
 # --- the three history cards ---------------------------------------------------
@@ -2046,7 +2061,7 @@ def bus_movers(h, day, holidays):
     prior = sorted(k for k in h['days'] if k < day and _day_dt(k).weekday() == wd
                    and k not in holidays)[-BUSMOVERS_MAX_PRIOR:]
     if len(prior) < BUSMOVERS_MIN_PRIOR:
-        return None, f'only {len(prior)} prior {WEEKDAY_EN[wd]}s in history, need {BUSMOVERS_MIN_PRIOR}'
+        return None, f'only {len(prior)} prior {WEEKDAY_NAMES_EN[wd]}s in history, need {BUSMOVERS_MIN_PRIOR}'
     rows = []
     for no, v in h['days'][day].items():
         if not ranked_route_no(no):
@@ -2257,7 +2272,7 @@ def history_bus_facts(h, day, d, d_ko):
     if mv is None:
         print(f'Bus movers withheld for {d}: {why}.')
     else:
-        wd_en, wd_ko = WEEKDAY_EN[mv['wd']], WEEKDAY_KO[mv['wd']]
+        wd_en, wd_ko = WEEKDAY_NAMES_EN[mv['wd']], WEEKDAY_NAMES_KO[mv['wd']]
         n = mv['n_prior']
         mv_dow_dt = _day_dt(day)
         mv_latest_en, mv_latest_ko = latest_clause(d, d_ko, mv_dow_dt.date())
@@ -4477,13 +4492,13 @@ def en_date_dow(dt):
     other use of en_date() (facts, footnotes, print statements) stays
     bare, deliberately -- this is a masthead-only reading, not a rewording
     of the date itself."""
-    return f'{WEEKDAY_EN[dt.weekday()]}, {en_date(dt)}'
+    return f'{WEEKDAY_NAMES_EN[dt.weekday()]}, {en_date(dt)}'
 
 
 def ko_date_dow(d_ko, dt):
     """'9월 9일 (수요일)': the Korean masthead's own form of en_date_dow(),
     the weekday in parentheses after the date, same scope restriction."""
-    return f'{d_ko} ({WEEKDAY_KO[dt.weekday()]})'
+    return f'{d_ko} ({WEEKDAY_NAMES_KO[dt.weekday()]})'
 
 
 def _newest_month(fetch, lookback):
@@ -6158,10 +6173,10 @@ def seoul_station_facts(key):
     prior = sorted(k for k in series if k < day and _day_dt(k).weekday() == wd)[-SEOULSTATION_MAX_PRIOR:]
     if len(prior) < SEOULSTATION_MIN_PRIOR:
         print(f'Seoul Station card withheld for {d}: only {len(prior)} prior '
-              f'{WEEKDAY_EN[wd]}s in the feed, need {SEOULSTATION_MIN_PRIOR}.')
+              f'{WEEKDAY_NAMES_EN[wd]}s in the feed, need {SEOULSTATION_MIN_PRIOR}.')
         return []
     typical = round(statistics.median(series[k][0] + series[k][1] for k in prior))
-    wd_en, wd_ko = WEEKDAY_EN[wd], WEEKDAY_KO[wd]
+    wd_en, wd_ko = WEEKDAY_NAMES_EN[wd], WEEKDAY_NAMES_KO[wd]
     n = len(prior)
     # A public holiday is named on the dateline, his wording, 11 September
     # 2026. Only the official day: the Saturday before Seollal carried the
@@ -6199,10 +6214,10 @@ def seoul_station_facts(key):
         # is their sum, and the typical-weekday row is a comparison against
         # all of them -- distinct things, not four instances of one thing,
         # so a per-row icon earns its place. 'A typical {weekday}' is a
-        # closed set of seven strings, built from WEEKDAY_EN rather than
+        # closed set of seven strings, built from WEEKDAY_NAMES_EN rather than
         # hand-listed so it can never drift from it.
         'line_emoji': {'Boarded': '⬆️', 'Got off': '⬇️', 'Passengers': '👥',
-                       **{f'A typical {wd}': '📊' for wd in WEEKDAY_EN}}}
+                       **{f'A typical {wd}': '📊' for wd in WEEKDAY_NAMES_EN}}}
     return [
         fact('railss_boarded', 'seoulstation', 'Boarded', grouped(ride), grouped(ride), pin=True,
              label_ko='승차', num=ride, unit='people'),
@@ -8051,8 +8066,8 @@ def promote_starved(pool, state):
     # ever shrinks: each debut removes one, and when it empties the rule turns
     # itself off with no flag to reset. A vein shipped later re-arms it, which is
     # exactly when a debut is wanted again. Do not widen this to 'the queue is
-    # deep': with 26 veins, STARVE_DAYS = 5 and four posts a day, an even
-    # rotation leaves most veins nominally starved most of the time, so a
+    # deep': with 49 veins and four posts a day, an even rotation leaves most
+    # veins nominally starved most of the time under a short floor, so a
     # depth test would be permanently true and the guard would be dead code.
     back_to_back = (state.get('last_cat')
                     and state.get('last_cat') == state.get('last_promoted_cat'))

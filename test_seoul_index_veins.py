@@ -3156,8 +3156,8 @@ class SeoulStationCard(unittest.TestCase):
         self.assertEqual(info['line_emoji']['Got off'], '⬇️')
         self.assertEqual(info['line_emoji']['Passengers'], '👥')
         # A typical Tuesday et al: a closed set of seven, one per weekday,
-        # never hand-listed drift from WEEKDAY_EN.
-        for wd in S.WEEKDAY_EN:
+        # never hand-listed drift from WEEKDAY_NAMES_EN.
+        for wd in S.WEEKDAY_NAMES_EN:
             self.assertEqual(info['line_emoji'][f'A typical {wd}'], '📊')
 
     def test_the_feed_wins_and_the_file_learns_the_day(self):
