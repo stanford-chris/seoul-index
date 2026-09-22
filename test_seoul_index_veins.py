@@ -2364,6 +2364,78 @@ class BusHistoryCards(unittest.TestCase):
             self.assertEqual(c['note_en'], S.RANKED_CARD_INFO[cat]['note_en'], cat)
             self.assertEqual(c['opener']['emoji'], '🚌', cat)
 
+    def _crowd_plus_nightbus(self, d='September 7', d_ko='9월 7일'):
+        """The card of 22 September 2026 (3mw3c5qj2zy2z): three live crowd
+        lines beside the night-bus total, a cross pair the selector may
+        build whenever the magnitudes coincide."""
+        h = self._hist(29); h['holidays'] = {'2026': []}
+        pool = S.history_bus_facts(h, '20260907', d, d_ko)
+        crowd = [S.fact(f'crowd_{en}', 'crowd', f'Estimated crowd, {en}', v, v,
+                        estimated=True, pin=True, label_ko=f'{ko} 추정 인파',
+                        place_en=en, place_ko=ko, num=int(v.replace(',', '')),
+                        unit='people')
+                 for en, ko, v in (('Insadong', '인사동', '25,000'),
+                                   ('Namdaemun Market', '남대문시장', '21,000'),
+                                   ('the Seongsu cafe strip', '성수카페거리', '33,000'))]
+        pool += crowd
+        picks = [{'id': f['id'], 'label_en': '', 'label_ko': '', 'emoji': e}
+                 for f, e in zip(crowd, ('🏮', '🛍️', '☕'))]
+        picks.append({'id': 'busnight_total', 'label_en': '', 'label_ko': '', 'emoji': ''})
+        sel = {'opener_en': 'Seoul by the numbers', 'opener_ko': '숫자로 보는 서울',
+               'opener_emoji': '🏙', 'picks': picks}
+        return S.compose(sel, pool)
+
+    def test_a_nightbus_line_on_a_crowd_card_heads_its_own_group_under_the_bare_day(self):
+        """His call, 22 September 2026, on the card that flew "Boardings on
+        Friday, September 18" as a masthead over three live crowd lines:
+        "Second line should be just Friday, September 18". The vein groups
+        as tourism does beside crowd: its line under the bare day with its
+        weekday, the crowd lines under "Right now", no masthead."""
+        c = self._crowd_plus_nightbus()
+        self.assertTrue(c['grouped'])
+        heads = [it.get('subhead') for it in c['items_en'] if 'subhead' in it]
+        self.assertEqual(heads, ['Monday, September 7', 'Right now'])
+        self.assertEqual([it.get('subhead') for it in c['items_ko'] if 'subhead' in it],
+                         ['9월 7일 (월요일)', '지금'])
+        self.assertNotIn('Boardings', c['en_body'])
+        # The night-bus line is the one under the date; the crowd lines follow.
+        self.assertEqual(c['items_en'][1]['label'], 'Total night-bus boardings')
+        self.assertEqual([it['label'] for it in c['items_en'][3:]],
+                         ['Crowd, Insadong', 'Crowd, Namdaemun Market',
+                          'Crowd, the Seongsu cafe strip'])
+
+    def test_the_shared_card_keeps_the_crowd_caveat_ahead_of_the_night_note(self):
+        """The live card's footnote read "Night routes only. ..." and nothing
+        about how three crowd figures were counted."""
+        c = self._crowd_plus_nightbus()
+        self.assertTrue(c['note_en'].startswith('Crowds are KT-estimated. Night routes only.'),
+                        c['note_en'])
+        self.assertTrue(c['note_ko'].startswith('인구는 KT 추정. 심야 노선만.'), c['note_ko'])
+
+    def test_the_shared_night_bus_line_carries_a_bus_and_the_opener_keeps_its_own(self):
+        """"The night bus boardings needs a bus emoji, to match the emojis on
+        the other lines" (same call). The opener stays the selector's 🏙:
+        with the dated line sorted first, the transport-mode override would
+        otherwise put a second bus over a card that is three-quarters crowd."""
+        c = self._crowd_plus_nightbus()
+        self.assertEqual(c['items_en'][1]['emoji'], '🚌')
+        self.assertEqual(c['items_ko'][1]['emoji'], '🚌')
+        self.assertEqual(c['opener']['emoji'], '🏙')
+
+    def test_the_own_vein_night_bus_card_is_unchanged(self):
+        """The worded dateline, bare lines and bus opener of the own card are
+        his (11 September 2026) and only the SHARED card changed."""
+        h = self._hist(29); h['holidays'] = {'2026': []}
+        pool = S.history_bus_facts(h, '20260907', 'September 7', '9월 7일')
+        sel = {'opener_en': 'The night buses', 'opener_ko': '심야버스',
+               'opener_emoji': '🏙', 'picks': [{'id': 'busnight_total'}]}
+        c = S.compose(sel, pool)
+        self.assertFalse(c['grouped'])
+        self.assertEqual(c['dateline_en'], 'Boardings on Monday, September 7')
+        self.assertTrue(all(l['emoji'] == '' for l in c['lines']))
+        self.assertEqual(c['opener']['emoji'], '🚌')
+        self.assertTrue(c['note_en'].startswith('Night routes only.'))
+
 
 class OnlyFlagGuard(unittest.TestCase):
     """--only skips its own vein's cooldown (so a hand-run can show a vein

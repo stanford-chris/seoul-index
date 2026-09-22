@@ -2337,6 +2337,19 @@ def history_bus_facts(h, day, d, d_ko):
             # Day of week added 14 September 2026.
             'dateline_en': f'Boardings on {en_date_dow(nb_dow_dt)}',
             'dateline_ko': f'{ko_date_dow(d_ko, nb_dow_dt)} 승차',
+            # On a card this vein SHARES (a crowd cross pair), the worded
+            # dateline would claim every line is boardings, so the group
+            # subhead over its own line is the bare day with its weekday,
+            # his call, 22 September 2026 ("Second line should be just
+            # Friday, September 18"). compose() reads these only when
+            # cats != {'nightbus'}.
+            'cross_dateline_en': en_date_dow(nb_dow_dt),
+            'cross_dateline_ko': ko_date_dow(d_ko, nb_dow_dt),
+            # And its line takes a bus glyph there, to sit level with the
+            # emoji the selector puts on the crowd lines (same call). On
+            # the own-vein card the lines stay bare and the opener carries
+            # the one bus, as on every ranked bus card.
+            'cross_emoji': '🚌',
             'opener_en': NIGHTBUS_OPENER_EN, 'opener_ko': NIGHTBUS_OPENER_KO,
             'note_en': ('Night routes only.'
                         + (f' {nb_latest_en}.' if nb_notable else '')),
@@ -8660,7 +8673,16 @@ DESCRIPTOR_SCOPES = {
 # (infant, daynight, water, price) were doing exactly that — their period lifted
 # to the masthead because nothing marked them groupable.
 SCOPED_CATS = (DATED_PERIOD_CATS | set(DESCRIPTOR_SCOPES)
-               | {'infant', 'daynight', 'water', 'price', 'books'})
+               | {'infant', 'daynight', 'water', 'price', 'books'}
+               # nightbus, 22 September 2026: the one ranked vein that has
+               # actually crossed with a live one (crowd + busnight_total,
+               # 3mw3c5qj2zy2z). Absent from here, its worded dateline
+               # ("Boardings on Friday, September 18") flew as the masthead
+               # over three live crowd lines, which it is not true of. As a
+               # scoped vein it heads its own group under the bare day (see
+               # cross_dateline_en on its registry entry) and the crowd lines
+               # sit under "Right now", the crowd+tourism layout.
+               | {'nightbus'})
 
 
 def _strip_live_frame(label, korean):
@@ -9396,8 +9418,13 @@ def compose(sel, pool):
     # is a transport fact, match the opener emoji to THAT line's mode instead of
     # trusting the selector: subway, bus, or a generic car as the catch-all.
     # picks[0] is the first line (lines are built from picks in order below).
+    # ⚠️ Not on a grouped live+scoped card (crowd + nightbus, 22 September
+    # 2026): the grouped sort puts the dated line first by construction, so
+    # this would hand a card that is three-quarters crowd a bus opener,
+    # right above a line that now carries its own 🚌 (cross_emoji). The
+    # selector's generic glyph stands; the subheads frame the two halves.
     first_fact = by_id[picks[0]['id']]
-    if first_fact['cat'] in ('transport',) + RANKED_CATS:
+    if first_fact['cat'] in ('transport',) + RANKED_CATS and not maybe_grouped:
         fid = first_fact['id']
         if fid.startswith('sub') or fid.startswith('st_'):
             opener_emoji = '🚇'
@@ -9760,8 +9787,18 @@ def compose(sel, pool):
         if ranked_cat in cats and info.get('day_en'):
             # A card may fly a worded dateline (nightbus: "Boardings on
             # 7 September") while its map keeps the bare day_en.
-            scope_en.append((None, info.get('dateline_en') or info['day_en']))
-            scope_ko.append((None, info.get('dateline_ko') or info['day_ko']))
+            # ⚠️ Only on the vein's OWN card. Shared with another vein, the
+            # worded form is a claim about lines it does not cover: the
+            # crowd + nightbus card of 22 September 2026 flew "Boardings
+            # on Friday, September 18" over three live crowd lines. A
+            # shared card takes the vein's bare cross_dateline (the day
+            # with its weekday) where the entry carries one, else day_en.
+            if cats == {ranked_cat}:
+                scope_en.append((None, info.get('dateline_en') or info['day_en']))
+                scope_ko.append((None, info.get('dateline_ko') or info['day_ko']))
+            else:
+                scope_en.append((None, info.get('cross_dateline_en') or info['day_en']))
+                scope_ko.append((None, info.get('cross_dateline_ko') or info['day_ko']))
     if uses_kac:
         src_en += ' · Korea Airports Corporation'
         src_ko += ' · 한국공항공사'
@@ -10217,9 +10254,22 @@ def compose(sel, pool):
             note_en = f'{note_en.rstrip(".")}. {early["note_en"]}'
             note_ko = f'{note_ko.rstrip(".")}. {early["note_ko"]}'
     elif any(rc in cats and rc in RANKED_CARD_INFO for rc in RANKED_CATS):
-        info = next(RANKED_CARD_INFO[rc] for rc in RANKED_CATS
-                    if rc in cats and rc in RANKED_CARD_INFO)
+        ranked_cat = next(rc for rc in RANKED_CATS
+                          if rc in cats and rc in RANKED_CARD_INFO)
+        info = RANKED_CARD_INFO[ranked_cat]
         note_en, note_ko = info['note_en'], info['note_ko']
+        # ⚠️ The ranked note describes the ranked vein's lines alone. When
+        # the vein shares the card with estimated crowd lines, the KT caveat
+        # those lines put on every other card they ride must lead here too:
+        # the crowd + nightbus card of 22 September 2026 shipped "Night
+        # routes only." over three crowd figures and no word on how they
+        # were counted. Joined the way with_latest() joins: as a sentence
+        # ahead of a note written in sentences, with a middle dot otherwise.
+        if cats != {ranked_cat} and estimated:
+            note_en = (f'Crowds are KT-estimated. {note_en}' if note_en.endswith('.')
+                       else ' · '.join(p for p in ('Crowds are KT-estimated', note_en) if p))
+            note_ko = (f'인구는 KT 추정. {note_ko}' if note_ko.endswith('.')
+                       else ' · '.join(p for p in ('인구는 KT 추정', note_ko) if p))
     elif cats == {'air'}:
         # The scale the PM figures sit on, his call, 11 September 2026:
         # a bare µg/m³ says nothing to a reader without it. AirKorea's own
@@ -10382,10 +10432,18 @@ def compose(sel, pool):
     # (wxday, his call, 11 September 2026: high, low and rain are
     # different things, unlike four routes), keyed on the pinned
     # English label, so the selector's choice never reaches these lines.
+    # ⚠️ And a ranked line on a card it SHARES takes the entry's cross_emoji
+    # (nightbus: 🚌), his call, 22 September 2026: beside three crowd lines
+    # each carrying the selector's emoji, the one bare line read as the odd
+    # one out, and on a shared card there is no run of four routes for a
+    # repeated glyph to add nothing to. Still never the selector's choice.
     for l in lines:
         if l['cat'] in RANKED_CATS:
-            per_line = RANKED_CARD_INFO.get(l['cat'], {}).get('line_emoji') or {}
+            entry = RANKED_CARD_INFO.get(l['cat'], {})
+            per_line = entry.get('line_emoji') or {}
             l['emoji'] = _valid_emoji(per_line.get(l['label_en']))
+            if cats != {l['cat']} and not l['emoji']:
+                l['emoji'] = _valid_emoji(entry.get('cross_emoji'))
 
     # The ordered elements the card draws, per language. A grouped cross pair puts
     # a date subhead over the dated lines and a "Right now" subhead over the live
