@@ -2209,12 +2209,22 @@ def latest_is_notable(end_date, unit='date', today=None):
     raise ValueError(unit)
 
 
-def latest_note(d, d_ko, unit='date'):
+def latest_note(d, d_ko, unit='date', keep_year=False):
     """(en, ko) sentence naming the card's period as the newest published,
     WITHOUT the closing period: each caller ends it or joins it with ' · ',
     whichever its footnote already uses. Unconditional -- callers gate it
     on latest_is_notable() themselves (with_latest() and latest_clause() do
-    this already; a caller building its own note by hand must do the same)."""
+    this already; a caller building its own note by hand must do the same).
+
+    A year is dropped ("July is the latest month", "7월은"), his call,
+    22 September 2026, made first for London Index: the second line already
+    reads "July 2026", and the month cards were the only ones saying the
+    year twice (a date or a week carries none, see en_date()). `keep_year`
+    is for kepcohist, which has no second line and two Julys on the card,
+    so "July 2026" is the only thing that says which one is newest."""
+    if not keep_year:
+        d = re.sub(r' \d{4}$', '', d)
+        d_ko = re.sub(r'^\d{4}년 ', '', d_ko)
     u_en, u_ko = LATEST_UNITS[unit]
     return (f'{d} is the latest {u_en} for which data is available',
             f'{d_ko}은 데이터가 공개된 가장 최근 {u_ko}')
@@ -2239,7 +2249,7 @@ def _latest_sentence(d, d_ko, end_date, unit='date', today=None):
     return (f'{en}.', f'{ko}.') if en else ('', '')
 
 
-def with_latest(note_en, note_ko, d, d_ko, end_date, unit='date', today=None):
+def with_latest(note_en, note_ko, d, d_ko, end_date, unit='date', today=None, keep_year=False):
     """The (en, ko) footnote with latest_note()'s sentence on the end, or
     the footnote unchanged when `end_date` is not more than one degree
     removed from today (latest_is_notable()). A footnote written as
@@ -2249,7 +2259,7 @@ def with_latest(note_en, note_ko, d, d_ko, end_date, unit='date', today=None):
     never follows a full stop. `today` is for tests, as on latest_is_notable()."""
     if not latest_is_notable(end_date, unit, today):
         return note_en, note_ko
-    en, ko = latest_note(d, d_ko, unit)
+    en, ko = latest_note(d, d_ko, unit, keep_year)
     if note_en.endswith('.'):
         return (f'{note_en} {en}.', f'{note_ko} {ko}.')
     return (f'{note_en} · {en}', f'{note_ko} · {ko}')
@@ -5863,10 +5873,12 @@ def kepco_hist_facts(key):
         return []
     mon_en = MONTHS_EN[m - 1]
     # No dateline on this card (each row names its month), so the footnote
-    # names the newer of the two as the newest published.
+    # names the newer of the two as the newest published, year kept: with
+    # two Julys on the card, "July" alone names neither.
     now_en, now_ko = f'{mon_en} {y}', f'{y}년 {m}월'
     kepcohist_note_en, kepcohist_note_ko = with_latest(
-        KEPCO_HIST_NOTE_EN, KEPCO_HIST_NOTE_KO, now_en, now_ko, date(y, m, 1), 'month')
+        KEPCO_HIST_NOTE_EN, KEPCO_HIST_NOTE_KO, now_en, now_ko, date(y, m, 1), 'month',
+        keep_year=True)
     RANKED_CARD_INFO['kepcohist'] = {
         'opener_en': KEPCO_HIST_OPENER_EN, 'opener_ko': KEPCO_HIST_OPENER_KO,
         'note_en': kepcohist_note_en,
@@ -9210,6 +9222,57 @@ def _cross_pair_hints(lines):
             l['label_ko'] = f"{hint_ko}, {l['label_ko']}"
 
 
+def ranked_cross_dateline(cat):
+    """(en, ko) subhead a ranked vein flies over its OWN lines on a card it
+    shares, or None when the vein carries no date this run. The registry
+    entry's cross_dateline (else its bare day_en); stations' is built here
+    from STATION_DAY, since its registry entry carries map keys and no
+    day_en (see that entry). Read by compose() in three places -- the
+    period_group_entries registry, the scope pairs and the footnote strip --
+    so the same string reaches all three."""
+    if cat == 'stations':
+        if not STATION_DAY['en'] or not STATION_MAP_INFO['day']:
+            return None
+        dow_dt = _day_dt(STATION_MAP_INFO['day'])
+        # "Busiest: Seoul Station" under a generic opener needs the mode
+        # said once: the own opener ("On the subway") is not there to say it.
+        return (f'Subway boardings, {en_date_dow(dow_dt)}',
+                f'{ko_date_dow(STATION_DAY["ko"], dow_dt)} 지하철 승차')
+    info = RANKED_CARD_INFO.get(cat)
+    if not info or not info.get('day_en'):
+        return None
+    return (info.get('cross_dateline_en') or info['day_en'],
+            info.get('cross_dateline_ko') or info['day_ko'])
+
+
+_LATEST_SENTENCE = re.compile(
+    r'^(?:.+? is the latest (?:date|week|month|period) for which data is available'
+    r'|.+?은 데이터가 공개된 가장 최근 (?:날짜|주|달))\.?$')
+
+
+def merge_ranked_notes(parts):
+    """One footnote from several ranked veins' notes, in order, as sentences.
+    A "<period> is the latest date for which data is available" sentence
+    that an earlier part already carries verbatim is dropped from a later
+    one: two veins on the same day would otherwise say it twice, while two
+    veins on different days keep both, each true of its own group."""
+    out = ''
+    for part in parts:
+        if not part:
+            continue
+        if out:
+            kept = [sent for sent in re.split(r'(?<=\.)\s+', part)
+                    if not (_LATEST_SENTENCE.match(sent) and sent in out)]
+            part = ' '.join(kept)
+            if not part:
+                continue
+            out = (f'{out.rstrip(".")}. {part}' if out.endswith('.') or part.endswith('.')
+                   else f'{out} · {part}')
+        else:
+            out = part
+    return out
+
+
 def compose(sel, pool):
     by_id = {f['id']: f for f in pool}
     picks = [p for p in sel.get('picks', []) if p.get('id') in by_id]
@@ -9364,6 +9427,22 @@ def compose(sel, pool):
             f'The total monthly boardings during the designated hour, '
             f'{RUSH_M["en"]}',
             f'해당 시간대 승차 인원, 한 달 합계, {RUSH_M["ko"]}')
+    # The ranked people-count veins (RANKED_CROSS_CATS), 22 September 2026,
+    # his call ("Handle two ranked veins crossing each other too"): two of
+    # them on one card with no live line (night-bus total beside a Korail
+    # station, say) have no "Right now" to group against, so they group
+    # here, each under the subhead it would fly beside a crowd line. ⚠️ The
+    # identity string (position 0) is the SUBHEAD, not the bare day: two
+    # veins whose subheads are the same bare date (nightbus + stationgap on
+    # one day) then fall to the ordinary single lift below and fly it once
+    # as the masthead, while stations' worded subhead beside nightbus's
+    # bare one on the same day groups, since a single masthead cannot say
+    # "Subway boardings" over a night-bus line. A different day always groups.
+    for _rc in RANKED_CROSS_CATS:
+        if _rc in precats:
+            _cd = ranked_cross_dateline(_rc)
+            if _cd:
+                period_group_entries[_rc] = (_cd[0], _cd[1], _cd[0], _cd[1])
 
     # The categories actually on this card that the registry above can speak
     # to. Grouping needs two or more of them AND a genuine disagreement (the
@@ -9467,8 +9546,13 @@ def compose(sel, pool):
     # this would hand a card that is three-quarters crowd a bus opener,
     # right above a line that now carries its own 🚌 (cross_emoji). The
     # selector's generic glyph stands; the subheads frame the two halves.
+    # Nor on any card a ranked vein SHARES (two ranked veins on one day fly
+    # a single masthead and group nowhere): its lines carry their own glyph
+    # there (cross_emoji), and the first line's mode is one of two.
     first_fact = by_id[picks[0]['id']]
-    if first_fact['cat'] in ('transport',) + RANKED_CATS and not maybe_grouped:
+    if (first_fact['cat'] in ('transport',) + RANKED_CATS
+            and not maybe_grouped and not period_grouped
+            and (first_fact['cat'] == 'transport' or cats == {first_fact['cat']})):
         fid = first_fact['id']
         if fid.startswith('sub') or fid.startswith('st_'):
             opener_emoji = '🚇'
@@ -9830,11 +9914,13 @@ def compose(sel, pool):
             scope_ko.append((None, ko_date_dow(STATION_DAY['ko'], dow_dt)))
         else:
             # On a shared card (see RANKED_CROSS_CATS) this heads its own
-            # group, and "Busiest: Seoul Station" under a generic opener
-            # needs the mode said once: the own opener ("On the subway") is
-            # not there to say it.
-            scope_en.append((None, f'Subway boardings, {en_date_dow(dow_dt)}'))
-            scope_ko.append((None, f'{ko_date_dow(STATION_DAY["ko"], dow_dt)} 지하철 승차'))
+            # group; ranked_cross_dateline() says why it is worded. Captured
+            # in dated_scope_pair so a period_grouped card strips it from
+            # the footnote once it rides a subhead.
+            _st_pair = tuple((None, x) for x in ranked_cross_dateline('stations'))
+            scope_en.append(_st_pair[0])
+            scope_ko.append(_st_pair[1])
+            dated_scope_pair['stations'] = _st_pair
     for ranked_cat, info in RANKED_CARD_INFO.items():
         if ranked_cat in cats and info.get('day_en'):
             # A card may fly a worded dateline (nightbus: "Boardings on
@@ -9849,8 +9935,13 @@ def compose(sel, pool):
                 scope_en.append((None, info.get('dateline_en') or info['day_en']))
                 scope_ko.append((None, info.get('dateline_ko') or info['day_ko']))
             else:
-                scope_en.append((None, info.get('cross_dateline_en') or info['day_en']))
-                scope_ko.append((None, info.get('cross_dateline_ko') or info['day_ko']))
+                _rk_pair = tuple((None, x) for x in ranked_cross_dateline(ranked_cat))
+                scope_en.append(_rk_pair[0])
+                scope_ko.append(_rk_pair[1])
+                # Captured so a period_grouped card (two ranked veins, or
+                # one beside tourism) strips it from the footnote once it
+                # rides a subhead.
+                dated_scope_pair[ranked_cat] = _rk_pair
     if uses_kac:
         src_en += ' · Korea Airports Corporation'
         src_ko += ' · 한국공항공사'
@@ -10265,20 +10356,9 @@ def compose(sel, pool):
     # reply. It carries no link, so nothing is lost by taking it off the reply.
     # A spotlight card's later lines are predictions, and saying so is the whole
     # reason it is not headed "today".
-    ranked_cat = None   # set by the two ranked branches below
-    if forecast:
-        note_en = 'Hours ahead are forecasts; crowds are KT-estimated'
-        note_ko = '이후 시간대는 예측치 · 인구는 KT 추정'
-    elif 'daynight' in cats:
-        # ⚠️ NOT "crowds". These are 생활인구: everyone present in a district at
-        # that hour — residents, people at work, people visiting — which is a
-        # different thing from the crowd vein's estimate of a named place, and
-        # from the district's registered population. Borrowing the crowd vein's
-        # wording said the wrong thing about the figures.
-        note_en = 'Population present, KT-estimated' if estimated else ''
-        note_ko = '생활인구는 KT 추정' if estimated else ''
-    elif 'stations' in cats:
-        ranked_cat = 'stations'
+    ranked_cat = None   # set by the ranked branch below
+
+    def _stations_note():
         # What the ranking counts (see STATION_DAY's block): summed across a
         # station's lines, Seoul only.
         note_en, note_ko = STATION_CAVEAT_EN, STATION_CAVEAT_KO
@@ -10307,15 +10387,45 @@ def compose(sel, pool):
         if early.get('note_en'):
             note_en = f'{note_en.rstrip(".")}. {early["note_en"]}'
             note_ko = f'{note_ko.rstrip(".")}. {early["note_ko"]}'
-    elif any(rc in cats and rc in RANKED_CARD_INFO for rc in RANKED_CATS):
-        ranked_cat = next(rc for rc in RANKED_CATS
-                          if rc in cats and rc in RANKED_CARD_INFO)
-        info = RANKED_CARD_INFO[ranked_cat]
-        note_en, note_ko = info['note_en'], info['note_ko']
-        # A vein whose own note counts its rows (railstations' "The four
-        # busiest") carries a shared-card form that does not.
-        if cats != {ranked_cat} and info.get('cross_note_en'):
-            note_en, note_ko = info['cross_note_en'], info['cross_note_ko']
+        return note_en, note_ko
+
+    if forecast:
+        note_en = 'Hours ahead are forecasts; crowds are KT-estimated'
+        note_ko = '이후 시간대는 예측치 · 인구는 KT 추정'
+    elif 'daynight' in cats:
+        # ⚠️ NOT "crowds". These are 생활인구: everyone present in a district at
+        # that hour — residents, people at work, people visiting — which is a
+        # different thing from the crowd vein's estimate of a named place, and
+        # from the district's registered population. Borrowing the crowd vein's
+        # wording said the wrong thing about the figures.
+        note_en = 'Population present, KT-estimated' if estimated else ''
+        note_ko = '생활인구는 KT 추정' if estimated else ''
+    elif 'stations' in cats or any(rc in cats and rc in RANKED_CARD_INFO for rc in RANKED_CATS):
+        # Every ranked vein on the card, in the order their lines appear,
+        # each note in turn (two ranked veins can share a card since
+        # 22 September 2026; merge_ranked_notes drops a latest-date sentence
+        # said twice). Line order, not RANKED_CATS order, so the footnote
+        # reads down the card the way the groups do.
+        ranked_on_card = []
+        for l in lines:
+            rc = l['cat']
+            if (rc in RANKED_CATS and rc not in ranked_on_card
+                    and (rc == 'stations' or rc in RANKED_CARD_INFO)):
+                ranked_on_card.append(rc)
+        ranked_cat = ranked_on_card[0]
+        parts_en, parts_ko = [], []
+        for rc in ranked_on_card:
+            if rc == 'stations':
+                ne, nk = _stations_note()
+            else:
+                info = RANKED_CARD_INFO[rc]
+                ne, nk = info['note_en'], info['note_ko']
+                # A vein whose own note counts its rows (railstations' "The
+                # four busiest") carries a shared-card form that does not.
+                if cats != {rc} and info.get('cross_note_en'):
+                    ne, nk = info['cross_note_en'], info['cross_note_ko']
+            parts_en.append(ne); parts_ko.append(nk)
+        note_en, note_ko = merge_ranked_notes(parts_en), merge_ranked_notes(parts_ko)
     elif cats == {'air'}:
         # The scale the PM figures sit on, his call, 11 September 2026:
         # a bare µg/m³ says nothing to a reader without it. AirKorea's own

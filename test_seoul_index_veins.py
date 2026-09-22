@@ -2576,6 +2576,27 @@ class RankedVeinsOnACrowdCard(unittest.TestCase):
         c = self._card(facts)
         self._check(c, 'Commuter rail boardings, July 2026', '2026년 7월 광역철도 승차', '🚆', 1)
 
+    def test_two_ranked_veins_beside_crowd_keep_their_own_subheads_out_of_the_masthead(self):
+        """crowd + nightbus + stations: the live layout wants one dated
+        subhead and there are two, so nothing lifts and nothing groups (the
+        "merely cramped" case test_two_scoped_veins_do_not_group already
+        pins for library + complaint); both dates stay in the footnote and
+        no masthead flies. Pinned so a change here is a decision."""
+        S.STATION_DAY['en'], S.STATION_DAY['ko'] = 'September 7', '9월 7일'
+        S.STATION_MAP_INFO['day'] = '20260907'
+        S.RANKED_CARD_INFO['stations'] = {'cross_emoji': '🚇', 'note_en': '', 'note_ko': ''}
+        S.RANKED_CARD_INFO['nightbus'] = dict(TwoRankedVeinsOnOneCard.NIGHTBUS)
+        facts = [S.fact('st_quietest', 'stations', 'Quietest: Oksu', '5,050', '5,050', pin=True,
+                        label_ko='가장 한산함: 옥수', place_en='Quietest', place_ko='가장 한산함',
+                        num=5050, unit='people'),
+                 S.fact('busnight_total', 'nightbus', 'Total night-bus boardings', '32,451', '32,451',
+                        pin=True, label_ko='심야버스 전체 승차 인원', num=32451, unit='people')]
+        c = self._card(facts)
+        self.assertFalse(c['grouped']); self.assertFalse(c['period_grouped'])
+        self.assertEqual(c['dateline_en'], '')
+        self.assertIn('Subway boardings, Monday, September 7', c['note_en'])
+        self.assertIn('Monday, September 7', c['note_en'])
+
     def test_every_ranked_people_vein_is_a_scoped_vein(self):
         """The set that makes a live+ranked card group. A ranked vein with
         people-count facts left out of it flies its own dateline as a
@@ -2583,6 +2604,155 @@ class RankedVeinsOnACrowdCard(unittest.TestCase):
         self.assertEqual(S.RANKED_CROSS_CATS, {'nightbus', 'stations', 'stationgap',
                                                'seoulstation', 'railstations', 'railcommuter'})
         self.assertTrue(S.RANKED_CROSS_CATS <= S.SCOPED_CATS)
+
+
+class TwoRankedVeinsOnOneCard(unittest.TestCase):
+    """Two ranked veins crossing each other with no live line, his call,
+    22 September 2026 ("Handle two ranked veins crossing each other too").
+    No "Right now" to group against, so they take the period_grouped
+    layout tourism + boxoffice uses: each vein under the subhead it flies
+    beside a crowd line. Keyed on the SUBHEAD string: two bare-date veins
+    on one day fly it once as the masthead instead.
+    """
+
+    NIGHTBUS = {'day_en': 'September 7', 'day_ko': '9월 7일',
+                'dateline_en': 'Boardings on Monday, September 7', 'dateline_ko': '9월 7일 (월요일) 승차',
+                'cross_dateline_en': 'Monday, September 7', 'cross_dateline_ko': '9월 7일 (월요일)',
+                'cross_emoji': '🚌',
+                'note_en': 'Night routes only. September 7 is the latest date for which data is available.',
+                'note_ko': '심야 노선만. 9월 7일은 데이터가 공개된 가장 최근 날짜.'}
+    STATIONGAP = {'day_en': 'September 7', 'day_ko': '9월 7일',
+                  'dateline_en': 'Monday, September 7', 'dateline_ko': '9월 7일 (월요일)',
+                  'cross_dateline_en': 'Monday, September 7', 'cross_dateline_ko': '9월 7일 (월요일)',
+                  'cross_emoji': '🚇',
+                  'note_en': 'All lines combined. September 7 is the latest date for which data is available.',
+                  'note_ko': '전 노선 합산. 9월 7일은 데이터가 공개된 가장 최근 날짜.'}
+    RAIL = {'day_en': 'September 10', 'day_ko': '9월 10일',
+            'dateline_en': 'Intercity rail boardings on September 10', 'dateline_ko': '9월 10일 열차 승차',
+            'cross_dateline_en': 'Intercity rail boardings, Thursday, September 10',
+            'cross_dateline_ko': '9월 10일 (목요일) 열차 승차',
+            'cross_emoji': '🚆',
+            'cross_note_en': 'Ranked among Seoul’s 8 Korail stations. September 10 is the latest date for which data is available.',
+            'cross_note_ko': '서울의 코레일 역 8곳 중 순위. 9월 10일은 데이터가 공개된 가장 최근 날짜.',
+            'note_en': 'The four busiest of Seoul’s 8 Korail stations.', 'note_ko': '네 곳.'}
+
+    def setUp(self):
+        self._info = dict(S.RANKED_CARD_INFO)
+        self._station = (S.STATION_DAY['en'], S.STATION_DAY['ko'], S.STATION_MAP_INFO['day'])
+        S.RANKED_CARD_INFO.clear()
+        S.STATION_DAY['en'] = None
+        S.STATION_STREAK['en'] = S.STATION_STREAK['ko'] = ''
+
+    def tearDown(self):
+        S.RANKED_CARD_INFO.clear(); S.RANKED_CARD_INFO.update(self._info)
+        S.STATION_DAY['en'], S.STATION_DAY['ko'], S.STATION_MAP_INFO['day'] = self._station
+        S.STATION_STREAK['en'] = S.STATION_STREAK['ko'] = ''
+
+    def _nb(self):
+        return [S.fact('busnight_busiest', 'nightbus', 'Busiest: N13', '1,500', '1,500', pin=True,
+                       label_ko='가장 붐빔: N13번', place_en='Busiest', place_ko='가장 붐빔',
+                       num=1500, unit='people'),
+                S.fact('busnight_total', 'nightbus', 'Total night-bus boardings', '32,451', '32,451',
+                       pin=True, label_ko='심야버스 전체 승차 인원', num=32451, unit='people')]
+
+    def _card(self, facts):
+        sel = {'opener_en': 'Seoul by the numbers', 'opener_ko': '숫자로 보는 서울',
+               'opener_emoji': '🏙',
+               'picks': [{'id': f['id'], 'label_en': '', 'label_ko': '', 'emoji': ''} for f in facts]}
+        return S.compose(sel, facts)
+
+    def test_different_days_group_under_two_subheads_with_both_notes(self):
+        S.RANKED_CARD_INFO['nightbus'] = dict(self.NIGHTBUS)
+        S.RANKED_CARD_INFO['railstations'] = dict(self.RAIL)
+        facts = self._nb() + [S.fact('railst_1', 'railstations', 'Yongsan', '32,925', '32,925', pin=True,
+                                     label_ko='용산역', place_en='Yongsan', place_ko='용산역',
+                                     num=32925, unit='people')]
+        c = self._card(facts)
+        self.assertTrue(c['period_grouped']); self.assertFalse(c['grouped'])
+        self.assertEqual(c['dateline_en'], '')
+        self.assertEqual([it.get('subhead') for it in c['items_en'] if 'subhead' in it],
+                         ['Monday, September 7', 'Intercity rail boardings, Thursday, September 10'])
+        self.assertEqual([it.get('subhead') for it in c['items_ko'] if 'subhead' in it],
+                         ['9월 7일 (월요일)', '9월 10일 (목요일) 열차 승차'])
+        self.assertEqual([it['emoji'] for it in c['items_en'] if 'subhead' not in it], ['🚌', '🚌', '🚆'])
+        self.assertEqual(c['note_en'],
+                         'Night routes only. September 7 is the latest date for which data is available. '
+                         'Ranked among Seoul’s 8 Korail stations. '
+                         'September 10 is the latest date for which data is available.')
+        # The subheads are not repeated in the footnote, and no crowd caveat
+        # on a card with no crowd line.
+        self.assertNotIn('Intercity rail boardings,', c['note_en'])
+        self.assertNotIn('KT-estimated', c['note_en'])
+        self.assertEqual(c['opener']['emoji'], '🏙')
+        # "Busiest:" keeps its run; the bare "Yongsan" and the total lose
+        # their whole-label emphasis and bold, as on any shared card.
+        rows = [it for it in c['items_en'] if 'subhead' not in it]
+        self.assertEqual(rows[0].get('emph'), 'Busiest')
+        self.assertTrue(all('bold' not in it and 'emph' not in it for it in rows[1:]))
+
+    def test_two_bare_date_veins_on_one_day_fly_it_once_as_the_masthead(self):
+        S.RANKED_CARD_INFO['nightbus'] = dict(self.NIGHTBUS)
+        S.RANKED_CARD_INFO['stationgap'] = dict(self.STATIONGAP)
+        facts = self._nb() + [S.fact('st_gap_on', 'stationgap', 'Got on at Yeouinaru', '32,074', '32,074',
+                                     pin=True, label_ko='여의나루 승차', place_en='Yeouinaru',
+                                     place_ko='여의나루', num=32074, unit='people')]
+        c = self._card(facts)
+        self.assertFalse(c['period_grouped']); self.assertFalse(c['grouped'])
+        self.assertEqual(c['dateline_en'], 'Monday, September 7')
+        self.assertEqual(c['dateline_ko'], '9월 7일 (월요일)')
+        self.assertTrue(all('subhead' not in it for it in c['items_en']))
+        # The latest-date sentence, true of both, is said once.
+        self.assertEqual(c['note_en'],
+                         'Night routes only. September 7 is the latest date for which data is available. '
+                         'All lines combined.')
+        self.assertEqual(c['note_ko'], '심야 노선만. 9월 7일은 데이터가 공개된 가장 최근 날짜. 전 노선 합산.')
+        self.assertEqual(c['opener']['emoji'], '🏙')
+        self.assertEqual([it['emoji'] for it in c['items_en']], ['🚌', '🚌', '🚇'])
+
+    def test_a_worded_subhead_beside_a_bare_one_on_the_same_day_groups(self):
+        S.STATION_DAY['en'], S.STATION_DAY['ko'] = 'September 7', '9월 7일'
+        S.STATION_MAP_INFO['day'] = '20260907'
+        S.RANKED_CARD_INFO['stations'] = {'cross_emoji': '🚇', 'note_en': '', 'note_ko': ''}
+        S.RANKED_CARD_INFO['nightbus'] = dict(self.NIGHTBUS)
+        facts = self._nb() + [S.fact('st_quietest', 'stations', 'Quietest: Oksu', '32,050', '32,050',
+                                     pin=True, label_ko='가장 한산함: 옥수', place_en='Quietest',
+                                     place_ko='가장 한산함', num=32050, unit='people')]
+        c = self._card(facts)
+        self.assertTrue(c['period_grouped'])
+        self.assertEqual([it.get('subhead') for it in c['items_en'] if 'subhead' in it],
+                         ['Monday, September 7', 'Subway boardings, Monday, September 7'])
+        # Notes follow the card's line order (nightbus first here), not
+        # RANKED_CATS order, and the shared latest-date sentence is said once.
+        self.assertEqual(c['note_en'],
+                         'Night routes only. September 7 is the latest date for which data is available. '
+                         'All lines combined.')
+        self.assertEqual(c['items_en'][4]['emph'], 'Quietest')
+        # Neither subhead is repeated in the footnote.
+        self.assertNotIn('Subway boardings', c['note_en'])
+        self.assertNotIn('지하철 승차', c['note_ko'])
+
+    def test_merge_ranked_notes(self):
+        latest = 'September 7 is the latest date for which data is available.'
+        self.assertEqual(S.merge_ranked_notes([f'A. {latest}', f'B. {latest}']), f'A. {latest} B.')
+        self.assertEqual(S.merge_ranked_notes([f'A. {latest}', 'B. September 8 is the latest date for which data is available.']),
+                         f'A. {latest} B. September 8 is the latest date for which data is available.')
+        self.assertEqual(S.merge_ranked_notes(['', 'A.', '', 'B']), 'A. B')
+        self.assertEqual(S.merge_ranked_notes(['A · B', 'C · D']), 'A · B · C · D')
+        self.assertEqual(S.merge_ranked_notes([f'A. {latest}', latest]), f'A. {latest}')
+        ko = '9월 7일은 데이터가 공개된 가장 최근 날짜.'
+        self.assertEqual(S.merge_ranked_notes([f'가. {ko}', f'나. {ko}']), f'가. {ko} 나.')
+
+    def test_ranked_cross_dateline_reads_the_registry_and_station_day(self):
+        self.assertIsNone(S.ranked_cross_dateline('stations'))
+        self.assertIsNone(S.ranked_cross_dateline('nightbus'))
+        S.RANKED_CARD_INFO['nightbus'] = dict(self.NIGHTBUS)
+        self.assertEqual(S.ranked_cross_dateline('nightbus'), ('Monday, September 7', '9월 7일 (월요일)'))
+        S.RANKED_CARD_INFO['kopis'] = {'day_en': 'a week', 'day_ko': '한 주'}
+        self.assertEqual(S.ranked_cross_dateline('kopis'), ('a week', '한 주'))   # no cross form: the bare day
+        S.STATION_DAY['en'], S.STATION_DAY['ko'] = 'September 7', '9월 7일'
+        S.STATION_MAP_INFO['day'] = '20260907'
+        self.assertEqual(S.ranked_cross_dateline('stations'),
+                         ('Subway boardings, Monday, September 7', '9월 7일 (월요일) 지하철 승차'))
 
 
 class OnlyFlagGuard(unittest.TestCase):
@@ -4815,8 +4985,9 @@ class RailCommuterCard(unittest.TestCase):
         self.assertEqual(info['cross_emoji'], '🚆')
         self.assertEqual(info['opener_en'], 'Seoul’s commuter rail')
         self.assertIn('inside Seoul', info['note_en'])
-        self.assertTrue(info['note_en'].endswith(' July 2026 is the latest month for which data is available.'))
-        self.assertTrue(info['note_ko'].endswith(' 2026년 7월은 데이터가 공개된 가장 최근 달.'))
+        # No year: the dateline above already reads "July 2026" (22 September 2026).
+        self.assertTrue(info['note_en'].endswith(' July is the latest month for which data is available.'))
+        self.assertTrue(info['note_ko'].endswith(' 7월은 데이터가 공개된 가장 최근 달.'))
 
     def test_the_map_pins_the_three_with_their_coordinates(self):
         S.rail_commuter_facts('G', 'A')
