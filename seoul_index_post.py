@@ -1873,6 +1873,11 @@ def station_gap_facts(c, d, d_ko):
         # 2026, see en_date_dow()); day_en stays the bare date, which is
         # all the note below and the map need.
         'dateline_en': en_date_dow(dow_dt), 'dateline_ko': ko_date_dow(d_ko, dow_dt),
+        # On a shared card (see nightbus's entry) the group subhead is the
+        # same bare weekday date: the lines name their station and their
+        # direction themselves. The line takes a subway glyph there.
+        'cross_dateline_en': en_date_dow(dow_dt), 'cross_dateline_ko': ko_date_dow(d_ko, dow_dt),
+        'cross_emoji': '🚇',
         'note_en': stationgap_note_en,
         'note_ko': stationgap_note_ko}
     # The station is the emphasised run (place_en), as the rush card bolds
@@ -2792,6 +2797,9 @@ def transport_facts(api_key, state):
                 # the override appends its sentence here and compose() adds
                 # whatever it finds.
                 'leader': names[0], 'note_en': '', 'note_ko': '',
+                # The line's glyph on a shared card (see nightbus's entry);
+                # the subhead there is built in compose() from STATION_DAY.
+                'cross_emoji': '🚇',
                 # map_title, not day_en: compose() reads day_en as a second
                 # masthead line, and this card's masthead comes from STATION_DAY.
                 'map_title': d,
@@ -6149,6 +6157,12 @@ RAILSTATIONS_NOTE_EN = (f'The four busiest of Seoul’s {len(KORAIL_SEOUL_STATIO
                         f'Korail trains only, KTX to Mugunghwa; SRT is a separate operator.')
 RAILSTATIONS_NOTE_KO = (f'서울의 코레일 역 {len(KORAIL_SEOUL_STATIONS)}곳 중 승차가 많은 네 곳. '
                         f'코레일 열차 기준(KTX~무궁화호), SRT는 별도 운영사.')
+# The shared-card form (a crowd cross pair carries one or two of the rows,
+# never the four): what the ranking is among, without a count.
+RAILSTATIONS_CROSS_NOTE_EN = (f'Ranked among Seoul’s {len(KORAIL_SEOUL_STATIONS)} Korail stations. '
+                              f'Korail trains only, KTX to Mugunghwa; SRT is a separate operator.')
+RAILSTATIONS_CROSS_NOTE_KO = (f'서울의 코레일 역 {len(KORAIL_SEOUL_STATIONS)}곳 중 순위. '
+                              f'코레일 열차 기준(KTX~무궁화호), SRT는 별도 운영사.')
 
 
 # --- the Seoul Station card ---------------------------------------------------
@@ -6217,6 +6231,11 @@ def seoul_station_facts(key):
     # September 2026 (see en_date_dow()); a holiday's own name already
     # says what is different about the day, so that branch is untouched.
     dateline_en, dateline_ko = en_date_dow(dt), ko_date_dow(d_ko, dt)
+    # On a shared card the rows ("Boarded", "Got off") sit under a generic
+    # opener, so the group subhead carries the station the own opener
+    # carried; a holiday keeps its name there too.
+    cross_dateline_en = f'Seoul Station, {dateline_en}'
+    cross_dateline_ko = f'서울역, {dateline_ko}'
     hist = load_bus_history()
     before = json.dumps(hist.get('holiday_names', {}), sort_keys=True)
     names = kr_holiday_names(hist, dt.year)
@@ -6227,6 +6246,8 @@ def seoul_station_facts(key):
     elif day in names and all(names[day]):
         dateline_en = f'{d} was a holiday, {names[day][1]}'
         dateline_ko = f'{d_ko} {names[day][0]}'
+        cross_dateline_en = f'Seoul Station on {names[day][1]}, {d}'
+        cross_dateline_ko = f'서울역, {d_ko} {names[day][0]}'
     seoulstation_note_en, seoulstation_note_ko = with_latest(
         f'Typical: the median of the previous {n} {wd_en}s. '
         f'Korail trains only; SRT is a separate operator.',
@@ -6236,6 +6257,7 @@ def seoul_station_facts(key):
         'day_en': d, 'day_ko': d_ko,
         'opener_en': 'Seoul Station', 'opener_ko': '서울역',
         'dateline_en': dateline_en, 'dateline_ko': dateline_ko,
+        'cross_dateline_en': cross_dateline_en, 'cross_dateline_ko': cross_dateline_ko,
         'note_en': seoulstation_note_en,
         'note_ko': seoulstation_note_ko,
         # Four fixed rows, the same shape as wxday's High/Low/Rain: boarded
@@ -6292,10 +6314,22 @@ def rail_stations_facts(key):
         return []
     railstations_note_en, railstations_note_ko = with_latest(
         RAILSTATIONS_NOTE_EN, RAILSTATIONS_NOTE_KO, d, d_ko, dt.date())
+    railstations_cross_note_en, railstations_cross_note_ko = with_latest(
+        RAILSTATIONS_CROSS_NOTE_EN, RAILSTATIONS_CROSS_NOTE_KO, d, d_ko, dt.date())
     RANKED_CARD_INFO['railstations'] = {
         'day_en': d, 'day_ko': d_ko,
         'opener_en': RAILSTATIONS_OPENER_EN, 'opener_ko': RAILSTATIONS_OPENER_KO,
         'dateline_en': f'Intercity rail boardings on {d}', 'dateline_ko': f'{d_ko} 열차 승차',
+        # On a shared card the rows are bare station names under a generic
+        # opener, so the subhead keeps the metric and adds the weekday; and
+        # "The four busiest" would be a claim about rows the card does not
+        # carry (the boxoffice cross-pair lesson), so the note says only
+        # what the ranking is among.
+        'cross_dateline_en': f'Intercity rail boardings, {en_date_dow(dt)}',
+        'cross_dateline_ko': f'{ko_date_dow(d_ko, dt)} 열차 승차',
+        'cross_emoji': '🚆',
+        'cross_note_en': railstations_cross_note_en,
+        'cross_note_ko': railstations_cross_note_ko,
         'note_en': railstations_note_en,
         'note_ko': railstations_note_ko}
     # Bare station names, sorted by the day's boardings; the name itself is
@@ -6421,6 +6455,11 @@ def rail_commuter_facts(gov_key, api_key):
         'day_en': per_en, 'day_ko': per_ko,
         'opener_en': RAILCOMMUTER_OPENER_EN, 'opener_ko': RAILCOMMUTER_OPENER_KO,
         'dateline_en': f'Boardings in {per_en}', 'dateline_ko': f'{per_ko} 승차',
+        # On a shared card ("Busiest: Yongsan" under a generic opener) the
+        # subhead carries the metric with the month; the line takes a train.
+        'cross_dateline_en': f'Commuter rail boardings, {per_en}',
+        'cross_dateline_ko': f'{per_ko} 광역철도 승차',
+        'cross_emoji': '🚆',
         'note_en': railcommuter_note_en,
         'note_ko': railcommuter_note_ko,
         # The threaded pin map, the bus stops card's own shape (his call,
@@ -8672,17 +8711,22 @@ DESCRIPTOR_SCOPES = {
 # over a live crowd line is simply false. The four period veins added here
 # (infant, daynight, water, price) were doing exactly that — their period lifted
 # to the masthead because nothing marked them groupable.
+RANKED_CROSS_CATS = frozenset({'nightbus', 'stations', 'stationgap', 'seoulstation',
+                               'railstations', 'railcommuter'})
 SCOPED_CATS = (DATED_PERIOD_CATS | set(DESCRIPTOR_SCOPES)
                | {'infant', 'daynight', 'water', 'price', 'books'}
-               # nightbus, 22 September 2026: the one ranked vein that has
-               # actually crossed with a live one (crowd + busnight_total,
-               # 3mw3c5qj2zy2z). Absent from here, its worded dateline
+               # The six ranked veins whose facts carry unit='people' and can
+               # therefore cross with a live crowd line, 22 September 2026.
+               # nightbus is the one that actually did (crowd + busnight_total,
+               # 3mw3c5qj2zy2z): absent from here, its worded dateline
                # ("Boardings on Friday, September 18") flew as the masthead
-               # over three live crowd lines, which it is not true of. As a
-               # scoped vein it heads its own group under the bare day (see
-               # cross_dateline_en on its registry entry) and the crowd lines
-               # sit under "Right now", the crowd+tourism layout.
-               | {'nightbus'})
+               # over three live crowd lines, which it is not true of. As
+               # scoped veins they head their own group (see cross_dateline_en
+               # on each registry entry; stations' is built in compose() from
+               # STATION_DAY) and the crowd lines sit under "Right now", the
+               # crowd+tourism layout. The other five followed the same day,
+               # his call ("Do the same for the other five ranked veins").
+               | RANKED_CROSS_CATS)
 
 
 def _strip_live_frame(label, korean):
@@ -9781,8 +9825,16 @@ def compose(sel, pool):
         # latest date" sentence keeps the bare date (see STATION_DAY, set
         # where this reads from).
         dow_dt = _day_dt(STATION_MAP_INFO['day'])
-        scope_en.append((None, en_date_dow(dow_dt)))
-        scope_ko.append((None, ko_date_dow(STATION_DAY['ko'], dow_dt)))
+        if cats == {'stations'}:
+            scope_en.append((None, en_date_dow(dow_dt)))
+            scope_ko.append((None, ko_date_dow(STATION_DAY['ko'], dow_dt)))
+        else:
+            # On a shared card (see RANKED_CROSS_CATS) this heads its own
+            # group, and "Busiest: Seoul Station" under a generic opener
+            # needs the mode said once: the own opener ("On the subway") is
+            # not there to say it.
+            scope_en.append((None, f'Subway boardings, {en_date_dow(dow_dt)}'))
+            scope_ko.append((None, f'{ko_date_dow(STATION_DAY["ko"], dow_dt)} 지하철 승차'))
     for ranked_cat, info in RANKED_CARD_INFO.items():
         if ranked_cat in cats and info.get('day_en'):
             # A card may fly a worded dateline (nightbus: "Boardings on
@@ -10213,6 +10265,7 @@ def compose(sel, pool):
     # reply. It carries no link, so nothing is lost by taking it off the reply.
     # A spotlight card's later lines are predictions, and saying so is the whole
     # reason it is not headed "today".
+    ranked_cat = None   # set by the two ranked branches below
     if forecast:
         note_en = 'Hours ahead are forecasts; crowds are KT-estimated'
         note_ko = '이후 시간대는 예측치 · 인구는 KT 추정'
@@ -10225,6 +10278,7 @@ def compose(sel, pool):
         note_en = 'Population present, KT-estimated' if estimated else ''
         note_ko = '생활인구는 KT 추정' if estimated else ''
     elif 'stations' in cats:
+        ranked_cat = 'stations'
         # What the ranking counts (see STATION_DAY's block): summed across a
         # station's lines, Seoul only.
         note_en, note_ko = STATION_CAVEAT_EN, STATION_CAVEAT_KO
@@ -10258,18 +10312,10 @@ def compose(sel, pool):
                           if rc in cats and rc in RANKED_CARD_INFO)
         info = RANKED_CARD_INFO[ranked_cat]
         note_en, note_ko = info['note_en'], info['note_ko']
-        # ⚠️ The ranked note describes the ranked vein's lines alone. When
-        # the vein shares the card with estimated crowd lines, the KT caveat
-        # those lines put on every other card they ride must lead here too:
-        # the crowd + nightbus card of 22 September 2026 shipped "Night
-        # routes only." over three crowd figures and no word on how they
-        # were counted. Joined the way with_latest() joins: as a sentence
-        # ahead of a note written in sentences, with a middle dot otherwise.
-        if cats != {ranked_cat} and estimated:
-            note_en = (f'Crowds are KT-estimated. {note_en}' if note_en.endswith('.')
-                       else ' · '.join(p for p in ('Crowds are KT-estimated', note_en) if p))
-            note_ko = (f'인구는 KT 추정. {note_ko}' if note_ko.endswith('.')
-                       else ' · '.join(p for p in ('인구는 KT 추정', note_ko) if p))
+        # A vein whose own note counts its rows (railstations' "The four
+        # busiest") carries a shared-card form that does not.
+        if cats != {ranked_cat} and info.get('cross_note_en'):
+            note_en, note_ko = info['cross_note_en'], info['cross_note_ko']
     elif cats == {'air'}:
         # The scale the PM figures sit on, his call, 11 September 2026:
         # a bare µg/m³ says nothing to a reader without it. AirKorea's own
@@ -10280,6 +10326,20 @@ def compose(sel, pool):
     else:
         note_en = 'Crowds are KT-estimated' if estimated else ''
         note_ko = '인구는 KT 추정' if estimated else ''
+    # ⚠️ A ranked note describes the ranked vein's lines alone. When the vein
+    # shares the card with estimated crowd lines, the KT caveat those lines
+    # put on every other card they ride must lead here too: the crowd +
+    # nightbus card of 22 September 2026 shipped "Night routes only." over
+    # three crowd figures and no word on how they were counted. Joined the
+    # way with_latest() joins: as a sentence ahead of a note written in
+    # sentences, with a middle dot otherwise. One place for both ranked
+    # branches above (stations builds its note itself; the rest read the
+    # registry), so the two cannot drift.
+    if ranked_cat and cats != {ranked_cat} and estimated:
+        note_en = (f'Crowds are KT-estimated. {note_en}' if note_en.endswith('.')
+                   else ' · '.join(p for p in ('Crowds are KT-estimated', note_en) if p))
+        note_ko = (f'인구는 KT 추정. {note_ko}' if note_ko.endswith('.')
+                   else ' · '.join(p for p in ('인구는 KT 추정', note_ko) if p))
     # ⚠️ Appended to note_en directly, never to scope_en: scope_en/scope_ko are
     # read positionally by the zip() at per_pairs above, so an English-only
     # scope entry with no Korean twin would shift every later scope_ko entry
@@ -10413,6 +10473,14 @@ def compose(sel, pool):
         if l['cat'] not in RANKED_CATS:
             continue
         if l.get('place_en'):
+            # ⚠️ Not when the run IS the whole label on a shared card
+            # (railstations' bare station names): every row of the own card
+            # is bold alike there, but beside plain crowd lines one wholly
+            # bold row is the same emphasis-for-no-reason as the total's
+            # bold below, dropped the same day. A run inside the label
+            # ("Quietest: Dorimcheon", "Got off at Yeouinaru") stays.
+            if cats != {l['cat']} and l['place_en'] == l['label_en']:
+                continue
             l['emph_en'], l['emph_ko'] = l['place_en'], l['place_ko']
         else:
             # 'lines' entries carry no fact id to key off (see the

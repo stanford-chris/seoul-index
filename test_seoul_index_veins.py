@@ -2069,6 +2069,7 @@ class StationsVein(unittest.TestCase):
         lon, lat = pins[0][2]
         self.assertAlmostEqual(lon, 126.9721); self.assertAlmostEqual(lat, 37.5562)
         self.assertIn('Map of three Seoul subway stations', S.RANKED_CARD_INFO['stations']['map_alt'])
+        self.assertEqual(S.RANKED_CARD_INFO['stations']['cross_emoji'], '🚇')
         src = open(S.__file__, encoding='utf-8').read()
         self.assertNotIn("if primary == 'stations' and STATION_MAP_INFO", src)
 
@@ -2439,6 +2440,149 @@ class BusHistoryCards(unittest.TestCase):
         self.assertTrue(all(l['emoji'] == '' for l in c['lines']))
         self.assertEqual(c['opener']['emoji'], '🚌')
         self.assertTrue(c['note_en'].startswith('Night routes only.'))
+
+
+class RankedVeinsOnACrowdCard(unittest.TestCase):
+    """The five other ranked veins with people-count facts, treated as
+    nightbus was on 22 September 2026 ("Do the same for the other five
+    ranked veins"): beside live crowd lines each heads its own group, under
+    a subhead that says what the own opener would have said, its lines
+    carry a glyph and lose the own card's bold, the crowd caveat leads the
+    footnote and the opener keeps the selector's glyph. Registry entries are
+    written by hand here in the shape each harvester writes (the harvester
+    tests below pin that they do write these keys)."""
+
+    CROWD = (('Insadong', '인사동', '25,000'), ('Namdaemun Market', '남대문시장', '21,000'))
+
+    def setUp(self):
+        self._info = dict(S.RANKED_CARD_INFO)
+        self._station = (S.STATION_DAY['en'], S.STATION_DAY['ko'], S.STATION_MAP_INFO['day'])
+        S.RANKED_CARD_INFO.clear()
+
+    def tearDown(self):
+        S.RANKED_CARD_INFO.clear(); S.RANKED_CARD_INFO.update(self._info)
+        S.STATION_DAY['en'], S.STATION_DAY['ko'], S.STATION_MAP_INFO['day'] = self._station
+        S.STATION_STREAK['en'] = S.STATION_STREAK['ko'] = ''
+
+    def _card(self, facts):
+        crowd = [S.fact(f'crowd_{en}', 'crowd', f'Estimated crowd, {en}', v, v,
+                        estimated=True, pin=True, label_ko=f'{ko} 추정 인파',
+                        place_en=en, place_ko=ko, num=int(v.replace(',', '')), unit='people')
+                 for en, ko, v in self.CROWD]
+        picks = [{'id': f['id'], 'label_en': '', 'label_ko': '', 'emoji': e}
+                 for f, e in zip(crowd, ('🏮', '🛍️'))]
+        picks += [{'id': f['id'], 'label_en': '', 'label_ko': '', 'emoji': ''} for f in facts]
+        sel = {'opener_en': 'Seoul by the numbers', 'opener_ko': '숫자로 보는 서울',
+               'opener_emoji': '🏙', 'picks': picks}
+        return S.compose(sel, crowd + facts)
+
+    def _check(self, c, head_en, head_ko, emoji, n_ranked):
+        self.assertTrue(c['grouped'])
+        self.assertEqual([it.get('subhead') for it in c['items_en'] if 'subhead' in it],
+                         [head_en, 'Right now'])
+        self.assertEqual([it.get('subhead') for it in c['items_ko'] if 'subhead' in it],
+                         [head_ko, '지금'])
+        ranked = c['items_en'][1:1 + n_ranked]
+        self.assertEqual([it['emoji'] for it in ranked], [emoji] * n_ranked)
+        self.assertTrue(all('bold' not in it for it in ranked))
+        self.assertEqual(c['items_en'][2 + n_ranked]['label'], 'Crowd, Insadong')
+        self.assertTrue(c['note_en'].startswith('Crowds are KT-estimated. '), c['note_en'])
+        self.assertTrue(c['note_ko'].startswith('인구는 KT 추정. '), c['note_ko'])
+        self.assertEqual(c['opener']['emoji'], '🏙')
+        self.assertEqual(c['dateline_en'], head_en)   # lifted, then suppressed as a masthead
+
+    def test_stations(self):
+        S.STATION_DAY['en'], S.STATION_DAY['ko'] = 'September 7', '9월 7일'
+        S.STATION_MAP_INFO['day'] = '20260907'
+        S.RANKED_CARD_INFO['stations'] = {'cross_emoji': '🚇', 'note_en': '', 'note_ko': ''}
+        facts = [S.fact('st_quietest', 'stations', 'Quietest: Oksu', '5,050', '5,050', pin=True,
+                        label_ko='가장 한산함: 옥수', place_en='Quietest', place_ko='가장 한산함',
+                        num=5050, unit='people')]
+        c = self._card(facts)
+        self._check(c, 'Subway boardings, Monday, September 7', '9월 7일 (월요일) 지하철 승차', '🚇', 1)
+        self.assertEqual(c['items_en'][1]['emph'], 'Quietest')
+        self.assertTrue(c['note_en'].startswith('Crowds are KT-estimated. All lines combined.'))
+
+    def test_stationgap(self):
+        S.RANKED_CARD_INFO['stationgap'] = {
+            'day_en': 'September 7', 'day_ko': '9월 7일',
+            'dateline_en': 'Monday, September 7', 'dateline_ko': '9월 7일 (월요일)',
+            'cross_dateline_en': 'Monday, September 7', 'cross_dateline_ko': '9월 7일 (월요일)',
+            'cross_emoji': '🚇',
+            'note_en': 'The station with the day’s widest gap. All lines combined.',
+            'note_ko': '하차와 승차의 차이가 그날 가장 큰 역. 전 노선 합산.'}
+        facts = [S.fact('st_gap_off', 'stationgap', 'Got off at Yeouinaru', '24,991', '24,991',
+                        pin=True, label_ko='여의나루 하차', place_en='Yeouinaru', place_ko='여의나루',
+                        num=24991, unit='people')]
+        c = self._card(facts)
+        self._check(c, 'Monday, September 7', '9월 7일 (월요일)', '🚇', 1)
+        self.assertEqual(c['items_en'][1]['label'], 'Got off at Yeouinaru')
+
+    def test_seoulstation_rows_keep_their_own_icons_under_a_subhead_naming_the_station(self):
+        S.RANKED_CARD_INFO['seoulstation'] = {
+            'day_en': 'September 8', 'day_ko': '9월 8일',
+            'dateline_en': 'Tuesday, September 8', 'dateline_ko': '9월 8일 (화요일)',
+            'cross_dateline_en': 'Seoul Station, Tuesday, September 8',
+            'cross_dateline_ko': '서울역, 9월 8일 (화요일)',
+            'line_emoji': {'Boarded': '⬆️', 'Got off': '⬇️'},
+            'note_en': 'Korail trains only; SRT is a separate operator.',
+            'note_ko': '코레일 열차 기준, SRT는 별도 운영사.'}
+        facts = [S.fact('railss_boarded', 'seoulstation', 'Boarded', '49,068', '49,068', pin=True,
+                        label_ko='승차', num=49068, unit='people'),
+                 S.fact('railss_alighted', 'seoulstation', 'Got off', '24,364', '24,364', pin=True,
+                        label_ko='하차', num=24364, unit='people')]
+        c = self._card(facts)
+        self.assertTrue(c['grouped'])
+        self.assertEqual([it.get('subhead') for it in c['items_en'] if 'subhead' in it],
+                         ['Seoul Station, Tuesday, September 8', 'Right now'])
+        self.assertEqual([it['emoji'] for it in c['items_en'][1:3]], ['⬆️', '⬇️'])
+        self.assertTrue(c['note_en'].startswith('Crowds are KT-estimated. Korail trains only'))
+        self.assertEqual(c['opener']['emoji'], '🏙')
+
+    def test_railstations_note_stops_counting_four(self):
+        S.RANKED_CARD_INFO['railstations'] = {
+            'day_en': 'September 8', 'day_ko': '9월 8일',
+            'dateline_en': 'Intercity rail boardings on September 8', 'dateline_ko': '9월 8일 열차 승차',
+            'cross_dateline_en': 'Intercity rail boardings, Tuesday, September 8',
+            'cross_dateline_ko': '9월 8일 (화요일) 열차 승차',
+            'cross_emoji': '🚆',
+            'cross_note_en': 'Ranked among Seoul’s 8 Korail stations. Korail trains only.',
+            'cross_note_ko': '서울의 코레일 역 8곳 중 순위. 코레일 열차 기준.',
+            'note_en': 'The four busiest of Seoul’s 8 Korail stations. Korail trains only.',
+            'note_ko': '서울의 코레일 역 8곳 중 승차가 많은 네 곳. 코레일 열차 기준.'}
+        facts = [S.fact('railst_1', 'railstations', 'Yongsan', '17,925', '17,925', pin=True,
+                        label_ko='용산역', place_en='Yongsan', place_ko='용산역', num=17925, unit='people')]
+        c = self._card(facts)
+        self._check(c, 'Intercity rail boardings, Tuesday, September 8', '9월 8일 (화요일) 열차 승차', '🚆', 1)
+        self.assertNotIn('four busiest', c['note_en'])
+        self.assertIn('Ranked among Seoul’s 8 Korail stations.', c['note_en'])
+        # The own card bolds every station name, the whole label; beside
+        # plain crowd lines that is emphasis for no reason, so it goes.
+        self.assertNotIn('emph', c['items_en'][1])
+        self.assertNotIn('emph', c['items_ko'][1])
+
+    def test_railcommuter(self):
+        S.RANKED_CARD_INFO['railcommuter'] = {
+            'day_en': 'July 2026', 'day_ko': '2026년 7월',
+            'dateline_en': 'Boardings in July 2026', 'dateline_ko': '2026년 7월 승차',
+            'cross_dateline_en': 'Commuter rail boardings, July 2026',
+            'cross_dateline_ko': '2026년 7월 광역철도 승차',
+            'cross_emoji': '🚆',
+            'note_en': 'Korail’s commuter lines only. Stations inside Seoul.',
+            'note_ko': '코레일 광역철도만. 서울 시내 역.'}
+        facts = [S.fact('railcom_2', 'railcommuter', '3rd-busiest: Hoegi', '25,793', '25,793',
+                        pin=True, label_ko='세 번째로 붐빔: 회기역', place_en='Hoegi', place_ko='회기역',
+                        num=25793, unit='people')]
+        c = self._card(facts)
+        self._check(c, 'Commuter rail boardings, July 2026', '2026년 7월 광역철도 승차', '🚆', 1)
+
+    def test_every_ranked_people_vein_is_a_scoped_vein(self):
+        """The set that makes a live+ranked card group. A ranked vein with
+        people-count facts left out of it flies its own dateline as a
+        masthead over the crowd lines, the 22 September 2026 fault."""
+        self.assertEqual(S.RANKED_CROSS_CATS, {'nightbus', 'stations', 'stationgap',
+                                               'seoulstation', 'railstations', 'railcommuter'})
+        self.assertTrue(S.RANKED_CROSS_CATS <= S.SCOPED_CATS)
 
 
 class OnlyFlagGuard(unittest.TestCase):
@@ -3205,6 +3349,14 @@ class RailStationsCard(unittest.TestCase):
         for f in facts:
             self.assertEqual(f['cat'], 'railstations'); self.assertTrue(f['pin'])
             self.assertEqual(f['place_en'], f['label_en']); self.assertEqual(f['unit'], 'people')
+        # The shared-card keys (RankedVeinsOnACrowdCard): 8 September 2026 is a Tuesday.
+        info = S.RANKED_CARD_INFO['railstations']
+        self.assertEqual(info['cross_dateline_en'], 'Intercity rail boardings, Tuesday, September 8')
+        self.assertEqual(info['cross_dateline_ko'], '9월 8일 (화요일) 열차 승차')
+        self.assertEqual(info['cross_emoji'], '🚆')
+        self.assertTrue(info['cross_note_en'].startswith('Ranked among Seoul’s 8 Korail stations. '))
+        self.assertNotIn('four', info['cross_note_en'])
+        self.assertTrue(info['cross_note_ko'].startswith('서울의 코레일 역 8곳 중 순위. '))
 
     def test_daejeon_never_reaches_a_seoul_card(self):
         self.assertNotIn('Daejeon', [f['label_en'] for f in self.facts()])
@@ -3418,6 +3570,9 @@ class SeoulStationCard(unittest.TestCase):
         self.assertEqual(info['dateline_en'], 'September 25 was a holiday, Chuseok')
         self.assertEqual(info['dateline_ko'], '9월 25일 추석')
         self.assertEqual(info['day_en'], 'September 25')   # the bare day stays for the registry
+        # The shared-card subhead names the station and keeps the holiday.
+        self.assertEqual(info['cross_dateline_en'], 'Seoul Station on Chuseok, September 25')
+        self.assertEqual(info['cross_dateline_ko'], '서울역, 9월 25일 추석')
         c = S.compose({'opener_en': 'x', 'opener_ko': 'x', 'picks': [{'id': f'railss_{k}'} for k in
                        ('boarded', 'alighted', 'total', 'typical')]}, self.facts(rows=rows))
         self.assertEqual(c['dateline_en'], 'September 25 was a holiday, Chuseok')
@@ -3434,6 +3589,9 @@ class SeoulStationCard(unittest.TestCase):
         self.facts()
         self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['dateline_en'], 'Tuesday, September 8')
         self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['dateline_ko'], '9월 8일 (화요일)')
+        self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['cross_dateline_en'],
+                         'Seoul Station, Tuesday, September 8')
+        self.assertEqual(S.RANKED_CARD_INFO['seoulstation']['cross_dateline_ko'], '서울역, 9월 8일 (화요일)')
 
     def test_nothing_of_this_class_is_held(self):
         # seoulstation was held and released on 11 September 2026.
@@ -3514,6 +3672,10 @@ class StationGapCard(unittest.TestCase):
         self.assertEqual(info['dateline_en'], S.en_date_dow(S._day_dt(S.STATION_MAP_INFO['day'])))
         self.assertEqual(info['note_en'], S.STATIONGAP_NOTE_EN
                          + f" {S.STATION_DAY['en']} is the latest date for which data is available.")
+        # The shared-card keys (RankedVeinsOnACrowdCard): the same bare day, a subway glyph.
+        self.assertEqual(info['cross_dateline_en'], info['dateline_en'])
+        self.assertEqual(info['cross_dateline_ko'], info['dateline_ko'])
+        self.assertEqual(info['cross_emoji'], '🚇')
 
     def test_a_same_day_cache_without_the_gap_rule_is_refetched(self):
         with Stub({'CardSubwayStatsNew': ok('CardSubwayStatsNew', self.rows())}):
@@ -4648,6 +4810,9 @@ class RailCommuterCard(unittest.TestCase):
         self.assertEqual(facts[1]['label_ko'], '두 번째로 붐빔: 서울역')
         info = S.RANKED_CARD_INFO['railcommuter']
         self.assertEqual(info['dateline_en'], 'Boardings in July 2026')
+        self.assertEqual(info['cross_dateline_en'], 'Commuter rail boardings, July 2026')
+        self.assertEqual(info['cross_dateline_ko'], '2026년 7월 광역철도 승차')
+        self.assertEqual(info['cross_emoji'], '🚆')
         self.assertEqual(info['opener_en'], 'Seoul’s commuter rail')
         self.assertIn('inside Seoul', info['note_en'])
         self.assertTrue(info['note_en'].endswith(' July 2026 is the latest month for which data is available.'))
