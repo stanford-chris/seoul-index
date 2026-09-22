@@ -10419,7 +10419,13 @@ def compose(sel, pool):
             # lines.append() dict above), so "no place_en" is what
             # identifies the total line among the four — it is the only
             # busroutes fact built without one.
-            l['bold'] = True
+            # ⚠️ Only on the vein's own card. On a shared card (crowd +
+            # nightbus, 22 September 2026) the total is one row under its
+            # own subhead, with no routes to be the total OF, and the bold
+            # read as emphasis for no reason: dropped, his call ("Drop the
+            # bold").
+            if cats == {l['cat']}:
+                l['bold'] = True
 
     # No per-line emoji on a busroutes line: three routes and a total read as
     # a small table, and a bus glyph repeated four times in a row added

@@ -2421,6 +2421,10 @@ class BusHistoryCards(unittest.TestCase):
         self.assertEqual(c['items_en'][1]['emoji'], '🚌')
         self.assertEqual(c['items_ko'][1]['emoji'], '🚌')
         self.assertEqual(c['opener']['emoji'], '🏙')
+        # And no bold: the own card bolds the total among three routes, and
+        # here there is nothing for it to be the total of ("Drop the bold").
+        self.assertNotIn('bold', c['items_en'][1])
+        self.assertNotIn('bold', c['items_ko'][1])
 
     def test_the_own_vein_night_bus_card_is_unchanged(self):
         """The worded dateline, bare lines and bus opener of the own card are
