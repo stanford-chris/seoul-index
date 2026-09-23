@@ -2720,10 +2720,12 @@ def transport_facts(api_key, state):
         fact('sub_total', 'transport', f'Subway boardings on {d}',
              grouped(c['sub_total']), grouped(c['sub_total']), pair='modes',
              pin=True, label_ko=f'{d_ko} 지하철 승차 인원',
+             period_en=d, period_ko=d_ko,
              num=c['sub_total'], unit='people'),
         fact('bus_total', 'transport', f'Bus boardings the same day',
              grouped(c['bus_total']), grouped(c['bus_total']), pair='modes',
              pin=True, label_ko='같은 날 버스 승차 인원',
+             period_en=d, period_ko=d_ko,
              num=c['bus_total'], unit='people'),
         # The station name is set in both languages here rather than left to the
         # selector: it would otherwise carry "Hongik Univ." across to the Korean
@@ -2750,11 +2752,13 @@ def transport_facts(api_key, state):
              f'Busiest subway station, {en_name(c["busiest_st"], "stations")}, {d}',
              grouped(c['busiest_v']), grouped(c['busiest_v']), pair='station_gap', pin=True,
              label_ko=f'가장 붐빈 지하철역, {c["busiest_st"]} ({d_ko})',
+             period_en=d, period_ko=d_ko,
              num=c['busiest_v'], unit='people'),
         fact('sub_quietest', 'transport',
              f'Quietest subway station, {en_name(c["quietest_st"], "stations")}, {d}',
              grouped(c['quietest_v']), grouped(c['quietest_v']), pair='station_gap', pin=True,
              label_ko=f'가장 한산한 지하철역, {c["quietest_st"]} ({d_ko})',
+             period_en=d, period_ko=d_ko,
              num=c['quietest_v'], unit='people'),
     ]
     # The busroutes card, from the history (see bus_routes_facts()). A
@@ -7751,7 +7755,7 @@ Rules:
 - "airport", "incheon", "health", "healthcost" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An "airport" post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split. An "incheon" post is Incheon's newest month — total traffic and its busiest destination country, one frame, no then/now pair. ⚠️ Name the airport by its full official name, never the bare place name: "Gimpo International Airport", "Incheon International Airport" — both the opener and any line that names it. ⚠️ Do NOT put the month in the opener: on the split frame it rides on the card automatically as its dateline, and on the twenty-year pair each label carries its own year, which is the whole point of that frame. A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. A healthcost post is the SAME shape but treatment COST, not patient counts, and it comes in TWO FRAMES you must not blend on one card: the raw total cost per condition (treat it like "spending"/"property" for tone — a citywide sum, never implied per-person), OR the average cost PER PATIENT (like avgbill: the opener must say "average" plainly, e.g. "What treating each condition costs, per patient", so a reader never mistakes it for the total or for what one patient actually pays out of pocket — insurance covers most of it). Pick one frame, not lines from both. Both health and healthcost: these are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
-- "transport" lines are Seoul's total subway and bus boardings for the most recently published day, plus that day's busiest and quietest subway stations. The subway and bus TOTAL labels already carry the date in the label itself ("Subway boardings on August 26", "Bus boardings the same day") — there is no separate dateline to lean on here, so do NOT put a date anywhere in the opener, and do NOT write a second, different date of your own: a neutral opener with no date at all is enough, e.g. "Through the turnstiles", "Seoul on the move". Never call a station busy, quiet, packed or empty — the four numbers say it.
+- "transport" lines are Seoul's total subway and bus boardings for the most recently published day, plus that day's busiest and quietest subway stations. The date rides the dateline under the title on this vein's own post (and stays in the labels only when a line crosses onto another vein's card), so do NOT put a date anywhere in the opener, and do NOT write a second, different date of your own: a neutral opener with no date at all is enough, e.g. "Through the turnstiles", "Seoul on the move". Never call a station busy, quiet, packed or empty — the four numbers say it.
 - "busroutes" lines are that day's busiest, second-busiest and quietest Seoul bus routes by plain route number ("Busiest: 143"), plus the day's total bus boardings — own post, never mixed with any other category, including "transport" above (that vein's own bus/subway totals are a different card). All FOUR lines are compulsory and must be used together, in that order: this is a complete small ranking, not a selection from it, the same rule "boxoffice" uses for its top four films. The dateline carries the date, so do NOT put a date anywhere in the opener and do NOT write a second one of your own — the opener MUST name buses or bus routes, because the lines carry BARE ROUTE NUMBERS with no "Route" word ("Busiest: 143"); like "busstops" its opener is FIXED and written by Python ("On the buses") and whatever opener you write for this card is replaced, and it must never say "today", since the day shown is several days behind. Never call a route busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines: the numbers say it. If the footnote already names a route's winning streak, do not repeat or rephrase that fact in the opener — it would say the same thing twice on one card.
 - "stations" lines are that day's busiest, second-busiest and quietest Seoul SUBWAY stations by official English name ("Busiest: Seoul Station"), plus the day's total subway boardings — own post, never mixed with any other category, including "transport" and "busroutes" above. Exactly the same rules as "busroutes": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the opener MUST name the subway or its stations, because the lines carry BARE STATION NAMES with no "station" word ("Busiest: Seoul Station", "Quietest: Dorimcheon"); like "busstops" its opener is FIXED and written by Python ("On the subway") and whatever opener you write for this card is replaced, and it must never say "today", since the day shown is several days behind; and it MUST NOT settle on one wording; never call a station busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines.
 - "busstops" lines are that day's busiest, second-busiest and third-busiest Seoul BUS STOPS ("Busiest: Hongik University Station", one stop per name, the busier side of the road), plus how many stops took at least one boarding that day — own post, never mixed with any other category, including "transport", "busroutes" and "stations" above. Exactly the same rules as "stations": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the lines carry BARE STOP NAMES with no "stop" word, and a stop named after a station reads as the station unless the title says these are bus stops, so like "busmovers" its opener is FIXED and written by Python ("Seoul's bus stops") and whatever opener you write for this card is replaced; never call a stop busy, quiet, packed or empty, and never remark on the gap between the lines. There is no quietest line on this card, by design.
@@ -9737,6 +9741,7 @@ def compose(sel, pool):
     # carries no line of that category at all.
     iiac_period = ('', '')
     korail_period = ('', '')
+    transport_period = ('', '')
     # Captured per category so period_grouped (below) can strip exactly the
     # entries it promotes to a subhead, without reconstructing the same
     # f-strings a second time and risking the two copies drifting apart —
@@ -9981,6 +9986,20 @@ def compose(sel, pool):
             korail_period = korail_months.pop()
             scope_en.append((None, korail_period[0]))
             scope_ko.append((None, korail_period[1]))
+    if cats == {'transport'}:
+        # The day rides the second line and leaves the rows, his call on
+        # 24 September 2026 (3mw6a3puoio2v flew no dateline and said
+        # "September 19" in three of its four labels). ⚠️ ONLY on the vein's
+        # own card: a cross pair can post one station line alone beside
+        # another vein, which is why the labels carry the date at all (the
+        # 23 August 2026 Gangnam line under a tourism month), so there they
+        # keep it.
+        tp_days = {(l['period_en'], l['period_ko']) for l in lines
+                   if l['cat'] == 'transport'}
+        if len(tp_days) == 1 and all(next(iter(tp_days))):
+            transport_period = tp_days.pop()
+            scope_en.append((None, transport_period[0]))
+            scope_ko.append((None, transport_period[1]))
     if uses_hira:
         # Both provisos are keys to the figures: the region is where the
         # institution is, and the counts are insurance claims.
@@ -10336,6 +10355,16 @@ def compose(sel, pool):
             if l['cat'] == 'rail':
                 l['label_en'] = l['label_en'].removesuffix(f', {korail_period[0]}')
                 l['label_ko'] = l['label_ko'].removesuffix(f', {korail_period[1]}')
+    if transport_period[0] and (group_en or dateline_en) == transport_period[0]:
+        d_en, d_ko = transport_period
+        for l in lines:
+            if l['cat'] == 'transport':
+                l['label_en'] = (l['label_en'].removesuffix(f' on {d_en}')
+                                 .removesuffix(f', {d_en}')
+                                 .removesuffix(' the same day'))
+                l['label_ko'] = (l['label_ko'].removeprefix(f'{d_ko} ')
+                                 .removeprefix('같은 날 ')
+                                 .removesuffix(f' ({d_ko})'))
     # Is a date sitting on every row and nowhere above them? Asked HERE, after
     # the strip above and after grouped/dateline settled, so it sees the card as
     # it will actually be drawn rather than a draft of it — the same reason

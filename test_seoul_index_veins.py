@@ -2094,6 +2094,55 @@ class StationsVein(unittest.TestCase):
         self.assertNotIn('far', inside)     # ~885 m
 
 
+class TransportCardDateline(unittest.TestCase):
+    """The transport vein's own card flies its day on the second line and
+    leaves the rows bare, his call on 24 September 2026 on 3mw6a3puoio2v,
+    which said "September 19" in three of four labels and flew nothing. On
+    a card it shares, the rows keep the date (see transport_facts())."""
+
+    def _pool(self):
+        return StationsVein()._facts()
+
+    def _compose(self, pool, ids, extra=()):
+        by = {f['id']: f for f in pool}
+        facts = [by[i] for i in ids] + list(extra)
+        picks = [{'id': f['id'], 'label_en': '', 'label_ko': '', 'emoji': ''} for f in facts]
+        sel = {'opener_en': 'Through the turnstiles', 'opener_ko': '개찰구를 지나서',
+               'opener_emoji': '🚇', 'picks': picks}
+        return S.compose(sel, facts)
+
+    IDS = ['sub_total', 'bus_total', 'sub_busiest', 'sub_quietest']
+
+    def test_own_card_lifts_the_day_and_strips_every_row(self):
+        pool = self._pool()
+        d_en = next(f for f in pool if f['id'] == 'sub_total')['period_en']
+        d_ko = next(f for f in pool if f['id'] == 'sub_total')['period_ko']
+        c = self._compose(pool, self.IDS)
+        self.assertEqual(c['dateline_en'], d_en)
+        self.assertEqual(c['dateline_ko'], d_ko)
+        labels_en = [it['label'] for it in c['items_en'] if 'label' in it]
+        labels_ko = [it['label'] for it in c['items_ko'] if 'label' in it]
+        self.assertEqual(sorted(labels_en), sorted([
+            'Subway boardings', 'Bus boardings',
+            'Busiest subway station, Seoul Station', 'Quietest subway station, Oksu']))
+        self.assertEqual(sorted(labels_ko), sorted([
+            '지하철 승차 인원', '버스 승차 인원',
+            '가장 붐빈 지하철역, 서울역', '가장 한산한 지하철역, 옥수']))
+
+    def test_a_shared_card_keeps_the_date_on_the_row(self):
+        pool = self._pool()
+        d_en = next(f for f in pool if f['id'] == 'sub_busiest')['period_en']
+        # A cross pair: another vein's head-count within a whisker of the
+        # busiest station's, which is what lets one station line travel.
+        busiest = next(f for f in pool if f['id'] == 'sub_busiest')
+        other = [S.fact('tour_x', 'tourism', 'Lotte World', '85,010', '85,010',
+                        pin=True, label_ko='롯데월드', num=busiest['num'] + 10,
+                        unit='people', period_en='July 2026', period_ko='2026년 7월')]
+        c = self._compose(pool, ['sub_busiest', 'sub_quietest'], other)
+        labels_en = [it.get('label', '') for it in c['items_en']]
+        self.assertTrue(any(l.endswith(d_en) for l in labels_en), labels_en)
+
+
 class StationsCard(unittest.TestCase):
     """compose()-level checks for the stations card: identical shape to the
     busroutes card (no per-line emoji, rank word bold, total bold, harvester
