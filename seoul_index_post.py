@@ -4556,6 +4556,60 @@ def ko_date_dow(d_ko, dt):
     return f'{d_ko} ({WEEKDAY_NAMES_KO[dt.weekday()]})'
 
 
+_EN_DAY_RE = re.compile(r'\b(' + '|'.join(MONTHS_EN) + r') (\d{1,2})\b(?:, (\d{4}))?')
+_KO_DAY_RE = re.compile(r'(\d{1,2})월 (\d{1,2})일')
+
+
+def with_weekday(text_en, text_ko, today=None):
+    """Put the day of the week on a second line (or group subhead) that
+    names ONE day: 'Boardings on September 9' -> 'Boardings on Wednesday,
+    September 9', '9월 9일 승차' -> '9월 9일 (수요일) 승차'. His call on
+    24 September 2026 ("Do the same for the other Seoul Index cards"),
+    after the transport card; until then only stations, stationgap,
+    seoulstation and wxday carried it.
+
+    Returns the pair unchanged unless BOTH languages name exactly one day,
+    the SAME day, with no weekday already there and no range (" to ", "~"),
+    so a week, a month or a two-date line is never touched. The labels carry
+    no year, so the year is the one putting the date nearest today: data
+    days lag by days to weeks and a forecast leads by a few, never by six
+    months. A year written in the English ("September 9, 2025") wins."""
+    if not text_en or not text_ko:
+        return text_en, text_ko
+    # The Seoul Station card's holiday sentence ("September 25 was a
+    # holiday, Chuseok") is his wording and names what is different about
+    # the day already; a weekday in front of it reads badly.
+    if (any(w in text_en for w in WEEKDAY_NAMES_EN) or '요일' in text_ko
+            or ' to ' in text_en or '~' in text_ko or 'holiday' in text_en):
+        return text_en, text_ko
+    en = list(_EN_DAY_RE.finditer(text_en))
+    ko = list(_KO_DAY_RE.finditer(text_ko))
+    if len(en) != 1 or len(ko) != 1:
+        return text_en, text_ko
+    m_en = MONTHS_EN.index(en[0].group(1)) + 1
+    d_en = int(en[0].group(2))
+    if (int(ko[0].group(1)), int(ko[0].group(2))) != (m_en, d_en):
+        return text_en, text_ko
+    today = today or datetime.now(SEOUL_TZ).date()
+    years = ([int(en[0].group(3))] if en[0].group(3)
+             else [today.year - 1, today.year, today.year + 1])
+    cands = []
+    for y in years:
+        try:
+            cands.append(date(y, m_en, d_en))
+        except ValueError:
+            pass
+    if not cands:
+        return text_en, text_ko
+    dt = min(cands, key=lambda c: abs((c - today).days))
+    wd = dt.weekday()
+    i = en[0].start()
+    out_en = f'{text_en[:i]}{WEEKDAY_NAMES_EN[wd]}, {text_en[i:]}'
+    j = ko[0].end()
+    out_ko = f'{text_ko[:j]} ({WEEKDAY_NAMES_KO[wd]}){text_ko[j:]}'
+    return out_en, out_ko
+
+
 def _newest_month(fetch, lookback):
     """Walk back one month at a time from this month, up to `lookback`
     months, calling fetch(year, month) until it returns something truthy --
@@ -10479,6 +10533,11 @@ def compose(sel, pool):
     # question check_masthead asks (is a date stuck on every row with nothing
     # above them?) is already answered either way.
     check_masthead(lines, dateline_en, dateline_ko, grouped or period_grouped)
+    # The weekday joins any single day on the second line or a group subhead,
+    # last, so every comparison above (the label strips, check_masthead) saw
+    # the date as the facts wrote it. See with_weekday().
+    dateline_en, dateline_ko = with_weekday(dateline_en, dateline_ko)
+    group_en, group_ko = with_weekday(group_en, group_ko)
 
     # NOTE: the KT-estimate caveat is deliberately NOT added to the source line.
     # It is a caveat, not a credit, and it already rides on the card footnote

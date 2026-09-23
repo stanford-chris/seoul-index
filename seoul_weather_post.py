@@ -57,7 +57,7 @@ from seoul_index_card import render_card, CardRenderError, curly
 from seoul_index_post import (
     KMA_NOW_NX, KMA_NOW_NY, SEOUL_TZ, KEYCHAIN_SERVICE,
     http_get_json, keychain_password, strip_emoji,
-    source_reply, tag_line, _wx_rows, _wx_num,
+    source_reply, tag_line, _wx_rows, _wx_num, with_weekday,
 )
 
 HERE = Path(__file__).parent
@@ -562,6 +562,9 @@ def main():
     # call on 11 September 2026 (see en_date() in seoul_index_post.py).
     dateline_en = f'{now:%B} {now.day}, {now.year}'
     dateline_ko = f'{now.year}년 {now.month}월 {now.day}일'
+    # The weekday joins the day, as on every other Seoul Index card (his
+    # call, 24 September 2026): 'Thursday, September 24, 2026'.
+    dateline_en, dateline_ko = with_weekday(dateline_en, dateline_ko, now.date())
 
     en_alt = strip_emoji(build_alt_bodies(opener_en, lines_en, note_en))
     ko_alt = strip_emoji(build_alt_bodies(opener_ko, lines_ko, note_ko))

@@ -443,10 +443,11 @@ class RiverOpenerAndDateline(unittest.TestCase):
     def test_the_numeral_hours_are_left_alone(self):
         # .capitalize() must not touch these: "3 P.m." would be worse than the
         # bare lowercase it replaced.
-        self.assertEqual(self.card(self.HOT, 31.3, '15:00')['dateline_en'],
-                         '3 p.m., August 23')
-        self.assertEqual(self.card(self.HOT, 31.3, '08:00')['dateline_en'],
-                         '8 a.m., August 23')
+        # The weekday joins the day (with_weekday, 24 September 2026).
+        self.assertRegex(self.card(self.HOT, 31.3, '15:00')['dateline_en'],
+                         r'^3 p\.m\., (Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), August 23$')
+        self.assertRegex(self.card(self.HOT, 31.3, '08:00')['dateline_en'],
+                         r'^8 a\.m\., (Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), August 23$')
 
     def test_the_date_rides_even_when_the_reading_is_from_today(self):
         # The old rule dated the hour only when it was NOT today, which left the
@@ -459,8 +460,8 @@ class RiverOpenerAndDateline(unittest.TestCase):
 
     def test_a_reading_from_another_day_is_dated_to_that_day(self):
         c = self.card(self.HOT, 31.3, '15:00', ymd='20260821')
-        self.assertEqual(c['dateline_en'], '3 p.m., August 21')
-        self.assertEqual(c['dateline_ko'], '오후 3시, 8월 21일')
+        self.assertRegex(c['dateline_en'], r'^3 p\.m\., (Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), August 21$')
+        self.assertRegex(c['dateline_ko'], r'^오후 3시, 8월 21일 \(.요일\)$')
 
     def test_the_footnote_says_what_a_cheon_is(self):
         # Bare names leave an English reader five temperatures and no idea that
@@ -2094,6 +2095,40 @@ class StationsVein(unittest.TestCase):
         self.assertNotIn('far', inside)     # ~885 m
 
 
+class WeekdayOnTheSecondLine(unittest.TestCase):
+    """with_weekday(): any single day on a card's second line or group
+    subhead carries its weekday, his call on 24 September 2026 ("Do the
+    same for the other Seoul Index cards"). Pinned against a fixed today."""
+
+    T = S.date(2026, 9, 24)
+
+    def w(self, en, ko, today=None):
+        return S.with_weekday(en, ko, today or self.T)
+
+    def test_the_shapes_the_feed_flies(self):
+        for (en, ko), want in [
+            (('September 18', '9월 18일'), ('Friday, September 18', '9월 18일 (금요일)')),
+            (('Noon, September 19', '정오, 9월 19일'),
+             ('Noon, Saturday, September 19', '정오, 9월 19일 (토요일)')),
+            (('Bus boardings on September 10', '9월 10일 버스 승차'),
+             ('Bus boardings on Thursday, September 10', '9월 10일 (목요일) 버스 승차')),
+        ]:
+            self.assertEqual(self.w(en, ko), want)
+
+    def test_weeks_months_ranges_and_a_weekday_already_there_are_untouched(self):
+        for en, ko in [('September 6 to 12', '9월 6일~12일'), ('July 2026', '2026년 7월'),
+                       ('Wednesday, September 9', '9월 9일 (수요일)'), ('', ''),
+                       ('September 25 was a holiday, Chuseok', '9월 25일은 추석 연휴'),
+                       ('September 9', '9월 10일')]:   # the languages disagree
+            self.assertEqual(self.w(en, ko), (en, ko))
+
+    def test_the_year_is_the_one_nearest_today(self):
+        self.assertEqual(self.w('January 2', '1월 2일', S.date(2026, 12, 30))[0],
+                         'Saturday, January 2')      # 2027
+        self.assertEqual(self.w('December 30', '12월 30일', S.date(2027, 1, 3))[0],
+                         'Wednesday, December 30')   # 2026
+
+
 class TransportCardDateline(unittest.TestCase):
     """The transport vein's own card flies its day on the second line and
     leaves the rows bare, his call on 24 September 2026 on 3mw6a3puoio2v,
@@ -3648,7 +3683,7 @@ class RailStationsCard(unittest.TestCase):
         self.assertTrue(all(l['emoji'] == '' for l in c['lines']))
         self.assertEqual([l.get('emph_en') for l in c['lines']],
                          ['Seoul Station', 'Yongsan', 'Cheongnyangni', 'Yeongdeungpo'])
-        self.assertEqual(c['dateline_en'], 'Intercity rail boardings on September 8')
+        self.assertRegex(c['dateline_en'], r'^Intercity rail boardings on (Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), September 8$')
         self.assertEqual(c['note_en'], S.RAILSTATIONS_NOTE_EN
                          + ' September 8 is the latest date for which data is available.')
         self.assertEqual(c['opener']['emoji'], '🚆')
