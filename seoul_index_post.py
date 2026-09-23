@@ -1360,6 +1360,9 @@ BUS_RANK_RULE = 'trunk-branch'
 # STATION_IN_SEOUL_KM with a measured gap on either side of it, and the
 # footnote says what the card counts.
 STATION_DAY = {'en': None, 'ko': None}
+# The transport vein's data day, so its own card's masthead can carry the
+# weekday (en_date_dow) while the rows strip the bare date they carry.
+TRANSPORT_DAY = {'dt': None}
 STATION_MAP_INFO = {'day': None}   # the card's data day, YYYYMMDD; the map's
                                    # pins ride RANKED_CARD_INFO['stations'] like busstops'
 # The streak footnote clause for the stations card (see STATION_STREAK_MIN's
@@ -2711,6 +2714,7 @@ def transport_facts(api_key, state):
         state['transport_cache'] = c
 
     dt = datetime.strptime(c['date'], '%Y%m%d')
+    TRANSPORT_DAY['dt'] = dt
     d = en_date(dt)
     d_ko = f'{dt.month}월 {dt.day}일'
     # All of these are pinned: the date says which day the count belongs to, and the
@@ -9829,7 +9833,7 @@ def compose(sel, pool):
     # carries no line of that category at all.
     iiac_period = ('', '')
     korail_period = ('', '')
-    transport_period = ('', '')
+    transport_period = transport_masthead = ('', '')
     # Captured per category so period_grouped (below) can strip exactly the
     # entries it promotes to a subhead, without reconstructing the same
     # f-strings a second time and risking the two copies drifting apart —
@@ -10090,8 +10094,17 @@ def compose(sel, pool):
                    if l['cat'] == 'transport'}
         if len(tp_days) == 1 and all(next(iter(tp_days))):
             transport_period = tp_days.pop()
-            scope_en.append((None, transport_period[0]))
-            scope_ko.append((None, transport_period[1]))
+            # The weekday rides the masthead too (his call the same day):
+            # a Saturday's totals run well under a weekday's. The rows
+            # still strip the bare date they carry (transport_period).
+            tp_dt = TRANSPORT_DAY['dt']
+            if tp_dt and en_date(tp_dt) == transport_period[0]:
+                transport_masthead = (en_date_dow(tp_dt),
+                                      ko_date_dow(transport_period[1], tp_dt))
+            else:
+                transport_masthead = transport_period
+            scope_en.append((None, transport_masthead[0]))
+            scope_ko.append((None, transport_masthead[1]))
     if uses_hira:
         # Both provisos are keys to the figures: the region is where the
         # institution is, and the counts are insurance claims.
@@ -10447,7 +10460,7 @@ def compose(sel, pool):
             if l['cat'] == 'rail':
                 l['label_en'] = l['label_en'].removesuffix(f', {korail_period[0]}')
                 l['label_ko'] = l['label_ko'].removesuffix(f', {korail_period[1]}')
-    if transport_period[0] and (group_en or dateline_en) == transport_period[0]:
+    if transport_period[0] and (group_en or dateline_en) == transport_masthead[0]:
         d_en, d_ko = transport_period
         for l in lines:
             if l['cat'] == 'transport':

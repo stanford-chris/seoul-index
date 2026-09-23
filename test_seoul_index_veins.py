@@ -2118,8 +2118,12 @@ class TransportCardDateline(unittest.TestCase):
         d_en = next(f for f in pool if f['id'] == 'sub_total')['period_en']
         d_ko = next(f for f in pool if f['id'] == 'sub_total')['period_ko']
         c = self._compose(pool, self.IDS)
-        self.assertEqual(c['dateline_en'], d_en)
-        self.assertEqual(c['dateline_ko'], d_ko)
+        dt = S.TRANSPORT_DAY['dt']
+        self.assertEqual(S.en_date(dt), d_en)
+        # The weekday rides the masthead, his call on 24 September 2026.
+        self.assertEqual(c['dateline_en'], S.en_date_dow(dt))
+        self.assertEqual(c['dateline_ko'], S.ko_date_dow(d_ko, dt))
+        self.assertTrue(c['dateline_en'].endswith(', ' + d_en))
         labels_en = [it['label'] for it in c['items_en'] if 'label' in it]
         labels_ko = [it['label'] for it in c['items_ko'] if 'label' in it]
         self.assertEqual(sorted(labels_en), sorted([
