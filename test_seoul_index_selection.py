@@ -199,6 +199,109 @@ class RepeatGuard(unittest.TestCase):
         sel = S.select_fresh(pool, state, strict=False)
         self.assertEqual(S.card_signature(sel['picks']), ['c1', 'c2', 'c4'])
 
+    def test_a_veins_own_last_card_is_refused_however_old(self):
+        """The national card of 30 Aug, 15 and 23 Sep 2026: long gone from
+        recent_cards, still the vein's own last card. Refused even on a
+        promoted (non-strict) run, and the five-line vein reaches its other
+        card instead of being handed the whole pool back."""
+        pool = [dict(f(x, 'national'), value_en=v) for x, v in
+                (('pop_seoul', '9.3m'), ('pop_korea', '51.2m'),
+                 ('pop_share', '18.2%'), ('fert_korea', '0.799'),
+                 ('fert_seoul', '0.632'))]
+        last = S.content_signature(['fert_korea', 'fert_seoul', 'pop_share'], pool)
+        state = {'recent_cards': [], 'last_card_by_cat': {'national': last}}
+        S.select = self.fake_select([['fert_korea', 'fert_seoul', 'pop_share'],
+                                     ['pop_seoul', 'pop_korea', 'pop_share']])
+        sel = S.select_fresh(pool, state, strict=False)
+        self.assertEqual(S.card_signature(sel['picks']),
+                         ['pop_korea', 'pop_seoul', 'pop_share'])
+        self.assertEqual(self.calls[1], {'pop_seoul', 'pop_korea', 'pop_share'})
+
+    def test_same_lines_with_new_figures_are_a_new_card(self):
+        """Fertility moved from 0.748 to 0.799 between 19 and 30 Aug: new data
+        on the same lines is news, not a repeat."""
+        old = [dict(f(x, 'national'), value_en=v) for x, v in
+               (('fert_korea', '0.748'), ('fert_seoul', '0.581'),
+                ('pop_share', '18.2%'))]
+        new = [dict(f(x, 'national'), value_en=v) for x, v in
+               (('fert_korea', '0.799'), ('fert_seoul', '0.632'),
+                ('pop_share', '18.2%'))]
+        state = {'last_card_by_cat': {'national': S.content_signature(
+            ['fert_korea', 'fert_seoul', 'pop_share'], old)}}
+        S.select = self.fake_select([['fert_korea', 'fert_seoul', 'pop_share']])
+        S.select_fresh(new, state, strict=False)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_same_line_under_another_id_is_still_a_repeat(self):
+        """tourism offers one attraction as tour_X and tourheat_X, same label
+        and figure: a card on the other id reads identically and is refused,
+        and neither id is offered on the retry."""
+        def t(i, label, v):
+            return dict(f(i, 'tourism'), label_en=label, value_en=v)
+        pool = [t('tour_lw', 'Visitors to Lotte World', '337,584'),
+                t('tour_aq', 'Visitors to the Lotte World Aquarium', '87,648'),
+                t('tourheat_aq', 'Visitors to the Lotte World Aquarium', '87,648'),
+                t('tour_sky', 'Visitors to Seoul Sky', '86,492'),
+                t('tourheat_sky', 'Visitors to Seoul Sky', '86,492'),
+                t('tour_gbg', 'Visitors to Gyeongbokgung', '392,189'),
+                t('tour_dsg', 'Visitors to Deoksugung', '206,007'),
+                t('tour_jm', 'Visitors to Jongmyo', '33,871')]
+        state = {'last_card_by_cat': {'tourism': S.content_signature(
+            ['tour_lw', 'tour_aq', 'tour_sky'], pool)}}
+        S.select = self.fake_select([['tour_lw', 'tourheat_aq', 'tourheat_sky'],
+                                     ['tour_gbg', 'tour_dsg', 'tour_jm']])
+        sel = S.select_fresh(pool, state, strict=False)
+        self.assertEqual(S.card_signature(sel['picks']),
+                         ['tour_dsg', 'tour_gbg', 'tour_jm'])
+        self.assertEqual(self.calls[1] & {'tour_aq', 'tourheat_aq',
+                                          'tour_sky', 'tourheat_sky'}, set())
+
+    def test_a_cross_pair_is_not_judged_against_one_veins_solo_card(self):
+        pool = [f(x, 'tourism') for x in 'abc'] + [f(x, 'crowd') for x in 'xyz']
+        state = {'last_card_by_cat': {
+            'tourism': S.content_signature(list('abc'), pool)}}
+        S.select = self.fake_select([['a', 'b', 'x']])
+        S.select_fresh(pool, state)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_a_card_too_short_to_compose_is_asked_for_again(self):
+        """The bare population pair, 24 Sep 2026 dry run: compose() would
+        raise on two lines and the slot would be lost."""
+        pool = [f(x, 'national') for x in
+                ('pop_seoul', 'pop_korea', 'pop_share', 'fert_korea')]
+        S.select = self.fake_select([['pop_seoul', 'pop_korea'],
+                                     ['pop_seoul', 'pop_korea', 'pop_share']])
+        sel = S.select_fresh(pool, {}, strict=False)
+        self.assertEqual(len(sel['picks']), 3)
+        self.assertEqual(self.calls[1], {x['id'] for x in pool})   # nothing banned
+
+    def test_the_bare_population_pair_gets_its_share_line(self):
+        pool = [dict(f('pop_seoul', 'national'), pair='share_gap'),
+                dict(f('pop_korea', 'national'), pair='share_gap'),
+                f('pop_share', 'national'),
+                dict(f('fert_korea', 'national'), pair='fertility_gap'),
+                dict(f('fert_seoul', 'national'), pair='fertility_gap')]
+        S.select = self.fake_select([['pop_seoul', 'pop_korea']])
+        sel = S.select_fresh(pool, {}, strict=False)
+        self.assertEqual(S.card_signature(sel['picks']),
+                         ['pop_korea', 'pop_seoul', 'pop_share'])
+        self.assertEqual(len(self.calls), 1)
+
+    def test_another_two_line_pair_is_not_completed(self):
+        pool = [dict(f('fert_korea', 'national'), pair='fertility_gap'),
+                dict(f('fert_seoul', 'national'), pair='fertility_gap'),
+                f('pop_share', 'national')]
+        picks = [{'id': 'fert_korea'}, {'id': 'fert_seoul'}]
+        S.complete_pair(picks, pool)
+        self.assertEqual(len(picks), 2)
+
+    def test_a_two_line_vein_is_not_asked_for_a_third_line(self):
+        cat = sorted(S.TWO_LINE_CATS)[0]
+        pool = [f(x, cat) for x in 'ab']
+        S.select = self.fake_select([['a', 'b']])
+        S.select_fresh(pool, {}, strict=False)
+        self.assertEqual(len(self.calls), 1)
+
     def test_empty_state_is_no_obstacle(self):
         pool = [f(x, 'crowd') for x in 'abc']
         S.select = self.fake_select([['a', 'b', 'c']])

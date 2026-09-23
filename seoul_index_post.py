@@ -7311,9 +7311,14 @@ def kosis_facts(kosis_key):
                           grouped(n_kr), grouped(n_kr), pair='share_gap', year=py))
         if n_kr:
             share = 100 * n_se / n_kr
+            # label_ko is set here, not left to the selector, because
+            # complete_pair() can add this line in Python with no Korean of
+            # the selector's to go with it. The wording is the selector's own,
+            # from a dry run on 24 September 2026.
             facts.append(fact('pop_share', 'national',
                               'Share of all South Koreans who live in Seoul',
-                              f'{share:.1f}%', f'{share:.1f}%', year=py))
+                              f'{share:.1f}%', f'{share:.1f}%', year=py,
+                              label_ko='서울에 사는 전국민의 비율'))
     except (RuntimeError, KeyError, IndexError, ValueError, ZeroDivisionError):
         pass
     try:
@@ -8277,10 +8282,48 @@ def card_signature(picks):
     return sorted(p['id'] for p in picks if p.get('id'))
 
 
+def content_key(f):
+    """One line as a reader sees it: the pool's label and the figure.
+
+    Not the id, because a vein can offer the same line under two ids: tourism
+    makes `tour_롯데월드` and `tourheat_롯데월드` for one attraction, same label,
+    same number, so the Lotte World card of 8 and 21 September 2026 could
+    carry different ids and read identically."""
+    return f"{f.get('label_en', '')}\t{f.get('value_en', '')}"
+
+
+def content_signature(ids, pool):
+    """A card's content as posted: its lines' label and value, order-free."""
+    by_id = {f['id']: f for f in pool}
+    return sorted(content_key(by_id[i]) for i in ids if i in by_id)
+
+
+# A pair that is two lines and needs a named third to be a card. The national
+# vein's population pair came back bare from the selector on four of five dry
+# runs, 24 September 2026, and compose() refuses a two-line card outside
+# TWO_LINE_CATS, so the slot was lost. The prompt asks for the share line
+# beside the FERTILITY pair only; the population pair's natural third is the
+# same line, and asking the selector is the thing that failed.
+PAIR_THIRD = {'share_gap': 'pop_share'}
+
+
+def complete_pair(picks, pool):
+    """Append a PAIR_THIRD line, in place, to a card that is exactly that pair."""
+    by_id = {f['id']: f for f in pool}
+    ids = [p.get('id') for p in picks if p.get('id') in by_id]
+    if len(ids) != 2:
+        return
+    pairs = {by_id[i].get('pair') for i in ids}
+    third = PAIR_THIRD.get(next(iter(pairs))) if len(pairs) == 1 else None
+    if third and third in by_id and third not in ids:
+        picks.append({'id': third, 'label_en': by_id[third]['label_en'],
+                      'emoji': ''})
+
+
 def select_fresh(pool, state, strict=True):
     """select(), but reject a card that repeats a recent one and ask again.
 
-    On a rejection the offending ids are dropped from the pool before
+    On a rejection the offending lines are dropped from the pool before
     reselecting, which is what forces a genuinely different card rather than a
     reshuffle of the same lines. Gives up after SELECT_RETRIES and posts the
     last answer: a slightly repetitive card is better than no post.
@@ -8289,26 +8332,71 @@ def select_fresh(pool, state, strict=True):
     promoted vein (see promote_starved), where the pool has deliberately been
     narrowed to one small vein and the overlap rule would reject every card it
     can possibly build.
+
+    ⚠️ Two memories, because one was not enough. `recent_cards` is the last
+    RECENT_CARDS_KEEP cards across EVERY vein, about three days, and with ~49
+    veins on four slots a day a vein's turn comes round every twelve days or
+    so: its own last card has long since left that window. So the national
+    card went out word for word on 30 August, 15 and 23 September, and the
+    Lotte World tourism card on 1, 8 and 21 September, after cooldowns had
+    been added for both (the cooldowns space a vein's posts, they never look
+    at what it says). `last_card_by_cat` keeps each vein's own last card
+    however old, and a card saying exactly what one of its veins last said is
+    rejected in either mode. It compares CONTENT (content_key), not ids, so a
+    card on the same lines with new figures (the fertility rates moved from
+    0.748 to 0.799 between 19 and 30 August) is new and goes through.
     """
     recent = [set(s) for s in (state.get('recent_cards') or [])]
+    own_last = {cat: set(sig) for cat, sig
+                in (state.get('last_card_by_cat') or {}).items()}
+    by_id = {f['id']: f for f in pool}
     banned, sel = set(), None
     for attempt in range(SELECT_RETRIES):
-        sub = [f for f in pool if f['id'] not in banned] if banned else pool
-        if len(sub) < 3:                    # nothing left to build a card from
-            sub = pool
+        sub = [f for f in pool if content_key(f) not in banned]
+        # Too few lines left to build a card: put banned ones back in pool
+        # order until there are three, rather than handing back the whole
+        # pool, which let the selector rebuild the very card just refused.
+        # For the five-line national vein this is what reaches the
+        # population-share card once the fertility card is refused.
+        for f in pool:
+            if len(sub) >= 3:
+                break
+            if f not in sub:
+                sub.append(f)
         sel = select(sub, state)
-        sig = set(card_signature(sel.get('picks', [])))
+        picks = sel.get('picks', [])
+        complete_pair(picks, sub)
+        sig = set(card_signature(picks))
         if not sig:
             return sel                      # malformed; downstream will handle it
+        content = set(content_signature(sig, pool))
+        cats = {by_id[i]['cat'] for i in sig if i in by_id}
+        # Too short to be a card: compose() raises on fewer than three lines
+        # outside the two-line veins, and the slot is lost. The national
+        # vein's population lines are a PAIR plus a share, and the selector
+        # answered with the bare pair on one of two dry runs, 24 September
+        # 2026. Ask again rather than hand compose() a card it will refuse.
+        n_valid = sum(1 for i in sig if i in by_id)
+        if (n_valid < 3 and cats and not cats <= TWO_LINE_CATS
+                and attempt < SELECT_RETRIES - 1):
+            print(f'Reselecting: only {n_valid} usable line(s); '
+                  f'attempt {attempt + 1} of {SELECT_RETRIES}.')
+            continue
+        same_vein = sorted(c for c in cats if own_last.get(c) == content)
         limit = CARD_OVERLAP_MAX if strict else len(sig) - 1
         worst = max((len(sig & prev) for prev in recent), default=0)
-        if worst <= limit:
+        if worst <= limit and not same_vein:
             return sel
-        kind = 'overlaps' if strict else 'repeats'
-        print(f'Reselecting: card {kind} a recent one ({worst} of '
-              f'{len(sig)} lines shared, max {limit}); '
-              f'attempt {attempt + 1} of {SELECT_RETRIES}.')
-        banned |= sig
+        if same_vein:
+            print(f'Reselecting: card says exactly what the last '
+                  f'{"/".join(same_vein)} card said; '
+                  f'attempt {attempt + 1} of {SELECT_RETRIES}.')
+        else:
+            kind = 'overlaps' if strict else 'repeats'
+            print(f'Reselecting: card {kind} a recent one ({worst} of '
+                  f'{len(sig)} lines shared, max {limit}); '
+                  f'attempt {attempt + 1} of {SELECT_RETRIES}.')
+        banned |= content
     print('Repeat guard gave up; posting the last selection.')
     return sel
 
@@ -11274,6 +11362,13 @@ def main():
     # window either.
     state['recent_cards'] = ((state.get('recent_cards') or [])
                              + [sorted(used)])[-RECENT_CARDS_KEEP:]
+    # And each vein's own last card, however long ago (see select_fresh), by
+    # content. Under the PRIMARY vein only: recording a cross pair under its
+    # second vein too would overwrite that vein's own last card with one it
+    # can never rebuild alone, and its next solo repeat would slip through.
+    by_cat_card = state.get('last_card_by_cat') or {}
+    by_cat_card[primary] = content_signature(used, pool)
+    state['last_card_by_cat'] = by_cat_card
     # Per-vein clock for the starvation floor (see promote_starved). 'primary'
     # is the category the card was actually built on, which is what the floor
     # measures — a vein that merely rode along on a cross-pair card has not had
