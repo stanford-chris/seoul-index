@@ -2143,6 +2143,30 @@ class TransportCardDateline(unittest.TestCase):
         self.assertTrue(any(l.endswith(d_en) for l in labels_en), labels_en)
 
 
+class NationalCardDateline(unittest.TestCase):
+    """The KOSIS year rides the second line, not the footnote, his rule on
+    24 September 2026 (the card said "2025 figures" at its foot)."""
+
+    def test_year_is_the_dateline_and_leaves_the_footnote(self):
+        facts = [
+            S.fact('fert_korea', 'national', 'Births the average South Korean woman will have',
+                   '0.799', '0.799', pair='fertility_gap', year='2025'),
+            S.fact('fert_seoul', 'national', 'Births the average Seoul woman will have',
+                   '0.632', '0.632', pair='fertility_gap', year='2025'),
+            S.fact('pop_share', 'national', 'Share of all South Koreans who live in Seoul',
+                   '18.2%', '18.2%', year='2025', label_ko='서울에 사는 전국민의 비율'),
+        ]
+        picks = [{'id': f['id'], 'label_en': '', 'label_ko': '한국어', 'emoji': ''}
+                 for f in facts]
+        sel = {'opener_en': 'Seoul and the nation', 'opener_ko': '서울과 전국',
+               'opener_emoji': '', 'picks': picks}
+        c = S.compose(sel, facts)
+        self.assertEqual(c['dateline_en'], '2025')
+        self.assertEqual(c['dateline_ko'], '2025년')
+        self.assertNotIn('2025', c['note_en'])
+        self.assertNotIn('2025', c['note_ko'])
+
+
 class StationsCard(unittest.TestCase):
     """compose()-level checks for the stations card: identical shape to the
     busroutes card (no per-line emoji, rank word bold, total bold, harvester

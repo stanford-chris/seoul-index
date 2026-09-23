@@ -9852,9 +9852,13 @@ def compose(sel, pool):
     if uses_kosis:
         years = sorted({by_id[p['id']].get('year') for p in picks
                         if by_id[p['id']]['cat'] == 'national' and by_id[p['id']].get('year')})
+        # The year rides the second line under the title, not the footnote,
+        # his rule for every card bot (24 September 2026, on the national
+        # card's "2025 figures"). A national card is always its own post, so
+        # nothing else competes for the line.
         if years:
-            scope_en.append((f'{"/".join(years)} figures', None))
-            scope_ko.append((f'{"/".join(years)}년 자료', None))
+            scope_en.append((None, "/".join(years)))
+            scope_ko.append((None, f'{"/".join(years)}년'))
     if uses_molit:
         # Same split as KOSIS: the ministry is the credit, the filing month is
         # a key to the figures and rides on the card footnote.
