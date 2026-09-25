@@ -2949,8 +2949,9 @@ class HeldVeins(unittest.TestCase):
         # same afternoon; kepco and kepcohist likewise, that evening.
         # kepcohouse and railcommuter held for his look and released the
         # same afternoon, 12 September 2026. kepco held 25 September 2026
-        # while its Hong Kong rows move to a card of their own.
-        self.assertEqual(self._held, {'kepco'})
+        # while its Hong Kong rows move to a card of their own, and that
+        # card, kepcohk, held for his look the same day.
+        self.assertEqual(self._held, {'kepco', 'kepcohk'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
@@ -4442,7 +4443,9 @@ class KepcoCards(unittest.TestCase):
         S._SEOUL_POP_CACHE.clear()
         S.KEPCO_MIN_ROWS = 8
         try:
-            return S.kepco_facts('KEY', 'KOSIS_KEY'), S.kepco_hist_facts('KEY'), calls
+            facts, hist = S.kepco_facts('KEY', 'KOSIS_KEY'), S.kepco_hist_facts('KEY')
+            self.hk = S.kepco_hk_facts('KEY', 'KOSIS_KEY')
+            return facts, hist, calls
         finally:
             S.subprocess.run = real_subprocess.run
             S.KEPCO_MIN_ROWS = 150
@@ -4450,6 +4453,7 @@ class KepcoCards(unittest.TestCase):
     def tearDown(self):
         S.RANKED_CARD_INFO.pop('kepco', None)
         S.RANKED_CARD_INFO.pop('kepcohist', None)
+        S.RANKED_CARD_INFO.pop('kepcohk', None)
         S._KEPCO_CACHE.clear()
         S._KEPCO_NATIONAL_CACHE.clear()
         S._SEOUL_POP_CACHE.clear()
@@ -4579,84 +4583,61 @@ class KepcoCards(unittest.TestCase):
             S.subprocess.run = real_subprocess.run
             S._KEPCO_NATIONAL_CACHE.clear()
 
-    def test_the_household_pair_replaces_the_sector_split_on_the_card(self):
-        # His call, 13 September 2026: move Hong Kong into the main part of
-        # the card, since the Households/Shops-and-offices GWh split "is not
-        # useful" on its own. The two pinned rows replace that split; the
-        # periods they cover move to the footnote instead (see below), since
-        # line_emoji matches on the exact, unchanging label text. No
-        # seoul_pop here, so the per-capita pair can't be built and
-        # "Electricity used" falls back in its place -- see
-        # test_the_per_capita_pair_replaces_electricity_used below for the
-        # shape when a live KOSIS population IS available.
-        y, m = self.newest()
-        by_month = {(yy, mm): self.rows(1_000_000) for yy, mm in self.trailing_months(y, m)}
-        facts, _, _ = self.run_with(by_month, national={(y, m): self.natrows(1_000, 400_000_000)})
-        # rows(1_000_000): 2 cities x house_cust 100 = 200; house_kwh
-        # 2,000,000 a month, so 12 months is 24,000,000 kWh over 200 -> 120,000/yr.
-        seoul_annual = S.kwh_avg(24_000_000 / 200)
-        hk_avg = S.kwh_avg(S.HK_ANNUAL_KWH / S.HK_ANNUAL_CUST)
-        self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
-                         [('Customers', '232'), ('Electricity used', '6.0 GWh'),
-                          ('Seoul household', seoul_annual), ('Hong Kong household', hk_avg),
-                          ('Billed', '₩64')])
-        self.assertNotIn('Households', [f['label_en'] for f in facts])
-        self.assertNotIn('Shops and offices', [f['label_en'] for f in facts])
-        seoul_fact, hk_fact = facts[2], facts[3]
-        self.assertEqual(seoul_fact['label_ko'], '서울 가정')
-        self.assertEqual(hk_fact['label_ko'], '홍콩 가정')
-        self.assertEqual(seoul_fact['pair'], 'kepco_house_hk')
-        self.assertEqual(hk_fact['pair'], 'kepco_house_seoul')
-        # the periods, which the labels above deliberately don't carry
-        note_en, note_ko = S.RANKED_CARD_INFO['kepco']['note_en'], S.RANKED_CARD_INFO['kepco']['note_ko']
-        self.assertIn(f'the year to {S.MONTHS_EN[m - 1]} {y}', note_en)
-        self.assertIn('CLP Power and HK Electric', note_en)
-        self.assertIn(str(S.HK_ANNUAL_YEAR), note_en)
-        self.assertIn('홍콩', note_ko)
-        self.assertIn('CLP Power·HK Electric', note_ko)
-
-    def test_the_per_capita_pair_replaces_electricity_used(self):
-        # His catch, 13 September 2026: a first version of this compared
-        # Seoul's and Hong Kong's raw TOTAL electricity use, which he
-        # immediately flagged as confounded by population size -- the same
-        # mistake as the very first "share of the national total" proposal.
-        # Per capita is the fix, and needs a live Seoul population (KOSIS),
-        # so this is the ONE scenario in this class that supplies seoul_pop.
+    def test_the_hong_kong_card_is_four_yearly_lines_in_a_fixed_order(self):
+        # His call, 25 September 2026 ("B now, then C"): Seoul against Hong
+        # Kong is its own card, since on the monthly one its yearly rows sat
+        # under a monthly dateline. Per capita first (his catch, 13 September:
+        # not the raw totals), then per household.
         y, m = self.newest()
         by_month = {(yy, mm): self.rows(1_000_000) for yy, mm in self.trailing_months(y, m)}
         facts, _, _ = self.run_with(by_month, seoul_pop=1_000_000)
         # rows(1_000_000) x 12 months: t['kwh'] (every type, both cities) is
-        # 6,000,004 a month -> 72,000,048 a year, over a population of
-        # 1,000,000 -> 72.000048 kWh/person.
-        seoul_pc = S.kwh_avg(72_000_048 / 1_000_000)
-        hk_pc = S.kwh_avg(S.HK_TOTAL_KWH / S.HK_TOTAL_POP)
-        self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
-                         [('Customers', '232'), ('Seoul per capita', seoul_pc),
-                          ('Hong Kong per capita', hk_pc),
+        # 6,000,004 a month -> 72,000,048 a year over 1,000,000 people;
+        # house_kwh 2,000,000 a month -> 24,000,000 a year over 200 customers.
+        self.assertEqual([(f['label_en'], f['value_en']) for f in self.hk],
+                         [('Seoul per capita', S.kwh_avg(72_000_048 / 1_000_000)),
+                          ('Hong Kong per capita', S.kwh_avg(S.HK_TOTAL_KWH / S.HK_TOTAL_POP)),
                           ('Seoul household', S.kwh_avg(24_000_000 / 200)),
-                          ('Hong Kong household', S.kwh_avg(S.HK_ANNUAL_KWH / S.HK_ANNUAL_CUST)),
-                          ('Billed', '₩64')])
-        self.assertNotIn('Electricity used', [f['label_en'] for f in facts])
-        seoul_fact, hk_fact = facts[1], facts[2]
-        self.assertEqual(seoul_fact['label_ko'], '서울 1인당')
-        self.assertEqual(hk_fact['label_ko'], '홍콩 1인당')
-        self.assertEqual(seoul_fact['pair'], 'kepco_pc_hk')
-        self.assertEqual(hk_fact['pair'], 'kepco_pc_seoul')
-        note_en = S.RANKED_CARD_INFO['kepco']['note_en']
-        self.assertIn('Per capita', note_en)
-        self.assertIn('KOSIS', note_en)
-        self.assertIn(str(S.HK_TOTAL_YEAR), note_en)
+                          ('Hong Kong household', S.kwh_avg(S.HK_ANNUAL_KWH / S.HK_ANNUAL_CUST))])
+        self.assertEqual([f['label_ko'] for f in self.hk],
+                         ['서울 1인당', '홍콩 1인당', '서울 가정', '홍콩 가정'])
+        self.assertEqual([f['pair'] for f in self.hk],
+                         ['kepcohk_pc_hk', 'kepcohk_pc_seoul', 'kepcohk_house_hk', 'kepcohk_house_seoul'])
+        self.assertTrue(all(f['cat'] == 'kepcohk' and f['pin'] for f in self.hk))
+        info = S.RANKED_CARD_INFO['kepcohk']
+        self.assertEqual(info['opener_en'], 'Electricity in Seoul and Hong Kong')
+        # both periods on the second line, each a year
+        self.assertEqual(info['dateline_en'],
+                         f'A year: Seoul to {S.MONTHS_EN[m - 1]} {y}, Hong Kong {S.HK_ANNUAL_YEAR}')
+        self.assertIn(f'{y}년 {m}월까지', info['dateline_ko'])
+        self.assertIn('KOSIS', info['note_en'])
+        self.assertIn('CLP Power and HK Electric', info['note_en'])
 
-    def test_a_failed_population_fetch_falls_back_to_electricity_used(self):
-        # An empty KOSIS response (seoul_pop omitted) must read as "no
-        # population", never as population zero -- a ZeroDivisionError here
-        # would take the whole card down with it.
+    def test_the_month_card_no_longer_carries_hong_kong(self):
         y, m = self.newest()
         by_month = {(yy, mm): self.rows(1_000_000) for yy, mm in self.trailing_months(y, m)}
-        facts, _, _ = self.run_with(by_month)   # seoul_pop omitted -> empty KOSIS response
-        self.assertIn('Electricity used', [f['label_en'] for f in facts])
-        self.assertNotIn('Seoul per capita', [f['label_en'] for f in facts])
-        self.assertNotIn('Per capita', S.RANKED_CARD_INFO['kepco']['note_en'])
+        facts, _, _ = self.run_with(by_month, seoul_pop=1_000_000,
+                                    national={(y, m): self.natrows(1_000, 400_000_000)})
+        self.assertEqual([f['label_en'] for f in facts], ['Customers', 'Electricity used', 'Billed'])
+        note_en = S.RANKED_CARD_INFO['kepco']['note_en']
+        self.assertNotIn('Hong Kong', note_en)
+        self.assertNotIn('Per capita', note_en)
+        self.assertNotIn('shops and offices', note_en)
+        self.assertIn('nationally', note_en)   # its own comparison is unaffected
+
+    def test_no_population_or_no_full_year_withholds_the_hong_kong_card(self):
+        # An empty KOSIS response must read as "no population", never as
+        # population zero; half of the card is not a card.
+        y, m = self.newest()
+        months = self.trailing_months(y, m)
+        by_month = {mm: self.rows(1_000_000) for mm in months}
+        self.run_with(by_month)                      # seoul_pop omitted
+        self.assertEqual(self.hk, [])
+        self.assertNotIn('kepcohk', S.RANKED_CARD_INFO)
+        del by_month[months[-1]]                     # a partial year
+        self.run_with(by_month, seoul_pop=1_000_000)
+        self.assertEqual(self.hk, [])
+        self.assertEqual(S.kepco_hk_facts(None), [])
 
     def test_seoul_population_reads_the_kosis_row(self):
         S._SEOUL_POP_CACHE.clear()
@@ -4681,18 +4662,6 @@ class KepcoCards(unittest.TestCase):
         finally:
             S.subprocess.run = real_subprocess.run
             S._SEOUL_POP_CACHE.clear()
-
-    def test_a_partial_trailing_year_falls_back_to_the_three_line_card(self):
-        y, m = self.newest()
-        months = self.trailing_months(y, m)
-        by_month = {mm: self.rows(1_000_000) for mm in months}
-        del by_month[months[-1]]   # the oldest of the 12 -> a partial year
-        facts, _, _ = self.run_with(by_month, national={(y, m): self.natrows(1_000, 400_000_000)})
-        self.assertEqual([f['label_en'] for f in facts], ['Customers', 'Electricity used', 'Billed'])
-        note_en = S.RANKED_CARD_INFO['kepco']['note_en']
-        self.assertNotIn('Hong Kong', note_en)
-        self.assertNotIn('household row', note_en)
-        self.assertIn('nationally', note_en)   # the other comparison is unaffected
 
     def test_kepco_seoul_annual_sums_twelve_months(self):
         y, m = self.newest()
@@ -4742,13 +4711,19 @@ class KepcoCards(unittest.TestCase):
         for c in ('kepco', 'kepcohist'):
             self.assertIn(c, S.RANKED_CATS)
             self.assertIn(c, S.WON_CATS)
+        self.assertIn('kepcohk', S.RANKED_CATS)
+        self.assertNotIn('kepcohk', S.WON_CATS)    # kWh only, no won figure
+        self.assertIn('kepcohk', S.ORDERED_CATS)
+        self.assertIn('kepcohk', S.COOLDOWNS)
         self.assertIn('kepco', S.ORDERED_CATS)
         self.assertNotIn('kepcohist', S.ORDERED_CATS)   # compose() orders the pairs by metric, newest first
         self.assertIn('kepco', S.COOLDOWNS)       # cooled AND stamped through the one table
         self.assertIn('kepcohist', S.COOLDOWNS)
         src = open(S.__file__, encoding='utf-8').read()
         for needle in ('- "kepco" lines are', '- "kepcohist" lines set',
-                       "uses_kepco = bool({'kepco', 'kepcohist', 'kepcohouse'} & cats)",
+                       "uses_kepco = bool({'kepco', 'kepcohk', 'kepcohist', 'kepcohouse'} & cats)",
+                       "uses_kosis = bool({'national', 'kepcohk'} & cats)",
+                       '- "kepcohk" lines set', "pool += kepco_hk_facts(kepco_key, kosis_key)",
                        "('bigdata.kepco.co.kr', 'https://bigdata.kepco.co.kr')",
                        "pool += kepco_facts(kepco_key, kosis_key)", "pool += kepco_hist_facts(kepco_key)",
                        "kepco_key = config.get('kepco_key')"):

@@ -307,7 +307,8 @@ SEVERE_STARVE_DAYS = STARVE_DAYS * 2
 # the top-to-bottom rank of the three routes above it.
 ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist', 'busroutes', 'stations',
                 'busmovers', 'nightbus', 'busweekend', 'busstops', 'railstations', 'seoulstation',
-                'stationgap', 'wxday', 'rescue', 'kopis', 'kepco', 'kepcohouse', 'railcommuter'}
+                'stationgap', 'wxday', 'rescue', 'kopis', 'kepco', 'kepcohk', 'kepcohouse',
+                'railcommuter'}
 
 # Every vein's lines are all-or-nothing on emoji, not just a chosen few: a
 # partial set reads as an oversight rather than a judgement, whatever the
@@ -525,7 +526,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # rows are yearly figures under a monthly dateline, and the footnote's
 # monthly 518 kWh sits beside a yearly 5,501. They move to a card of their
 # own; release kepco once they have.
-HELD_CATS = {'kepco'}
+HELD_CATS = {'kepco', 'kepcohk'}   # kepcohk new 25 Sep 2026, held for his look
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -2086,7 +2087,7 @@ BUSWEEKEND_COOLDOWN_DAYS = 7
 RANKED_CARD_INFO = {}
 RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend', 'busstops',
                'railstations', 'seoulstation', 'stationgap', 'wxday', 'rescue', 'kopis',
-               'kepco', 'kepcohist', 'kepcohouse', 'railcommuter')
+               'kepco', 'kepcohk', 'kepcohist', 'kepcohouse', 'railcommuter')
 # The veins whose card is TWO lines by design: rush (one station at two
 # hours) and, since 11 September 2026, busmovers (one rise, one fall) and
 # busweekend (one holds up best, one falls most). Every other vein needs
@@ -5563,12 +5564,25 @@ KEPCO_COOLDOWN_DAYS = 28      # a new month arrives monthly, like the infra coun
 KEPCO_MIN_ROWS = 150          # 25 districts × 7 types is 173-175; a short answer is a partial month
 KEPCO_OPENER_EN = 'Electricity in Seoul'
 KEPCO_OPENER_KO = '서울의 전기'
+# The Seoul and Hong Kong comparison is its own card since 25 September 2026,
+# his call ("B now, then C"): on the monthly card its four yearly rows sat
+# under a monthly dateline, and the footnote's July-only 518 kWh read against
+# the yearly 5,501 kWh row above it as two answers to one question.
+KEPCOHK_OPENER_EN = 'Electricity in Seoul and Hong Kong'
+KEPCOHK_OPENER_KO = '서울과 홍콩의 전기'
+KEPCOHK_NOTE_EN = ('Per capita is all electricity used over population: KOSIS’s registered '
+                   'population for Seoul, the government’s figures for Hong Kong · Per household '
+                   'is residential customers: KEPCO’s residential tariff for Seoul, CLP Power '
+                   'and HK Electric for Hong Kong')
+KEPCOHK_NOTE_KO = ('1인당은 전체 전력 사용량을 인구로 나눈 값: 서울은 주민등록인구, 홍콩은 정부 통계 · '
+                   '가구당은 주택용 고객 기준: 서울은 한국전력 주택용, 홍콩은 CLP Power·HK Electric')
 KEPCO_HIST_OPENER_EN = 'Seoul’s electricity, 20 years apart'
 KEPCO_HIST_OPENER_KO = '서울의 전기, 20년 전과 지금'
-KEPCO_NOTE_EN = ('Korea Electric Power Corporation’s billing for the month, all contract '
-                 'types; households are its residential tariff, shops and offices its '
-                 'general one')
-KEPCO_NOTE_KO = '한국전력 월별 판매 실적, 전체 계약종별 합계; 가정은 주택용, 상가·사무실은 일반용'
+# The shares clause ("households are its residential tariff, shops and
+# offices its general one") went 25 September 2026: it explained the two
+# sector rows, which left the card on 13 September.
+KEPCO_NOTE_EN = 'Korea Electric Power Corporation’s billing for the month, all contract types'
+KEPCO_NOTE_KO = '한국전력 월별 판매 실적, 전체 계약종별 합계'
 KEPCO_HIST_NOTE_EN = 'Korea Electric Power Corporation’s billing for the month, all contract types'
 KEPCO_HIST_NOTE_KO = '한국전력 월별 판매 실적, 전체 계약종별 합계'
 _KEPCO_CACHE = {}
@@ -5633,6 +5647,11 @@ HK_ANNUAL_KWH = 9_966_000_000 + 2_387_000_000
 HK_TOTAL_YEAR = 2025
 HK_TOTAL_KWH = 164_433 * 1e6 / 3.6
 HK_TOTAL_POP = 7_510_800
+# Credited on the kepcohk card's source reply as plain text, NOT in
+# LINK_DOMAINS: every linked domain must also be in the pinned thread's
+# SOURCE_LINE (test_credits_match_the_daily_posts), and that line is 279 of
+# 300 characters, 326 with these three. Which way to go is his call at release.
+HK_SOURCE_DOMAINS = ['clpgroup.com', 'hkelectric.com', 'censtatd.gov.hk']
 # Seoul side is live, not hand-checked: KOSIS's own registered-population
 # table (DT_1B040A3, itmId T20, objL1 '11' = Seoul), the SAME table
 # kosis_facts() already reads for the 'national' vein's population-share
@@ -5826,7 +5845,8 @@ def _seoul_population(kosis_key):
 
 
 def kepco_facts(key, kosis_key=None):
-    """The kepco card: the newest month's electricity in Seoul, six lines.
+    """The kepco card: the newest month's electricity in Seoul, three lines.
+    Its Hong Kong comparison is kepco_hk_facts' card since 25 September 2026.
     Fills RANKED_CARD_INFO when built; prints why when withheld."""
     RANKED_CARD_INFO.pop('kepco', None)
     if not key:
@@ -5851,8 +5871,6 @@ def kepco_facts(key, kosis_key=None):
     # comparison is not load-bearing for the card, which already worked
     # without it.
     base_note_en, base_note_ko = KEPCO_NOTE_EN, KEPCO_NOTE_KO
-    percapita_facts = []
-    household_facts = []
     if t['house_cust']:
         nat = _kepco_national_house(key, y, m)
         if nat and nat[0]:
@@ -5860,76 +5878,6 @@ def kepco_facts(key, kosis_key=None):
             base_note_en = (f'{base_note_en} · Seoul’s average residential customer used '
                             f'{seoul_avg}; nationally, {nat_avg}')
             base_note_ko = f'{base_note_ko} · 서울 가정 평균 사용량은 {seoul_avg}, 전국 평균은 {nat_avg}'
-        # International comparisons, added 13 September 2026, his ask, after
-        # New York (Con Edison) turned out to be annual-only data covering a
-        # utility territory that spills well past the city (NYC + Westchester
-        # County) -- he was open to any comparably-matched city, and Hong Kong
-        # (CLP Power + HK Electric, see HK_ANNUAL_* above) turned out cleaner
-        # on both counts: its two utilities together ARE the whole territory,
-        # no spillover, and its own figures are likewise annual. So both sides
-        # of both pairs below are annual, not the same-month cut above:
-        # Seoul's own trailing 12 months (_kepco_seoul_annual), built the
-        # same way CLP Power and HK Electric build their own annual figures,
-        # against Hong Kong's newest published year.
-        #
-        # ⚠️ Moved from a footnote sentence to PINNED rows on 13 September
-        # 2026, his ask ("move Hong Kong into the main part of the card"),
-        # replacing the Households/Shops-and-offices split he judged not
-        # useful -- a raw GWh split by sector says nothing on its own, where a
-        # figure set against another city is a real comparison, exactly the
-        # standing "facts need context" rule this session's other finding
-        # wrote into memory. The row labels stay STATIC ("Seoul household" /
-        # "Hong Kong household", "Seoul per capita" / "Hong Kong per
-        # capita") rather than carrying the two different periods inline,
-        # because line_emoji below matches on the exact label text and a
-        # label with June 2026 baked in would need a new dict entry every
-        # month; the periods live in the footnote instead. A year with any
-        # of its 12 months missing drops every row built from it AND the
-        # footnote clause naming them -- never a partial year shown as if it
-        # were a full one, and never a row on the card the footnote doesn't
-        # explain.
-        annual = _kepco_seoul_annual(key, y, m)
-        if annual:
-            # ⚠️ Per capita replaces a first version of this pair that
-            # compared Seoul's and Hong Kong's raw TOTAL electricity use --
-            # he caught it within the same conversation: Seoul's total is
-            # bigger for no reason more interesting than Seoul having a
-            # bigger population (9.3M against 7.5M), the identical shape of
-            # confound the very first "share of the national total" proposal
-            # was rejected for. Per capita needs Seoul's population, read
-            # LIVE from KOSIS (_seoul_population) rather than hand-checked
-            # like the Hong Kong side, because kosis_facts() already fetches
-            # this same number for the 'national' vein and a second,
-            # hardcoded copy here could silently drift from it.
-            seoul_pop = _seoul_population(kosis_key)
-            if seoul_pop:
-                seoul_pc_avg = kwh_avg(annual['kwh'] / seoul_pop)
-                hk_pc_avg = kwh_avg(HK_TOTAL_KWH / HK_TOTAL_POP)
-                percapita_facts = [
-                    fact('kepco_pc_seoul', 'kepco', 'Seoul per capita', seoul_pc_avg,
-                         seoul_pc_avg, pin=True, label_ko='서울 1인당', pair='kepco_pc_hk'),
-                    fact('kepco_pc_hk', 'kepco', 'Hong Kong per capita', hk_pc_avg,
-                         hk_pc_avg, pin=True, label_ko='홍콩 1인당', pair='kepco_pc_seoul'),
-                ]
-                base_note_en = (f'{base_note_en} · Per capita, Seoul’s figure is the year to '
-                                f'{per_en} over KOSIS’s registered population; Hong Kong’s is the '
-                                f'government’s {HK_TOTAL_YEAR} total over its {HK_TOTAL_YEAR} '
-                                f'population')
-                base_note_ko = (f'{base_note_ko} · 1인당 수치는 서울이 {per_ko}까지 1년간 총사용량을 '
-                                f'주민등록인구로, 홍콩이 정부 {HK_TOTAL_YEAR}년 총사용량을 '
-                                f'{HK_TOTAL_YEAR}년 인구로 나눈 값')
-            seoul_house_avg = kwh_avg(annual['house_kwh'] / annual['house_cust'])
-            hk_house_avg = kwh_avg(HK_ANNUAL_KWH / HK_ANNUAL_CUST)
-            household_facts = [
-                fact('kepco_house_seoul', 'kepco', 'Seoul household', seoul_house_avg,
-                     seoul_house_avg, pin=True, label_ko='서울 가정', pair='kepco_house_hk'),
-                fact('kepco_house_hk', 'kepco', 'Hong Kong household', hk_house_avg,
-                     hk_house_avg, pin=True, label_ko='홍콩 가정', pair='kepco_house_seoul'),
-            ]
-            base_note_en = (f'{base_note_en} · Seoul’s household row is the year to {per_en}; '
-                            f'Hong Kong’s is CLP Power and HK Electric’s {HK_ANNUAL_YEAR} figure')
-            base_note_ko = (f'{base_note_ko} · 서울 가정 수치는 {per_ko}까지 1년간, 홍콩 수치는 '
-                            f'CLP Power·HK Electric의 {HK_ANNUAL_YEAR}년 자료')
     kepco_note_en, kepco_note_ko = with_latest(
         base_note_en, base_note_ko, per_en, per_ko, date(y, m, 1), 'month')
     RANKED_CARD_INFO['kepco'] = {
@@ -5938,26 +5886,69 @@ def kepco_facts(key, kosis_key=None):
         'dateline_en': per_en, 'dateline_ko': per_ko,
         'note_en': kepco_note_en,
         'note_ko': kepco_note_ko,
-        'line_emoji': {'Customers': '🔌', 'Electricity used': '⚡️',
-                       'Seoul per capita': '⚡️', 'Hong Kong per capita': '⚡️',
-                       'Seoul household': '🏠', 'Hong Kong household': '🏠',
-                       'Billed': '💰'},
+        'line_emoji': {'Customers': '🔌', 'Electricity used': '⚡️', 'Billed': '💰'},
         'emoji': '⚡️'}
-    # Electricity used (this month, all sectors) is the fallback when the
-    # per-capita pair can't be built (no live KOSIS population, or a
-    # partial trailing year) -- a raw monthly total is a worse fact than a
-    # confound-free comparison, but it beats a two-line card (Customers,
-    # Billed) that falls under compose()'s own three-fact floor.
-    kwh_fact = ([] if percapita_facts else
-                [fact('kepco_kwh', 'kepco', 'Electricity used', gwh(t['kwh']), gwh(t['kwh']),
-                      pin=True, label_ko='전력 사용량')])
     return [fact('kepco_cust', 'kepco', 'Customers', grouped(t['cust']), grouped(t['cust']),
                  pin=True, label_ko='고객 호수'),
-            *kwh_fact,
-            *percapita_facts,
-            *household_facts,
+            fact('kepco_kwh', 'kepco', 'Electricity used', gwh(t['kwh']), gwh(t['kwh']),
+                 pin=True, label_ko='전력 사용량'),
             fact('kepco_bill', 'kepco', 'Billed', won_en(t['bill']), won_ko(t['bill']),
                  pin=True, label_ko='전기 요금', num=t['bill'], unit='won')]
+
+
+def kepco_hk_facts(key, kosis_key=None):
+    """The kepcohk card: Seoul against Hong Kong, per person and per
+    household, four lines in a fixed order, every one of them a YEAR:
+    Seoul's twelve months to KEPCO's newest, over KOSIS's live registered
+    population for per capita, and Hong Kong's newest published year,
+    hand-checked (see HK_ANNUAL_* and HK_TOTAL_*). Both periods are on the
+    second line, which is why this is a card of its own rather than rows on
+    the monthly one (his call, 25 September 2026). Per capita, not the raw
+    totals (his catch, 13 September 2026: Seoul's total is bigger only
+    because Seoul is), and per household for the residential cut. All four
+    lines or none: the card is two comparisons, and half of one is not a
+    card. Fills RANKED_CARD_INFO when built; prints why when withheld."""
+    RANKED_CARD_INFO.pop('kepcohk', None)
+    if not key:
+        return []
+    got = _kepco_newest(key)
+    if not got:
+        print('Seoul and Hong Kong electricity card withheld: no month could be read from KEPCO.')
+        return []
+    y, m, _ = got
+    annual = _kepco_seoul_annual(key, y, m)
+    if not annual or not annual['house_cust']:
+        print(f'Seoul and Hong Kong electricity card withheld: no full year to {y}-{m:02d}.')
+        return []
+    seoul_pop = _seoul_population(kosis_key)
+    if not seoul_pop:
+        print('Seoul and Hong Kong electricity card withheld: no Seoul population from KOSIS.')
+        return []
+    per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
+    hk_years = sorted({HK_TOTAL_YEAR, HK_ANNUAL_YEAR})
+    hk_en = ' and '.join(str(v) for v in hk_years)
+    hk_ko = '·'.join(f'{v}년' for v in hk_years)
+    seoul_pc = kwh_avg(annual['kwh'] / seoul_pop)
+    hk_pc = kwh_avg(HK_TOTAL_KWH / HK_TOTAL_POP)
+    seoul_house = kwh_avg(annual['house_kwh'] / annual['house_cust'])
+    hk_house = kwh_avg(HK_ANNUAL_KWH / HK_ANNUAL_CUST)
+    RANKED_CARD_INFO['kepcohk'] = {
+        'day_en': per_en, 'day_ko': per_ko,
+        'opener_en': KEPCOHK_OPENER_EN, 'opener_ko': KEPCOHK_OPENER_KO,
+        'dateline_en': f'A year: Seoul to {per_en}, Hong Kong {hk_en}',
+        'dateline_ko': f'1년 기준: 서울 {per_ko}까지, 홍콩 {hk_ko}',
+        'note_en': KEPCOHK_NOTE_EN, 'note_ko': KEPCOHK_NOTE_KO,
+        'line_emoji': {'Seoul per capita': '⚡️', 'Hong Kong per capita': '⚡️',
+                       'Seoul household': '🏠', 'Hong Kong household': '🏠'},
+        'emoji': '⚡️'}
+    return [fact('kepcohk_pc_seoul', 'kepcohk', 'Seoul per capita', seoul_pc, seoul_pc,
+                 pin=True, label_ko='서울 1인당', pair='kepcohk_pc_hk'),
+            fact('kepcohk_pc_hk', 'kepcohk', 'Hong Kong per capita', hk_pc, hk_pc,
+                 pin=True, label_ko='홍콩 1인당', pair='kepcohk_pc_seoul'),
+            fact('kepcohk_house_seoul', 'kepcohk', 'Seoul household', seoul_house, seoul_house,
+                 pin=True, label_ko='서울 가정', pair='kepcohk_house_hk'),
+            fact('kepcohk_house_hk', 'kepcohk', 'Hong Kong household', hk_house, hk_house,
+                 pin=True, label_ko='홍콩 가정', pair='kepcohk_house_seoul')]
 
 
 def kepco_hist_facts(key):
@@ -7810,6 +7801,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     _KEPCO_CACHE.clear()
     _KEPCO_HOUSE_CACHE.clear()
     pool += kepco_facts(kepco_key, kosis_key)
+    pool += kepco_hk_facts(kepco_key, kosis_key)
     pool += kepco_hist_facts(kepco_key)
     pool += kepco_house_facts(kepco_key)
     pool += rail_commuter_facts(gov_key, api_key)
@@ -7847,7 +7839,8 @@ Rules:
 - "wxday" lines are YESTERDAY's published readings at Seoul's reference weather station: the high, the low and the rain (a rain value of "None" means none was recorded, and it is a reading, not a gap) — own post, never mixed with any other category, including "weather". All the lines offered are compulsory, in that order. Its opener is FIXED and written by Python ("Seoul's weather yesterday"), so whatever opener you write for this card is replaced; the dateline carries the date. Never call the day hot, cold, wet or dry, and never compare it with anything.
 - "rescue" lines are ONE WEEK of rescue notices filed by Seoul's districts on the national animal protection register: every animal, then cats, dogs and other animals — own post, never mixed with any other category. All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Animals rescued in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote says who files the notices. Never call the week busy or quiet, never remark on the split between cats and dogs, and never mention shelters, adoption or what became of any animal.
 - "kopis" lines are ONE WEEK on Seoul's stages from the national box-office register: productions, productions that opened, performances given, tickets sold and box office — own post, never mixed with any other category, including "boxoffice" (that is cinema). All FIVE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("On stage in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote names the register. Never call the week busy or quiet, never name a show, and never compare the figures with anything.
-- "kepco" lines are ONE MONTH of electricity in Seoul from Korea Electric Power Corporation: customers, electricity used, the households' share, the shops-and-offices share, and the bill — own post, never mixed with any other category, including "kepcohist". All FIVE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Electricity in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the month and the footnote says which tariffs the two shares are. Never call the month heavy or light, and never compare it with anything.
+- "kepco" lines are ONE MONTH of electricity in Seoul from Korea Electric Power Corporation: customers, electricity used and the bill — own post, never mixed with any other category, including "kepcohk" and "kepcohist". All THREE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Electricity in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the month. Never call the month heavy or light, and never compare it with anything.
+- "kepcohk" lines set Seoul against Hong Kong on electricity over a YEAR: Seoul per capita, Hong Kong per capita, Seoul household, Hong Kong household — own post, never mixed with any other category, including "kepco". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Electricity in Seoul and Hong Kong"), so whatever opener you write is replaced; the dateline carries both periods. Never say which city uses more, never explain the gap, and never call either figure high or low.
 - "kepcohist" lines set ONE MONTH of Seoul's electricity against the SAME month TWENTY YEARS earlier: electricity used, the bill and customers, each as a pair (each label already carries its month and year — do not reword those labels) — own post, never mixed with any other category, including "kepco". Use ALL SIX lines, every pair with BOTH its sides. Its opener is FIXED and written by Python, so whatever you write is replaced. The arrangement carries the twenty years — never point out that the bill rose faster than the use, or that anything rose or fell at all.
 - "kepcohouse" lines are ONE MONTH's household electricity by Seoul district from Korea Electric Power Corporation: the district with the most used per household, the least, the highest average bill and the lowest — own post, never mixed with any other category, including "kepco". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Household electricity in Seoul"), so whatever opener you write is replaced; the dateline carries the month. Never call a district rich or poor, hot or cold, and never explain the gap.
 - "railcommuter" lines are ONE MONTH's boardings at Korail's commuter-rail stations inside Seoul from the Korea Railroad Corporation: the busiest, second and third stations and the total for all Seoul stations — own post, never mixed with any other category, including "rail", "railstations" and "stations". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Seoul's commuter rail"), so whatever opener you write is replaced; the dateline carries the month and the footnote says which lines these are. The lines carry BARE STATION NAMES; never call a station busy or quiet.
@@ -8080,6 +8073,7 @@ COOLDOWNS = {
     'rescue':       (RESCUE_COOLDOWN_DAYS, 'Rescued animals'),
     'kopis':        (KOPIS_COOLDOWN_DAYS, 'Performances'),
     'kepco':        (KEPCO_COOLDOWN_DAYS, 'Electricity'),
+    'kepcohk':      (KEPCO_COOLDOWN_DAYS, 'Electricity, Seoul and Hong Kong'),
     'kepcohist':    (KEPCO_COOLDOWN_DAYS, 'Electricity then-and-now'),
     'kepcohouse':   (KEPCO_HOUSE_COOLDOWN_DAYS, 'Household electricity'),
     'railcommuter': (RAILCOMMUTER_COOLDOWN_DAYS, 'Commuter rail'),
@@ -9855,9 +9849,11 @@ def compose(sel, pool):
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
                  'health', 'healthcost', 'culture', 'tourism', 'level', 'boxoffice',
                  'boxhist', 'incheon', 'rail', 'railstations', 'seoulstation', 'wxday',
-                 'rescue', 'kopis', 'kepco', 'kepcohist', 'kepcohouse', 'railcommuter'}
+                 'rescue', 'kopis', 'kepco', 'kepcohk', 'kepcohist', 'kepcohouse',
+                 'railcommuter'}
     uses_seoul = any(c not in non_seoul for c in cats)
-    uses_kosis = 'national' in cats
+    # kepcohk divides by KOSIS's registered population, so it credits KOSIS.
+    uses_kosis = bool({'national', 'kepcohk'} & cats)
     # The library "1 in N" divides by KOSIS's registered population, so a card
     # carrying the ratio credits KOSIS exactly as a national card does. Guarded
     # on LIBRARY_POP rather than on the category, because a KOSIS outage leaves
@@ -9886,7 +9882,10 @@ def compose(sel, pool):
     # The rescue register is the quarantine agency's, served through data.go.kr.
     uses_apqa = 'rescue' in cats
     uses_kopis = 'kopis' in cats
-    uses_kepco = bool({'kepco', 'kepcohist', 'kepcohouse'} & cats)
+    uses_kepco = bool({'kepco', 'kepcohk', 'kepcohist', 'kepcohouse'} & cats)
+    # Hong Kong's side of kepcohk: CLP Power and HK Electric (per household),
+    # the Census and Statistics Department (per capita).
+    uses_hk = 'kepcohk' in cats
     srcs = (['data.seoul.go.kr'] if uses_seoul else []) + \
            (['kosis.kr'] if uses_kosis or lib_ratio else []) + \
            ([OECD_DOMAIN] if uses_oecd else []) + \
@@ -9903,6 +9902,7 @@ def compose(sel, pool):
            (['animal.go.kr'] if uses_apqa else []) + \
            (['kopis.or.kr'] if uses_kopis else []) + \
            (['bigdata.kepco.co.kr'] if uses_kepco else []) + \
+           (HK_SOURCE_DOMAINS if uses_hk else []) + \
            ([WB_DOMAIN] if uses_wb else [])
     if not srcs:
         srcs = ['data.seoul.go.kr']
