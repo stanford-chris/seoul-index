@@ -840,6 +840,49 @@ def fact(fid, cat, label_en, value_en, value_ko, estimated=False, pair=None,
 
 # --- harvesters ------------------------------------------------------------
 
+# The preposition a crowd row takes before its place: "The crowd in Insadong",
+# then "At Sillim Station". His call, 25 September 2026 (on the rush + crowd
+# card of that day, whose rows all read "Crowd, <place>"). A place not named
+# here takes "in"; add a new spot here when "in" reads wrong in front of it.
+CROWD_PREP = {
+    'Gangnam Station': 'at', 'Seoul Station': 'at', 'Sillim Station': 'at',
+    'Sadang Station': 'at', 'the Express Bus Terminal': 'at',
+    'Gimpo Airport': 'at', 'Gyeongbokgung': 'at', 'Lotte World Tower': 'at',
+    'the Yeouido riverbank': 'at', 'the Gangseo riverbank': 'at',
+    'Nodeul Island': 'on',
+}
+
+
+def crowd_rows(lines):
+    """Word a card's crowd-count rows as a run: the first names the metric,
+    the rest carry only the place.
+
+        The crowd in **Insadong**   15,000
+        In Namdaemun Market         11,000
+        At Sillim Station            6,250
+
+    His call, 25 September 2026, on every card that carries them. The pinned
+    pool label ("Estimated crowd, <place>") is what identifies a count row; the
+    "Estimated" is dropped because every such card's footnote already reads
+    "Crowds are KT-estimated". Korean mirrors it head-final: "**인사동** 인파",
+    then bare place names. Only the first row bolds its place, since it is the
+    one row where the place sits inside other words. Rows of other kinds (a
+    share in their twenties, a rush station) are left alone."""
+    run = [l for l in lines if l.get('crowd_count')]
+    for i, l in enumerate(run):
+        place_en, place_ko = l['place_en'], l['place_ko']
+        prep = CROWD_PREP.get(place_en, 'in')
+        if i == 0:
+            l['label_en'] = f'The crowd {prep} {place_en}'
+            l['label_ko'] = f'{place_ko} 인파'
+            l['emph_en'], l['emph_ko'] = place_en, place_ko
+        else:
+            l['label_en'] = f'{prep.capitalize()} {place_en}'
+            l['label_ko'] = place_ko
+            l.pop('emph_en', None)
+            l.pop('emph_ko', None)
+
+
 CROWD_WINDOW = 10   # places an index card considers per post (see crowd_window)
 CROWD_STRIDE = 7    # coprime with len(CROWD_SPOTS), so the walk covers them all
 
@@ -9673,7 +9716,12 @@ def compose(sel, pool):
                       'period_en': f.get('period_en'),
                       'period_ko': f.get('period_ko'),
                       'place_en': f.get('place_en'),
-                      'place_ko': f.get('place_ko')})
+                      'place_ko': f.get('place_ko'),
+                      # crowd_rows() rewords these; the pinned label is the key.
+                      'crowd_count': bool(
+                          f['cat'] == 'crowd' and f.get('pin')
+                          and f.get('place_en') and f.get('place_ko')
+                          and f['label_en'] == f'Estimated crowd, {f["place_en"]}')})
         used.append(f['id'])
         cats.add(f['cat'])
         estimated = estimated or f['estimated']
@@ -10764,6 +10812,10 @@ def compose(sel, pool):
     for l in lines:
         if l['cat'] == 'rush' and l.get('place_en'):
             l['emph_en'], l['emph_ko'] = l['place_en'], l['place_ko']
+
+    # Crowd-count rows are worded as a run and set their own bold. After the
+    # label checks above, which judge the selector's wording, not this.
+    crowd_rows(lines)
 
     # busroutes bolds its RANK word ("Busiest", "Quietest") the same
     # unconditional way rush bolds its station — for the identical reason.

@@ -1161,19 +1161,22 @@ class BoldTheVariablePlace(unittest.TestCase):
                           'emoji': ''} for f in pool]}
         return S.compose(sel, pool)
 
-    CROWD = [('Gangnam Station', '강남역', '81,000'),
-             ('Seoul Station', '서울역', '23,000'),
-             ('Gyeongbokgung', '경복궁', '1,750')]
+    # ⚠️ Tourism, not crowd, since 25 September 2026: crowd-count rows are
+    # worded as a run by crowd_rows() and set their own bold, so they no longer
+    # exercise this rule. Tourism's "Visitors to X" still does.
+    CROWD = [('Gyeongbokgung', '경복궁', '87,648'),
+             ('Seoul Sky', '서울스카이', '86,492'),
+             ('Bukchon', '북촌', '12,004')]
 
     def _crowd(self):
-        return [self._p(f'crowd_{en}', 'crowd', f'Estimated crowd, {en}', v,
-                        en, ko, label_ko=f'{ko} 추정 인파')
+        return [self._p(f'tour_{en}', 'tourism', f'Visitors to {en}', v,
+                        en, ko, label_ko=f'{ko} 방문객')
                 for en, ko, v in self.CROWD]
 
     def test_the_place_bolds_and_the_shared_wording_does_not(self):
-        items = self._compose(self._crowd())['items_en']
+        items = self._compose(self._crowd(), 'Seoul’s sights in July')['items_en']
         self.assertEqual([it['emph'] for it in items],
-                         ['Gangnam Station', 'Seoul Station', 'Gyeongbokgung'])
+                         ['Gyeongbokgung', 'Seoul Sky', 'Bukchon'])
 
     def test_bare_name_rows_are_never_bolded(self):
         """⚠️ The guard that makes bold mean anything. River and water label
@@ -1209,7 +1212,11 @@ class BoldTheVariablePlace(unittest.TestCase):
         all-places precondition this does not merely bold wrongly, it reaches a
         None substring test and raises, which on a scheduled run is a card that
         never posts."""
-        pool = self._crowd() + [
+        pool = [self._p(f'visitor_{en}', 'crowd',
+                        f'Estimated share in {en} who don’t live there', v,
+                        en, ko, label_ko=f'{ko} 비거주자 비율')
+                for en, ko, v in (('Hongdae', '홍대', '61%'),
+                                  ('Jamsil', '잠실', '58%'))] + [
             S.fact('prop_filed', 'property', 'Apartment sales filed citywide',
                    '4,001', '4,001', pin=True)]
         items = self._compose(pool)['items_en']
@@ -1220,7 +1227,7 @@ class BoldTheVariablePlace(unittest.TestCase):
         it) takes the whole card back to plain. Three bolded rows and one not
         reads as a claim about the fourth."""
         pool = self._crowd()
-        pool[1]['label_en'] = 'Estimated crowd at the main railway terminus'
+        pool[1]['label_en'] = 'Visitors to the tallest tower in the city'
         self.assertFalse(any('emph' in it for it in
                              self._compose(pool)['items_en']))
 
@@ -1229,7 +1236,7 @@ class BoldTheVariablePlace(unittest.TestCase):
         the English. A card bolded in one language and not the other is fine;
         a card half-bolded in one is not."""
         pool = self._crowd()
-        pool[2]['label_ko'] = '고궁 인파'          # place absent from the label
+        pool[2]['label_ko'] = '한옥마을 방문객'      # place absent from the label
         c = self._compose(pool)
         self.assertTrue(all('emph' in it for it in c['items_en']))
         self.assertFalse(any('emph' in it for it in c['items_ko']))
@@ -1241,7 +1248,7 @@ class BoldTheVariablePlace(unittest.TestCase):
         that they are not the same sentence. Judge Korean off the English labels
         and this card bolds on a difference the reader is not looking at."""
         pool = self._crowd()
-        pool[1]['label_ko'] = '서울역 인파'        # others read "…역 추정 인파"
+        pool[1]['label_ko'] = '서울스카이 외국인 방문객'  # others read "… 방문객"
         c = self._compose(pool)
         self.assertTrue(all('emph' in it for it in c['items_en']))
         self.assertFalse(any('emph' in it for it in c['items_ko']))
@@ -1341,8 +1348,11 @@ class GroupedCardStripsFramingEvenFromAPinnedLabel(unittest.TestCase):
         labels = [it.get('subhead') or it['label']
                   for it in c['items_en']] + [it.get('subhead') or it['label']
                                               for it in c['items_ko']]
-        self.assertIn('Crowd, Hongdae', labels)
+        # Worded as a run by crowd_rows() since 25 September 2026.
+        self.assertIn('The crowd in Hongdae', labels)
+        self.assertIn('In Jamsil', labels)
         self.assertIn('홍대 인파', labels)
+        self.assertIn('잠실', labels)
         self.assertNotIn('Estimated crowd, Hongdae', labels)
         self.assertNotIn('홍대 추정 인파', labels)
 
@@ -1371,9 +1381,12 @@ class GroupedCardStripsFramingEvenFromAPinnedLabel(unittest.TestCase):
                   for it in self._compose(pool)['items_en']]
         self.assertIn('Estimated visitors to gyeongbokgung', labels)
 
-    def test_an_ungrouped_crowd_card_is_left_alone(self):
-        """The plain four-place card keeps its full label: there is no subhead
-        saying "Right now", so nothing else on it carries the framing."""
+    def test_an_ungrouped_crowd_card_is_worded_as_a_run_too(self):
+        """Since 25 September 2026 (his call, "everywhere") the plain crowd
+        card reads the same as the grouped one: the first row names the
+        metric and bolds its place, the rest carry the place alone. "Estimated"
+        goes because the footnote says "Crowds are KT-estimated" on this card
+        as on every other."""
         pool = [f for f in self._pool() if f['cat'] == 'crowd']
         pool += [S.fact('crowd_Gwanghwamun', 'crowd',
                         'Estimated crowd, Gwanghwamun', '23,000', '23,000',
@@ -1381,8 +1394,61 @@ class GroupedCardStripsFramingEvenFromAPinnedLabel(unittest.TestCase):
                         place_en='Gwanghwamun', place_ko='광화문')]
         c = self._compose(pool)
         self.assertFalse(c['grouped'])
-        self.assertEqual(c['lines'][0]['label_en'], 'Estimated crowd, Hongdae')
-        self.assertTrue(all('emph' in it for it in c['items_en']))
+        self.assertEqual([l['label_en'] for l in c['lines']],
+                         ['The crowd in Hongdae', 'In Jamsil', 'In Gwanghwamun'])
+        self.assertEqual([l['label_ko'] for l in c['lines']],
+                         ['홍대 인파', '잠실', '광화문'])
+        self.assertEqual([it.get('emph') for it in c['items_en']],
+                         ['Hongdae', None, None])
+        self.assertIn('KT-estimated', c['note_en'])
+
+
+class CrowdRowsReadAsARun(unittest.TestCase):
+    """His call, 25 September 2026, on the rush + crowd card of that day
+    (3mwctkkduay2t), whose rows read "Crowd, Insadong", "Crowd, Namdaemun
+    Market", "Crowd, Sillim Station"."""
+
+    @staticmethod
+    def _line(en, ko, crowd=True):
+        return {'label_en': f'Estimated crowd, {en}', 'label_ko': f'{ko} 추정 인파',
+                'place_en': en, 'place_ko': ko, 'crowd_count': crowd,
+                'emph_en': en, 'emph_ko': ko}
+
+    def test_the_first_names_the_metric_and_the_rest_carry_the_place(self):
+        lines = [self._line('Insadong', '인사동'),
+                 self._line('Namdaemun Market', '남대문시장'),
+                 self._line('Sillim Station', '신림역')]
+        S.crowd_rows(lines)
+        self.assertEqual([l['label_en'] for l in lines],
+                         ['The crowd in Insadong', 'In Namdaemun Market',
+                          'At Sillim Station'])
+        self.assertEqual([l['label_ko'] for l in lines],
+                         ['인사동 인파', '남대문시장', '신림역'])
+        self.assertEqual([l.get('emph_en') for l in lines], ['Insadong', None, None])
+        self.assertEqual([l.get('emph_ko') for l in lines], ['인사동', None, None])
+
+    def test_the_preposition_follows_the_place_on_the_first_row_too(self):
+        lines = [self._line('Nodeul Island', '노들섬'),
+                 self._line('the Yeouido riverbank', '여의도 한강공원')]
+        S.crowd_rows(lines)
+        self.assertEqual([l['label_en'] for l in lines],
+                         ['The crowd on Nodeul Island', 'At the Yeouido riverbank'])
+
+    def test_rows_of_another_kind_are_left_alone(self):
+        rush = {'label_en': 'Jonggak, 8 a.m.', 'label_ko': '종각, 오전 8시',
+                'place_en': 'Jonggak', 'place_ko': '종각', 'crowd_count': False,
+                'emph_en': 'Jonggak', 'emph_ko': '종각'}
+        lines = [rush, self._line('Insadong', '인사동')]
+        S.crowd_rows(lines)
+        self.assertEqual(rush['label_en'], 'Jonggak, 8 a.m.')
+        self.assertEqual(rush['emph_en'], 'Jonggak')
+        self.assertEqual(lines[1]['label_en'], 'The crowd in Insadong')
+
+    def test_every_preposition_names_a_real_spot(self):
+        """A key that matches no spot's 'en' is a place that silently takes
+        "in" after a rename."""
+        names = {s['en'] for s in S.CROWD_SPOTS}
+        self.assertEqual(set(S.CROWD_PREP) - names, set())
 
 
 
