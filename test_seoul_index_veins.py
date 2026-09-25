@@ -2948,8 +2948,9 @@ class HeldVeins(unittest.TestCase):
         # its mock-up and released on 11 September; kopis likewise, the
         # same afternoon; kepco and kepcohist likewise, that evening.
         # kepcohouse and railcommuter held for his look and released the
-        # same afternoon, 12 September 2026. Nothing is held.
-        self.assertEqual(self._held, set())
+        # same afternoon, 12 September 2026. kepco held 25 September 2026
+        # while its Hong Kong rows move to a card of their own.
+        self.assertEqual(self._held, {'kepco'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the

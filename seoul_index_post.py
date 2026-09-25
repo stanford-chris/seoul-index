@@ -521,7 +521,11 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # --dry-run for a preview, or --force past the six-hour guard), since that is
 # how a decision gets made. Empty the set to release a vein; nothing else
 # needs touching. Empty since 11 September 2026.
-HELD_CATS = set()   # kepcohouse and railcommuter held for his look and released 12 Sep 2026
+# kepco held 25 September 2026, his call ("B now, then C"): the Hong Kong
+# rows are yearly figures under a monthly dateline, and the footnote's
+# monthly 518 kWh sits beside a yearly 5,501. They move to a card of their
+# own; release kepco once they have.
+HELD_CATS = {'kepco'}
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
