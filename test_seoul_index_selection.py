@@ -1399,7 +1399,7 @@ class GroupedCardStripsFramingEvenFromAPinnedLabel(unittest.TestCase):
         self.assertEqual([l['label_ko'] for l in c['lines']],
                          ['홍대 인파', '잠실', '광화문'])
         self.assertEqual([it.get('emph') for it in c['items_en']],
-                         ['Hongdae', None, None])
+                         ['Hongdae', 'Jamsil', 'Gwanghwamun'])
         self.assertIn('KT-estimated', c['note_en'])
 
 
@@ -1424,8 +1424,10 @@ class CrowdRowsReadAsARun(unittest.TestCase):
                           'At Sillim Station'])
         self.assertEqual([l['label_ko'] for l in lines],
                          ['인사동 인파', '남대문시장', '신림역'])
-        self.assertEqual([l.get('emph_en') for l in lines], ['Insadong', None, None])
-        self.assertEqual([l.get('emph_ko') for l in lines], ['인사동', None, None])
+        self.assertEqual([l.get('emph_en') for l in lines],
+                         ['Insadong', 'Namdaemun Market', 'Sillim Station'])
+        self.assertEqual([l.get('emph_ko') for l in lines],
+                         ['인사동', '남대문시장', '신림역'])
 
     def test_the_preposition_follows_the_place_on_the_first_row_too(self):
         lines = [self._line('Nodeul Island', '노들섬'),

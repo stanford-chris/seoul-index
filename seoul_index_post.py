@@ -857,17 +857,17 @@ def crowd_rows(lines):
     """Word a card's crowd-count rows as a run: the first names the metric,
     the rest carry only the place.
 
-        The crowd in **Insadong**   15,000
-        In Namdaemun Market         11,000
-        At Sillim Station            6,250
+        The crowd in **Insadong**       15,000
+        In **Namdaemun Market**         11,000
+        At **Sillim Station**            6,250
 
     His call, 25 September 2026, on every card that carries them. The pinned
     pool label ("Estimated crowd, <place>") is what identifies a count row; the
     "Estimated" is dropped because every such card's footnote already reads
     "Crowds are KT-estimated". Korean mirrors it head-final: "**인사동** 인파",
-    then bare place names. Only the first row bolds its place, since it is the
-    one row where the place sits inside other words. Rows of other kinds (a
-    share in their twenties, a rush station) are left alone."""
+    then bare place names. Every row bolds its place (his call, the same day).
+    Rows of other kinds (a share in their twenties, a rush station) are left
+    alone."""
     run = [l for l in lines if l.get('crowd_count')]
     for i, l in enumerate(run):
         place_en, place_ko = l['place_en'], l['place_ko']
@@ -875,12 +875,10 @@ def crowd_rows(lines):
         if i == 0:
             l['label_en'] = f'The crowd {prep} {place_en}'
             l['label_ko'] = f'{place_ko} 인파'
-            l['emph_en'], l['emph_ko'] = place_en, place_ko
         else:
             l['label_en'] = f'{prep.capitalize()} {place_en}'
             l['label_ko'] = place_ko
-            l.pop('emph_en', None)
-            l.pop('emph_ko', None)
+        l['emph_en'], l['emph_ko'] = place_en, place_ko
 
 
 CROWD_WINDOW = 10   # places an index card considers per post (see crowd_window)
