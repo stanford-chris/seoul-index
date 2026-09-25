@@ -1403,6 +1403,46 @@ class GroupedCardStripsFramingEvenFromAPinnedLabel(unittest.TestCase):
         self.assertIn('KT-estimated', c['note_en'])
 
 
+class RushBesideCrowdNamesWhatItCounts(unittest.TestCase):
+    """His call, 25 September 2026, on 3mwctkkduay2t: a bare "July 2026" over
+    "Jonggak, 8 a.m." beside three crowd rows read as one more crowd. The
+    subhead now says "Subway boardings, July 2026"; the footnote still says
+    each figure is the whole month of that hour."""
+
+    def _compose(self):
+        S.RUSH_M['en'], S.RUSH_M['ko'] = 'July 2026', '2026년 7월'
+        pool = [S.fact('rush_0_8', 'rush', 'Jonggak, 8 a.m.', '10,872', '10,872',
+                       pair='rush_0', pin=True, label_ko='종각, 오전 8시',
+                       num=10872, unit='people', place_en='Jonggak',
+                       place_ko='종각')]
+        for en, ko, v in (('Insadong', '인사동', 15000),
+                          ('Namdaemun Market', '남대문시장', 11000)):
+            pool.append(S.fact(f'crowd_{en}', 'crowd', f'Estimated crowd, {en}',
+                               S.grouped(v), S.grouped(v), estimated=True,
+                               num=v, unit='people', pin=True,
+                               label_ko=f'{ko} 추정 인파',
+                               place_en=en, place_ko=ko))
+        sel = {'opener_en': 'Seoul by the numbers', 'opener_ko': '숫자로 보는 서울',
+               'opener_emoji': '',
+               'picks': [{'id': f['id'], 'label_en': '', 'label_ko': '',
+                          'emoji': ''} for f in pool]}
+        return S.compose(sel, pool)
+
+    def test_the_subhead_names_the_count(self):
+        c = self._compose()
+        self.assertTrue(c['grouped'])
+        self.assertEqual([it['subhead'] for it in c['items_en'] if 'subhead' in it],
+                         ['Subway boardings, July 2026', 'Right now'])
+        self.assertEqual([it['subhead'] for it in c['items_ko'] if 'subhead' in it],
+                         ['2026년 7월 지하철 승차', '지금'])
+
+    def test_the_footnote_still_says_it_is_a_month_of_that_hour(self):
+        c = self._compose()
+        self.assertIn('The total monthly boardings during the designated hour',
+                      c['note_en'])
+        self.assertIn('해당 시간대 승차 인원, 한 달 합계', c['note_ko'])
+
+
 class CrowdRowsReadAsARun(unittest.TestCase):
     """His call, 25 September 2026, on the rush + crowd card of that day
     (3mwctkkduay2t), whose rows read "Crowd, Insadong", "Crowd, Namdaemun

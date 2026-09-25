@@ -10584,6 +10584,17 @@ def compose(sel, pool):
     # the date as the facts wrote it. See with_weekday().
     dateline_en, dateline_ko = with_weekday(dateline_en, dateline_ko)
     group_en, group_ko = with_weekday(group_en, group_ko)
+    # A rush row beside live crowd rows flew a bare "July 2026" over
+    # "Jonggak, 8 a.m.", and with "Right now" and three crowds below it the
+    # figure read as a crowd too. His call, 25 September 2026: the subhead
+    # names what is counted. Only when every scoped row is a rush row, since
+    # the subhead is a claim about each row under it. The footnote keeps "The
+    # total monthly boardings during the designated hour", the one place that
+    # says each figure is a whole month of that hour.
+    if (grouped and RUSH_M['en'] and group_en == RUSH_M['en']
+            and {l['cat'] for l in lines if not l['live']} == {'rush'}):
+        group_en = f'Subway boardings, {RUSH_M["en"]}'
+        group_ko = f'{RUSH_M["ko"]} 지하철 승차'
 
     # NOTE: the KT-estimate caveat is deliberately NOT added to the source line.
     # It is a caveat, not a credit, and it already rides on the card footnote
