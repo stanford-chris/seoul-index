@@ -796,8 +796,14 @@ class BoxofficeScopeMatchesWhatIsActuallyOnTheCard(unittest.TestCase):
         self.assertIn('Seoul screens', c['note_en'])
         self.assertNotIn('most-watched', c['note_en'])
         self.assertNotIn('four', c['note_en'])
-        self.assertIn('서울 지역 상영', c['note_ko'])
+        self.assertIn('서울 극장 관객수', c['note_ko'])
         self.assertNotIn('관객수 상위', c['note_ko'])
+        # The footnote reads in the card's order (30 September 2026): the
+        # box office rows come first, so what they count leads, and the KT
+        # caveat for the "Right now" crowd rows below them comes last.
+        self.assertEqual(c['note_en'],
+                         'Admissions on Seoul screens · Crowds are KT-estimated')
+        self.assertEqual(c['note_ko'], '서울 극장 관객수 · 인구는 KT 추정')
 
 
 class LibraryRatioOnTheCard(unittest.TestCase):

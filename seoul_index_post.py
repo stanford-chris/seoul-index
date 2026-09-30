@@ -10336,9 +10336,12 @@ def compose(sel, pool):
             # day's four most-watched" over a card carrying a single film
             # line. State the scope and the date; the card itself already
             # shows the reader how many films are on it.
+            # "Admissions", his call (30 September 2026): the rows are
+            # bare titles and counts, and "Seoul screens" alone left him
+            # asking whether the figures were ticket sales.
             _boxoffice_pair = (
-                ('Seoul screens', BOXOFFICE_D['en']),
-                ('서울 지역 상영', BOXOFFICE_D['ko']))
+                ('Admissions on Seoul screens', BOXOFFICE_D['en']),
+                ('서울 극장 관객수', BOXOFFICE_D['ko']))
             scope_en.append(_boxoffice_pair[0])
             scope_ko.append(_boxoffice_pair[1])
             dated_scope_pair['boxoffice'] = _boxoffice_pair
@@ -10710,6 +10713,17 @@ def compose(sel, pool):
     # problem "The Anyangcheon" had before "tributaries" fixed it, but a
     # Korean reader needs no gloss for a term they already know (the imperial-
     # conversion reasoning, not the KT-estimate one).
+    # ⚠️ The footnote reads in the card's order, his call (30 September
+    # 2026): a grouped card draws its scoped lines first and the "Right now"
+    # crowd lines second (see _items), so the scope comes first and the KT
+    # caveat those crowd lines carry goes last. Held back here and appended
+    # after everything else, so the jeonse and dollar notes, which belong to
+    # the scoped lines too, stay beside their scope. Ranked cross cards
+    # build their KT sentence above and are left alone.
+    kt_tail_en = kt_tail_ko = ''
+    if grouped and not ranked_cat and note_en == 'Crowds are KT-estimated':
+        kt_tail_en, kt_tail_ko = note_en, note_ko
+        note_en = note_ko = ''
     if any(p['id'] in JEONSE_IDS for p in picks):
         note_en = ' · '.join(p for p in [note_en, JEONSE_NOTE_EN] if p)
     # Same not-to-scope_en reasoning as jeonse above, and the same English-only
@@ -10724,10 +10738,11 @@ def compose(sel, pool):
         note_en = ' · '.join(p for p in [note_en, f'$1 ≈ ₩{per_usd:,}']
                              if p)
     # Caveat first, then scope: a warning about the numbers outranks a key to
-    # them. Everything here is deliberately absent from the source reply, which
+    # them. Except the KT caveat on a grouped card, which goes last (see
+    # kt_tail_en above), since its crowd lines are drawn last. Everything here is deliberately absent from the source reply, which
     # sits one post below and would otherwise repeat the card verbatim.
-    note_en = ' · '.join([p for p in [note_en, *scope_en] if p])
-    note_ko = ' · '.join([p for p in [note_ko, *scope_ko] if p])
+    note_en = ' · '.join([p for p in [note_en, *scope_en, kt_tail_en] if p])
+    note_ko = ' · '.join([p for p in [note_ko, *scope_ko, kt_tail_ko] if p])
     # credit_on_card: the credit is the footnote's LAST item, after any caveat
     # and scope, since a source is neither. On the boxhist card as it stands
     # the footnote is the credit alone.
