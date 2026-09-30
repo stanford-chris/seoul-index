@@ -771,6 +771,10 @@ class BoxofficeScopeMatchesWhatIsActuallyOnTheCard(unittest.TestCase):
         c = S.compose(sel, pool)
         self.assertIn('four most-watched', c['note_en'])
         self.assertIn('네 편', c['note_ko'])
+        # What the figures count, his call (30 September 2026).
+        self.assertIn('Admissions on Seoul screens, the day’s four most-watched',
+                      c['note_en'])
+        self.assertIn('서울 극장 관객수, 그날 상위 네 편', c['note_ko'])
 
     def test_a_live_vein_cross_pair_does_not_claim_four(self):
         # boxoffice contributes exactly ONE line here, paired with a LIVE
@@ -797,7 +801,7 @@ class BoxofficeScopeMatchesWhatIsActuallyOnTheCard(unittest.TestCase):
         self.assertNotIn('most-watched', c['note_en'])
         self.assertNotIn('four', c['note_en'])
         self.assertIn('서울 극장 관객수', c['note_ko'])
-        self.assertNotIn('관객수 상위', c['note_ko'])
+        self.assertNotIn('상위', c['note_ko'])
         # The footnote reads in the card's order (30 September 2026): the
         # box office rows come first, so what they count leads, and the KT
         # caveat for the "Right now" crowd rows below them comes last.

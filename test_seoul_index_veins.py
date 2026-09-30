@@ -2517,13 +2517,16 @@ class BusHistoryCards(unittest.TestCase):
                          ['The crowd in Insadong', 'In Namdaemun Market',
                           'In the Seongsu cafe strip'])
 
-    def test_the_shared_card_keeps_the_crowd_caveat_ahead_of_the_night_note(self):
+    def test_the_shared_card_keeps_the_crowd_caveat_after_the_night_note(self):
         """The live card's footnote read "Night routes only. ..." and nothing
-        about how three crowd figures were counted."""
+        about how three crowd figures were counted. The caveat follows the
+        night note since 30 September 2026, his call: the footnote reads in
+        the card's order, and the crowd rows are drawn second."""
         c = self._crowd_plus_nightbus()
-        self.assertTrue(c['note_en'].startswith('Crowds are KT-estimated. Night routes only.'),
-                        c['note_en'])
-        self.assertTrue(c['note_ko'].startswith('인구는 KT 추정. 심야 노선만.'), c['note_ko'])
+        self.assertTrue(c['note_en'].startswith('Night routes only.'), c['note_en'])
+        self.assertTrue(c['note_en'].endswith('. Crowds are KT-estimated.'), c['note_en'])
+        self.assertTrue(c['note_ko'].startswith('심야 노선만.'), c['note_ko'])
+        self.assertTrue(c['note_ko'].endswith('. 인구는 KT 추정.'), c['note_ko'])
 
     def test_the_shared_night_bus_line_carries_a_bus_and_the_opener_keeps_its_own(self):
         """"The night bus boardings needs a bus emoji, to match the emojis on
@@ -2598,8 +2601,9 @@ class RankedVeinsOnACrowdCard(unittest.TestCase):
         self.assertEqual([it['emoji'] for it in ranked], [emoji] * n_ranked)
         self.assertTrue(all('bold' not in it for it in ranked))
         self.assertEqual(c['items_en'][2 + n_ranked]['label'], 'The crowd in Insadong')
-        self.assertTrue(c['note_en'].startswith('Crowds are KT-estimated. '), c['note_en'])
-        self.assertTrue(c['note_ko'].startswith('인구는 KT 추정. '), c['note_ko'])
+        # Last, since the crowd rows are drawn last (30 September 2026).
+        self.assertTrue(c['note_en'].endswith('. Crowds are KT-estimated.'), c['note_en'])
+        self.assertTrue(c['note_ko'].endswith('. 인구는 KT 추정.'), c['note_ko'])
         self.assertEqual(c['opener']['emoji'], '🏙')
         self.assertEqual(c['dateline_en'], head_en)   # lifted, then suppressed as a masthead
 
@@ -2613,7 +2617,7 @@ class RankedVeinsOnACrowdCard(unittest.TestCase):
         c = self._card(facts)
         self._check(c, 'Subway boardings, Monday, September 7', '9월 7일 (월요일) 지하철 승차', '🚇', 1)
         self.assertEqual(c['items_en'][1]['emph'], 'Quietest')
-        self.assertTrue(c['note_en'].startswith('Crowds are KT-estimated. All lines combined.'))
+        self.assertTrue(c['note_en'].startswith('All lines combined.'), c['note_en'])
 
     def test_stationgap(self):
         S.RANKED_CARD_INFO['stationgap'] = {
@@ -2648,7 +2652,7 @@ class RankedVeinsOnACrowdCard(unittest.TestCase):
         self.assertEqual([it.get('subhead') for it in c['items_en'] if 'subhead' in it],
                          ['Seoul Station, Tuesday, September 8', 'Right now'])
         self.assertEqual([it['emoji'] for it in c['items_en'][1:3]], ['⬆️', '⬇️'])
-        self.assertTrue(c['note_en'].startswith('Crowds are KT-estimated. Korail trains only'))
+        self.assertTrue(c['note_en'].startswith('Korail trains only'), c['note_en'])
         self.assertEqual(c['opener']['emoji'], '🏙')
 
     def test_railstations_note_stops_counting_four(self):
