@@ -588,9 +588,14 @@ def write_json_atomic(path, data, **dumps_kwargs):
 
 
 def http_get_json(url):
+    # errors='replace' on every curl call in this file: a --max-time cut can end
+    # the body mid-way through a Korean character, and a strict decode raised
+    # UnicodeDecodeError inside subprocess.run, outside this retry loop, killing
+    # the whole run (08:30 KST, 3 October 2026, the price vein). Replaced bytes
+    # leave invalid JSON, which the retry below already handles.
     for _ in range(3):
         r = subprocess.run(['curl', '-s', '--max-time', '30', url],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, errors='replace')
         if r.returncode == 0 and r.stdout.strip():
             try:
                 return json.loads(r.stdout)
@@ -3293,7 +3298,7 @@ def _traffic_speed(api_key, link_id):
     url = f'http://openapi.seoul.go.kr:8088/{api_key}/xml/TrafficInfo/1/1/{link_id}'
     for _ in range(3):
         r = subprocess.run(['curl', '-s', '--max-time', '30', url],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, errors='replace')
         if r.returncode == 0 and r.stdout.strip():
             try:
                 root = ET.fromstring(r.stdout)
@@ -4553,7 +4558,7 @@ def _curl(url, timeout=30, ua=MOLIT_UA, follow=False):
     if follow:
         cmd.append('-L')
     cmd += ['--max-time', str(timeout), '-A', ua, url]
-    return subprocess.run(cmd, capture_output=True, text=True).stdout
+    return subprocess.run(cmd, capture_output=True, text=True, errors='replace').stdout
 
 # Seoul's 25 자치구 by 법정동 code prefix (LAWD_CD). Verified 22 Jul 2026
 # against the API itself: each code's May-2026 rows majority-report the same
@@ -7499,7 +7504,7 @@ def _sdmx_csv(flow, ndots, codes, start_period):
                f'?startPeriod={start_period}')
         r = subprocess.run(['curl', '-s', '--max-time', '60', '-H',
                             'Accept: application/vnd.sdmx.data+csv', url],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, errors='replace')
         text = r.stdout if r.returncode == 0 else ''
         if text.lstrip().startswith('DATAFLOW'):
             return list(csv.DictReader(io.StringIO(text)))
@@ -7641,7 +7646,7 @@ def _wb_indicator(indicator, iso_list):
            f'?format=json&mrv=6&per_page=400')
     for _ in range(3):
         r = subprocess.run(['curl', '-s', '--max-time', '25', url],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, errors='replace')
         try:
             d = json.loads(r.stdout)
         except (ValueError, TypeError):
