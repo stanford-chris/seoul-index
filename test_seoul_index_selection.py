@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 sys.argv = ['test']
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import seoul_index_post as S
+import unittest.mock
 import seoul_index_card as C
 
 # ⚠️ compose() ends by checking its labels against the pool's own with a model
@@ -518,6 +519,9 @@ class ScopedVeinHeadsItsOwnGroup(unittest.TestCase):
                           f'{cat} has a descriptor but would never group')
 
 
+# Coincidence cards are off (COINCIDENCE_CARDS); this class tests the
+# dormant layout, so it switches them on for its own tests only.
+@unittest.mock.patch.object(S, 'COINCIDENCE_CARDS', True)
 class TourismBoxofficeCrossPairGroupsBySpan(unittest.TestCase):
     """A tourism+boxoffice CROSS_PAIR puts a whole month's visitors beside one
     day's admissions on the same card. Flagged live, 30 Aug 2026
@@ -620,6 +624,9 @@ class TourismBoxofficeCrossPairGroupsBySpan(unittest.TestCase):
         self.assertEqual(found, [])
 
 
+# Coincidence cards are off (COINCIDENCE_CARDS); this class tests the
+# dormant layout, so it switches them on for its own tests only.
+@unittest.mock.patch.object(S, 'COINCIDENCE_CARDS', True)
 class PropertySpendingCrossPairGroupsBySpan(unittest.TestCase):
     """period_grouped generalised 18 September 2026 (Chris's standing rule:
     a card carrying a date shows it on a clear second line under the title,

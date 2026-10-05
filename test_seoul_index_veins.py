@@ -16,6 +16,7 @@ from pathlib import Path
 sys.argv = ['test']
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import seoul_index_post as S
+import unittest.mock
 import tempfile as _tempfile
 from pathlib import Path as _Path
 # transport_facts() writes the per-route history file; never the real one from a test.
@@ -2129,6 +2130,9 @@ class WeekdayOnTheSecondLine(unittest.TestCase):
                          'Wednesday, December 30')   # 2026
 
 
+# Coincidence cards are off (COINCIDENCE_CARDS); this class tests the
+# dormant layout, so it switches them on for its own tests only.
+@unittest.mock.patch.object(S, 'COINCIDENCE_CARDS', True)
 class TransportCardDateline(unittest.TestCase):
     """The transport vein's own card flies its day on the second line and
     leaves the rows bare, his call on 24 September 2026 on 3mw6a3puoio2v,
@@ -2722,6 +2726,9 @@ class RankedVeinsOnACrowdCard(unittest.TestCase):
         self.assertTrue(S.RANKED_CROSS_CATS <= S.SCOPED_CATS)
 
 
+# Coincidence cards are off (COINCIDENCE_CARDS); this class tests the
+# dormant layout, so it switches them on for its own tests only.
+@unittest.mock.patch.object(S, 'COINCIDENCE_CARDS', True)
 class TwoRankedVeinsOnOneCard(unittest.TestCase):
     """Two ranked veins crossing each other with no live line, his call,
     22 September 2026 ("Handle two ranked veins crossing each other too").

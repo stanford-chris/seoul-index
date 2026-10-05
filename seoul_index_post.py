@@ -7905,6 +7905,16 @@ CROSS_HEAT_MAX = 0.15
 # builds at most one post around one of them; the rest are there so a slow-
 # moving dataset does not surface the identical pair every single day.
 CROSS_MAX = 6
+# ⛔ Coincidence cards are OFF since 5 October 2026, his call ("This type of
+# card is trying too hard"). Two figures from unrelated veins sharing a card
+# because their numbers happen to be close read as noise: a snack-bar bill
+# beside cooking oil whose "Dearest" line named no item, a district's
+# population beside one stop's 6 p.m. boardings with "None" in the footnote.
+# With this False the selector is offered no CROSS_PAIRS and
+# _validate_card_categories sanctions no mix through one, so a card mixes
+# veins only through the live+scoped grouped layout. cross_vein_pairs() and
+# --show-cross still work, for the day this is reconsidered.
+COINCIDENCE_CARDS = False
 
 
 def cross_vein_pairs(pool):
@@ -8323,7 +8333,7 @@ def select(pool, state):
         if f['pair']:
             pairs.setdefault(f['pair'], []).append(f['id'])
     payload = {'POOL': slim, 'PAIRS': pairs,
-               'CROSS_PAIRS': cross_vein_pairs(pool),
+               'CROSS_PAIRS': cross_vein_pairs(pool) if COINCIDENCE_CARDS else [],
                'OPENERS': [list(o) for o in OPENERS], 'AVOID_IDS': avoid}
     prompt = SELECT_PROMPT + '\n\n' + json.dumps(payload, ensure_ascii=False)
     attempts = 4
@@ -9346,7 +9356,7 @@ def _validate_card_categories(precats, picks, pool):
     live_scoped_ok = bool(live) and bool(scoped) and precats == live | scoped
     ids = {p['id'] for p in picks}
     cross_linked = set()
-    for pr in cross_vein_pairs(pool):
+    for pr in (cross_vein_pairs(pool) if COINCIDENCE_CARDS else []):
         if pr['a'] in ids and pr['b'] in ids:
             cross_linked.add(pr['a_cat'])
             cross_linked.add(pr['b_cat'])

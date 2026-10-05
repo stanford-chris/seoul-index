@@ -25,6 +25,7 @@ from pathlib import Path
 sys.argv = ['test']
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import seoul_index_post as S
+import unittest.mock
 
 S.CHECK_LABELS = False
 
@@ -40,6 +41,9 @@ def sel_for(facts, opener_en='Seoul by the numbers', opener_ko='숫자로 보는
             'opener_emoji': '', 'picks': picks_for(facts)}
 
 
+# Coincidence cards are off (COINCIDENCE_CARDS); this class tests the
+# dormant layout, so it switches them on for its own tests only.
+@unittest.mock.patch.object(S, 'COINCIDENCE_CARDS', True)
 class ValidateCardCategories(unittest.TestCase):
     def test_a_single_category_always_passes(self):
         facts = [S.fact('a', 'price', 'A', '₩1', '₩1'),
@@ -106,6 +110,33 @@ class ValidateCardCategories(unittest.TestCase):
             S._validate_card_categories({'crowd', 'weather'}, picks_for(facts), facts)
 
 
+class CoincidenceCardsAreOff(unittest.TestCase):
+    """His call, 5 October 2026: coincidence cards (two unrelated veins on one
+    card because their numbers are close) are off. The real card that ended
+    them, snack-bar bills beside cooking oil, must now be refused, and the
+    selector must be offered no CROSS_PAIRS."""
+
+    FACTS = [S.fact('a1', 'avgbill', 'Average snack-bar bill', '₩11,270',
+                    '11,270원', num=11270, unit='won'),
+             S.fact('p1', 'price', 'Dearest, a traditional market (Gangnam-gu)',
+                    '₩11,000', '11,000원', num=11000, unit='won'),
+             S.fact('a2', 'avgbill', 'Average bakery bill', '₩10,914',
+                    '10,914원', num=10914, unit='won')]
+
+    def test_the_switch_is_off(self):
+        self.assertFalse(S.COINCIDENCE_CARDS)
+
+    def test_the_card_that_ended_them_is_refused(self):
+        # The detector still finds the pair; nothing may use it.
+        self.assertTrue(S.cross_vein_pairs(self.FACTS))
+        with self.assertRaises(RuntimeError):
+            S._validate_card_categories({'price', 'avgbill'},
+                                        picks_for(self.FACTS), self.FACTS)
+
+
+# Coincidence cards are off (COINCIDENCE_CARDS); this class tests the
+# dormant layout, so it switches them on for its own tests only.
+@unittest.mock.patch.object(S, 'COINCIDENCE_CARDS', True)
 class CrossPairHints(unittest.TestCase):
     def tearDown(self):
         S.PRICE_LABEL['en'] = S.PRICE_LABEL['ko'] = None
