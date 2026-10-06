@@ -1449,11 +1449,15 @@ class IncheonCardLabels(unittest.TestCase):
     def test_totals_are_kosis_both_directions_with_the_year_before(self):
         by_id = self.facts()
         self.assertEqual(by_id['icn_pax_now']['value_en'], '7,072,244')
-        self.assertEqual(by_id['icn_pax_then']['value_en'], '6,595,805')
+        # (7,072,244 - 6,595,805) / 6,595,805 = 7.22 percent
+        self.assertEqual(by_id['icn_pax_change']['value_en'], '+7.2%')
+        self.assertEqual(by_id['icn_pax_change']['label_en'],
+                         'Change from a year earlier, August 2026')
         self.assertEqual(by_id['icn_flights_now']['value_en'], '38,624')
-        self.assertEqual(by_id['icn_pax_then']['label_en'],
-                         'Passengers through Incheon International Airport, August 2025')
-        self.assertEqual(by_id['icn_pax_now']['pair'], by_id['icn_pax_then']['pair'])
+
+    def test_a_fall_carries_a_real_minus_sign(self):
+        by_id = self.facts(kosis={'202608': (90, 1), '202508': (100, 1)})
+        self.assertEqual(by_id['icn_pax_change']['value_en'], '−10.0%')
 
     def test_no_year_earlier_month_means_no_card(self):
         self.assertEqual(self.facts(kosis={'202608': (1, 1)}), {})
@@ -1494,19 +1498,19 @@ class IncheonCardLabels(unittest.TestCase):
                'picks': [{'id': i} for i in ids]}
         return S.compose(sel, [by_id[i] for i in ids])
 
-    def test_two_months_keep_their_own_rows_and_the_airport_is_named_once(self):
-        c = self.card(['icn_pax_now', 'icn_pax_then', 'icn_flights_now', 'iiac_top_country'])
-        self.assertEqual(c['dateline_en'], '')
-        self.assertCountEqual([l['label_en'] for l in c['lines']],
-                              ['Passengers, August 2026', 'Passengers, August 2025',
-                               'Flights in and out, August 2026',
-                               'Scheduled arrivals from Japan, August 2026'])
-        self.assertIn('이용객, 2025년 8월', [l['label_ko'] for l in c['lines']])
+    def test_one_month_lifts_to_the_dateline_and_the_airport_is_named_once(self):
+        c = self.card(list(S.FIXED_CARDS['incheon'][0]))
+        self.assertEqual(c['dateline_en'], 'August 2026')
+        self.assertEqual([l['label_en'] for l in c['lines']],
+                         ['Passengers', 'Change from a year earlier',
+                          'Scheduled arrivals from Japan', 'Flights in and out'])
+        self.assertEqual([l['label_ko'] for l in c['lines']],
+                         ['이용객', '전년 같은 달 대비', '일본발 정기편 도착 여객', '운항 편수'])
         self.assertIn('Korea Airports Corporation', c['en_body'])
         self.assertIn('Incheon International Airport Corporation', c['en_body'])
 
     def test_a_card_without_the_country_line_credits_only_kosis_publisher(self):
-        c = self.card(['icn_pax_now', 'icn_pax_then', 'icn_flights_now'])
+        c = self.card(['icn_pax_now', 'icn_pax_change', 'icn_flights_now'])
         self.assertIn('Korea Airports Corporation', c['en_body'])
         self.assertNotIn('Incheon International Airport Corporation', c['en_body'])
         self.assertNotIn('airport.kr', c['en_body'].replace('airport.co.kr', ''))

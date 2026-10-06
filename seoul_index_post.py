@@ -264,6 +264,9 @@ STARVE_MIN_FACTS = 3
 # Openers Python writes when a card is ONE of these veins and nothing else,
 # applied in main() beside the rush card's. The ranked cards carry theirs in
 # RANKED_CARD_INFO instead, since those change with the day.
+FIXED_CARDS = {'incheon': (['icn_pax_now', 'icn_pax_change', 'iiac_top_country',
+                             'icn_flights_now'],
+                            'Through Incheon International Airport', '인천공항에서')}
 FIXED_OPENERS = {'air': ('Seoul’s air quality, right now', '지금 서울의 대기질')}
 
 # The back-to-back bar in promote_starved trades a hard per-vein guarantee for
@@ -5287,6 +5290,12 @@ ICN_KOSIS = ('https://kosis.kr/openapi/Param/statisticsParameterData.do'
 ICN_YEARS_BACK = 1
 
 
+def pct_change(now, then):
+    """'+7.2%' / '−3.0%' (a real minus sign), one decimal, against `then`."""
+    pct = (now - then) / then * 100
+    return f'{"+" if pct >= 0 else "−"}{abs(pct):.1f}%'
+
+
 def _icn_months(kosis_key, start, end):
     """{'YYYYMM': {'pax': int, 'flights': int}} for Incheon, both directions,
     from KOSIS. Empty on any failure."""
@@ -5330,15 +5339,14 @@ def iiac_facts(key, kosis_key=None):
     then_en, then_ko = f'{mon_en} {y - ICN_YEARS_BACK}', f'{y - ICN_YEARS_BACK}년 {m}월'
     facts = [fact('icn_pax_now', 'incheon',
                   f'Passengers through Incheon International Airport, {per_en}',
-                  grouped(now['pax']), grouped(now['pax']), pair='incheon_year',
+                  grouped(now['pax']), grouped(now['pax']),
                   pin=True, label_ko=f'인천공항 이용객, {per_ko}',
                   period_en=per_en, period_ko=per_ko,
                   num=now['pax'], unit='people'),
-             fact('icn_pax_then', 'incheon',
-                  f'Passengers through Incheon International Airport, {then_en}',
-                  grouped(then['pax']), grouped(then['pax']), pair='incheon_year',
-                  pin=True, label_ko=f'인천공항 이용객, {then_ko}',
-                  period_en=then_en, period_ko=then_ko),
+             fact('icn_pax_change', 'incheon', f'Change from a year earlier, {per_en}',
+                  pct_change(now['pax'], then['pax']), pct_change(now['pax'], then['pax']),
+                  pin=True, label_ko=f'전년 같은 달 대비, {per_ko}',
+                  period_en=per_en, period_ko=per_ko),
              fact('icn_flights_now', 'incheon',
                   f'Flights in and out, {per_en}',
                   grouped(now['flights']), grouped(now['flights']), pin=True,
@@ -7901,7 +7909,7 @@ Rules:
 - "infant" lines count Seoul's children in ONE age band, one line per year across a decade. Labels are BARE YEARS. ⚠️ The card already names the age band on its own line, and YOU ARE NOT TOLD WHICH BAND IT IS — so the opener must NEVER state an age or an age range. Writing "Children aged 0" over the under-six figures is the exact mistake this rule exists to stop. Give a neutral opener that says only that these are Seoul's children over time: "Seoul's children, a decade apart", "Fewer every year in Seoul". Own post, never mixed, and keep the first and last years: the fall between them is the card. State it and stop — never call it a decline, a crisis, or a collapse, and never mention birth rates.
 - "library" lines are the registered members of Seoul Library by decade of life. Labels are BARE AGE BANDS, so the opener MUST name the library and what is counted ("Who holds a card at Seoul Library"). Own post, never mixed. It is ONE library, not the city's 215 — never imply otherwise. ⚠️ The value may carry a trailing "(1 in N)" — that is Python's, and it sets the members of that band against Seoul's registered population of that age. Leave it exactly where it is and NEVER restate it, convert it to a percentage, explain it, or build the opener or a label on it: the card footnote says what it is, and members need not live in Seoul, so the opener must never call it a share of Seoul's teens or of any other age.
 - "complaint" lines are how many faults Seoul's residents reported in a whole year, one line per year. Labels are BARE YEARS, so the opener MUST name what is counted ("Things reported broken in Seoul"). Own post, never mixed, and never characterize a year as better or worse than another.
-- "airport", "incheon", "health", "healthcost" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An "airport" post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split. An "incheon" post is Incheon's newest month: passengers against the same month a year earlier (the "incheon_year" pair, ALWAYS both sides, newer first), flights, and scheduled arrivals from its busiest origin country. Never describe the country line as departures or "to" a country: it counts arrivals from it. ⚠️ Name the airport by its full official name, never the bare place name: "Gimpo International Airport", "Incheon International Airport" — both the opener and any line that names it. ⚠️ Do NOT put the month in the opener: on the split frame it rides on the card automatically as its dateline, and on the twenty-year pair each label carries its own year, which is the whole point of that frame. A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. A healthcost post is the SAME shape but treatment COST, not patient counts, and it comes in TWO FRAMES you must not blend on one card: the raw total cost per condition (treat it like "spending"/"property" for tone — a citywide sum, never implied per-person), OR the average cost PER PATIENT (like avgbill: the opener must say "average" plainly, e.g. "What treating each condition costs, per patient", so a reader never mistakes it for the total or for what one patient actually pays out of pocket — insurance covers most of it). Pick one frame, not lines from both. Both health and healthcost: these are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
+- "airport", "incheon", "health", "healthcost" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An "airport" post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split. An "incheon" post is Incheon's newest month: its rows, their order and its opener are fixed by Python, so pick all of its lines and nothing else. ⚠️ Name the airport by its full official name, never the bare place name: "Gimpo International Airport", "Incheon International Airport" — both the opener and any line that names it. ⚠️ Do NOT put the month in the opener: on the split frame it rides on the card automatically as its dateline, and on the twenty-year pair each label carries its own year, which is the whole point of that frame. A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. A healthcost post is the SAME shape but treatment COST, not patient counts, and it comes in TWO FRAMES you must not blend on one card: the raw total cost per condition (treat it like "spending"/"property" for tone — a citywide sum, never implied per-person), OR the average cost PER PATIENT (like avgbill: the opener must say "average" plainly, e.g. "What treating each condition costs, per patient", so a reader never mistakes it for the total or for what one patient actually pays out of pocket — insurance covers most of it). Pick one frame, not lines from both. Both health and healthcost: these are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
 - "transport" lines are Seoul's total subway and bus boardings for the most recently published day, plus that day's busiest and quietest subway stations. The date rides the dateline under the title on this vein's own post (and stays in the labels only when a line crosses onto another vein's card), so do NOT put a date anywhere in the opener, and do NOT write a second, different date of your own: a neutral opener with no date at all is enough, e.g. "Through the turnstiles", "Seoul on the move". Never call a station busy, quiet, packed or empty — the four numbers say it.
@@ -11478,6 +11486,15 @@ def main():
             sel['opener_en'], sel['opener_ko'] = op_en, op_ko
             if cat == 'air' and AIR_NOW['emoji']:
                 sel['opener_emoji'] = AIR_NOW['emoji']
+    # Cards whose rows and order are Python's, not the selector's. Incheon,
+    # his call, 6 October 2026: passengers, the change on a year earlier as
+    # the second line, the Japan line (which the selector had dropped), then
+    # flights. A row the harvest could not build is simply absent.
+    for cat, (ids, op_en, op_ko) in FIXED_CARDS.items():
+        if sel.get('picks') and all(by_cat.get(p.get('id')) == cat for p in sel['picks']):
+            have = {f['id'] for f in pool}
+            sel['picks'] = [{'id': i} for i in ids if i in have]
+            sel['opener_en'], sel['opener_ko'] = op_en, op_ko
     # A ranked card whose registry entry carries an opener (busmovers, since
     # 11 September 2026) is the same arrangement: Python's words, not the
     # selector's. The weekday in it changes with the day.
