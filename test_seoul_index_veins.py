@@ -1534,6 +1534,9 @@ class IncheonCardLabels(unittest.TestCase):
         self.assertCountEqual([l['label_en'] for l in c['lines']],
                               ['Passengers', 'Flights in and out', 'Passengers to Japan'])
         self.assertIn('이용객', [l['label_ko'] for l in c['lines']])
+        sel['opener_ko'] = '인천국제공항에서'
+        c = S.compose(sel, [by_id[i] for i in ids])
+        self.assertIn('이용객', [l['label_ko'] for l in c['lines']])
 
 
 class KorailCardLabels(unittest.TestCase):

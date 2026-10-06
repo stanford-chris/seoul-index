@@ -10589,7 +10589,8 @@ def compose(sel, pool):
             if f'{name_en} International Airport' in opener_en:
                 l['label_en'] = l['label_en'].replace(
                     f' through {name_en} International Airport', '')
-            if name_ko in opener_ko:
+            # 인천공항 or 인천국제공항: the selector writes either in a title.
+            if name_ko in opener_ko or name_ko.replace('공항', '국제공항') in opener_ko:
                 l['label_ko'] = l['label_ko'].removeprefix(f'{name_ko} ')
     if korail_period[0] and (group_en or dateline_en) == korail_period[0]:
         for l in lines:
