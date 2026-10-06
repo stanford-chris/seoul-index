@@ -5269,63 +5269,108 @@ def _iiac_rows(key):
     return [x for x in items if x.get('paxCode') == '여객']
 
 
-def iiac_facts(key):
-    """Incheon's newest published month: total traffic and the busiest
-    destination country. Counting, not modelling: every figure here is a
-    straight sum of the API's own per-row passenger/flight counts."""
-    if not key:
+# ⚠️⚠️ operationPerformanceByRoute is ARRIVALS ON SCHEDULED FLIGHTS ONLY, and
+# its totalEff is fare-paying passengers only. Found 6 October 2026: all 411
+# rows of August 2026 are 도착 and 정기, so the card had been posting
+# 3,091,691 "passengers through Incheon" and 16,861 "flights in and out"
+# against the airport's real 7,072,244 and 38,624. The totals therefore come
+# from KOSIS: Korea Airports Corporation's "공항별 통계" (orgId 381,
+# DT_920005_B001), monthly back to January 2005, both directions, every
+# flight. Checked the same day against the Gimpo feed, which the airport vein
+# trusts: August 2025, 1,996,724 passengers in both. The IIAC feed is kept
+# for the one thing only it has, passengers by country, labelled for what it
+# is: scheduled arrivals FROM that country.
+ICN_KOSIS = ('https://kosis.kr/openapi/Param/statisticsParameterData.do'
+             '?method=getList&apiKey={key}&format=json&jsonVD=Y&orgId=381'
+             '&tblId=DT_920005_B001&itmId=T001+T002&objL1=A20&objL2=B01'
+             '&prdSe=M&startPrdDe={start}&endPrdDe={end}')
+ICN_YEARS_BACK = 1
+
+
+def _icn_months(kosis_key, start, end):
+    """{'YYYYMM': {'pax': int, 'flights': int}} for Incheon, both directions,
+    from KOSIS. Empty on any failure."""
+    from urllib.parse import quote
+    url = ICN_KOSIS.format(key=quote(kosis_key, safe=''), start=start, end=end)
+    try:
+        d = http_get_json(url)
+    except (RuntimeError, ValueError, OSError):
+        return {}
+    out = {}
+    if isinstance(d, list):
+        for r in d:
+            try:
+                k = {'T002': 'pax', 'T001': 'flights'}[r['ITM_ID']]
+                out.setdefault(r['PRD_DE'], {})[k] = int(float(r['DT']))
+            except (KeyError, TypeError, ValueError):
+                continue
+    return {ym: v for ym, v in out.items() if len(v) == 2}
+
+
+def iiac_facts(key, kosis_key=None):
+    """Incheon's newest published month: passengers against the same month a
+    year earlier and flights, both directions (KOSIS), plus scheduled
+    arrivals from the busiest origin country (IIAC). Counting, not
+    modelling: every figure is a published total or a straight sum."""
+    if not kosis_key:
         return []
-    rows = _iiac_rows(key)
-    if not rows:
+    today = datetime.now(SEOUL_TZ).date()
+    start = f'{today.year - ICN_YEARS_BACK - 1}01'
+    months = _icn_months(kosis_key, start, f'{today.year}{today.month:02d}')
+    if not months:
         return []
-    ym = str(rows[0].get('yearMonth') or '')
-    if len(ym) != 6:
-        return []
+    ym = max(months)
     y, m = int(ym[:4]), int(ym[4:])
-    per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
-
-    total_pax = total_flights = 0
-    by_country = {}
-    for it in rows:
-        try:
-            pax = int(it.get('totalEff') or 0)
-            flights = int(it.get('flightCount') or 0)
-        except (TypeError, ValueError):
-            continue
-        total_pax += pax
-        total_flights += flights
-        nation = (it.get('nationName') or '').strip()
-        if nation:
-            by_country[nation] = by_country.get(nation, 0) + pax
-    if not total_pax:
+    then = months.get(f'{y - ICN_YEARS_BACK}{m:02d}')
+    if not then:
         return []
-
-    facts = [fact('iiac_pax_total', 'incheon',
+    now = months[ym]
+    mon_en = MONTHS_EN[m - 1]
+    per_en, per_ko = f'{mon_en} {y}', f'{y}년 {m}월'
+    then_en, then_ko = f'{mon_en} {y - ICN_YEARS_BACK}', f'{y - ICN_YEARS_BACK}년 {m}월'
+    facts = [fact('icn_pax_now', 'incheon',
                   f'Passengers through Incheon International Airport, {per_en}',
-                  grouped(total_pax), grouped(total_pax), pin=True,
-                  label_ko=f'인천공항 이용객, {per_ko}',
+                  grouped(now['pax']), grouped(now['pax']), pair='incheon_year',
+                  pin=True, label_ko=f'인천공항 이용객, {per_ko}',
                   period_en=per_en, period_ko=per_ko,
-                  num=total_pax, unit='people'),
-             fact('iiac_flights_total', 'incheon',
+                  num=now['pax'], unit='people'),
+             fact('icn_pax_then', 'incheon',
+                  f'Passengers through Incheon International Airport, {then_en}',
+                  grouped(then['pax']), grouped(then['pax']), pair='incheon_year',
+                  pin=True, label_ko=f'인천공항 이용객, {then_ko}',
+                  period_en=then_en, period_ko=then_ko),
+             fact('icn_flights_now', 'incheon',
                   f'Flights in and out, {per_en}',
-                  grouped(total_flights), grouped(total_flights), pin=True,
+                  grouped(now['flights']), grouped(now['flights']), pin=True,
                   label_ko=f'운항 편수, {per_ko}',
                   period_en=per_en, period_ko=per_ko)]
 
-    top = max(by_country.items(), key=lambda kv: kv[1], default=None)
-    if top:
-        ko_name, n = top
-        en = IIAC_COUNTRY_EN.get(ko_name)
-        if not en:
-            print(f'Warning: no English name for {ko_name!r} — '
-                  f'using Korean on the English card.')
-            en = ko_name
-        facts.append(fact('iiac_top_country', 'incheon',
-                          f'Passengers to {en}, {per_en}',
-                          grouped(n), grouped(n), pin=True,
-                          label_ko=f'{ko_name} 노선 이용객, {per_ko}',
-                          period_en=per_en, period_ko=per_ko,
-                          num=n, unit='people'))
+    # Busiest origin country, from the IIAC feed, only for the same month.
+    rows = _iiac_rows(key) if key else []
+    if rows and str(rows[0].get('yearMonth') or '') == ym:
+        by_country = {}
+        for it in rows:
+            try:
+                pax = int(it.get('totalEff') or 0)
+            except (TypeError, ValueError):
+                continue
+            nation = (it.get('nationName') or '').strip()
+            if nation and it.get('departuresOrArrivals') == '도착':
+                by_country[nation] = by_country.get(nation, 0) + pax
+        top = max(by_country.items(), key=lambda kv: kv[1], default=None)
+        if top:
+            ko_name, n = top
+            en = IIAC_COUNTRY_EN.get(ko_name)
+            if not en:
+                print(f'Warning: no English name for {ko_name!r} — '
+                      f'using Korean on the English card.')
+                en = ko_name
+            facts.append(fact('iiac_top_country', 'incheon',
+                              f'Scheduled arrivals from {en}, {per_en}',
+                              grouped(n), grouped(n), pin=True,
+                              label_ko=f'{ko_name}발 정기편 도착 여객, {per_ko}',
+                              period_en=per_en, period_ko=per_ko,
+                              num=n, unit='people'))
     return facts
 
 
@@ -7787,7 +7832,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += kma_facts(gov_key)
     pool += wx_day_facts(gov_key)
     pool += kac_facts(gov_key)
-    pool += iiac_facts(gov_key)
+    pool += iiac_facts(gov_key, kosis_key)
     pool += rail_facts(gov_key)
     pool += rail_stations_facts(gov_key)
     pool += seoul_station_facts(gov_key)
@@ -7856,7 +7901,7 @@ Rules:
 - "infant" lines count Seoul's children in ONE age band, one line per year across a decade. Labels are BARE YEARS. ⚠️ The card already names the age band on its own line, and YOU ARE NOT TOLD WHICH BAND IT IS — so the opener must NEVER state an age or an age range. Writing "Children aged 0" over the under-six figures is the exact mistake this rule exists to stop. Give a neutral opener that says only that these are Seoul's children over time: "Seoul's children, a decade apart", "Fewer every year in Seoul". Own post, never mixed, and keep the first and last years: the fall between them is the card. State it and stop — never call it a decline, a crisis, or a collapse, and never mention birth rates.
 - "library" lines are the registered members of Seoul Library by decade of life. Labels are BARE AGE BANDS, so the opener MUST name the library and what is counted ("Who holds a card at Seoul Library"). Own post, never mixed. It is ONE library, not the city's 215 — never imply otherwise. ⚠️ The value may carry a trailing "(1 in N)" — that is Python's, and it sets the members of that band against Seoul's registered population of that age. Leave it exactly where it is and NEVER restate it, convert it to a percentage, explain it, or build the opener or a label on it: the card footnote says what it is, and members need not live in Seoul, so the opener must never call it a share of Seoul's teens or of any other age.
 - "complaint" lines are how many faults Seoul's residents reported in a whole year, one line per year. Labels are BARE YEARS, so the opener MUST name what is counted ("Things reported broken in Seoul"). Own post, never mixed, and never characterize a year as better or worse than another.
-- "airport", "incheon", "health", "healthcost" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An "airport" post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split. An "incheon" post is Incheon's newest month — total traffic and its busiest destination country, one frame, no then/now pair. ⚠️ Name the airport by its full official name, never the bare place name: "Gimpo International Airport", "Incheon International Airport" — both the opener and any line that names it. ⚠️ Do NOT put the month in the opener: on the split frame it rides on the card automatically as its dateline, and on the twenty-year pair each label carries its own year, which is the whole point of that frame. A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. A healthcost post is the SAME shape but treatment COST, not patient counts, and it comes in TWO FRAMES you must not blend on one card: the raw total cost per condition (treat it like "spending"/"property" for tone — a citywide sum, never implied per-person), OR the average cost PER PATIENT (like avgbill: the opener must say "average" plainly, e.g. "What treating each condition costs, per patient", so a reader never mistakes it for the total or for what one patient actually pays out of pocket — insurance covers most of it). Pick one frame, not lines from both. Both health and healthcost: these are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
+- "airport", "incheon", "health", "healthcost" and "culture" lines are single-source sets like "property" and "weather": each builds its OWN post, never mixed with another category. An "airport" post is Gimpo's newest month — pick ONE frame, the twenty-year pair or the domestic/international split. An "incheon" post is Incheon's newest month: passengers against the same month a year earlier (the "incheon_year" pair, ALWAYS both sides, newer first), flights, and scheduled arrivals from its busiest origin country. Never describe the country line as departures or "to" a country: it counts arrivals from it. ⚠️ Name the airport by its full official name, never the bare place name: "Gimpo International Airport", "Incheon International Airport" — both the opener and any line that names it. ⚠️ Do NOT put the month in the opener: on the split frame it rides on the card automatically as its dateline, and on the twenty-year pair each label carries its own year, which is the whole point of that frame. A health post is patient counts at Seoul care institutions in one year: the labels are bare condition names, so the opener must carry the "a year in Seoul's clinics" framing. A healthcost post is the SAME shape but treatment COST, not patient counts, and it comes in TWO FRAMES you must not blend on one card: the raw total cost per condition (treat it like "spending"/"property" for tone — a citywide sum, never implied per-person), OR the average cost PER PATIENT (like avgbill: the opener must say "average" plainly, e.g. "What treating each condition costs, per patient", so a reader never mistakes it for the total or for what one patient actually pays out of pocket — insurance covers most of it). Pick one frame, not lines from both. Both health and healthcost: these are real illnesses — arrange the numbers, never joke about them, and drop any set that reads as a punchline at patients' expense. A culture post is the city's museums and galleries: the counts and the year's most-visited houses.
 - "bike" lines are the public-bike system (Ttareungi) counted live, citywide, right now: bikes waiting at a dock, docking points, stations, and stations standing empty. These are live "right now" figures like the crowd and air lines — build them into their own post, and the opener MUST carry the "right now" framing so the bare counts read as a live snapshot, not fixed totals. The pair is the point: bikes waiting against docking points, or empty stations against all stations. Never mix a bike line with a spending, national, world or other single-source line.
 - "traffic" lines are live road speeds (km/h) on named Seoul arteries, right now. Like the "world" lines, the labels are BARE ROAD NAMES, so the opener MUST name the metric and the time ("How fast Seoul is driving right now", or a neutral live-speed framing) — this is the other case where the opener names the metric. Build them into their own post; the pair is the gap between the fastest-moving and slowest-moving road. Never mix a traffic line with any other category.
 - "transport" lines are Seoul's total subway and bus boardings for the most recently published day, plus that day's busiest and quietest subway stations. The date rides the dateline under the title on this vein's own post (and stays in the labels only when a line crosses onto another vein's card), so do NOT put a date anywhere in the opener, and do NOT write a second, different date of your own: a neutral opener with no date at all is enough, e.g. "Through the turnstiles", "Seoul on the move". Never call a station busy, quiet, packed or empty — the four numbers say it.
@@ -9784,6 +9829,7 @@ def compose(sel, pool):
                       'label_en': label_en, 'label_ko': label_ko,
                       'value_en': f['value_en'], 'value_ko': f['value_ko'],
                       'live': f['cat'] in LIVE_CATS, 'cat': f['cat'],
+                      'id': f['id'],
                       'pin': bool(f.get('pin') or f.get('label_ko')),
                       'head_en': f.get('head_en'), 'head_ko': f.get('head_ko'),
                       'period_en': f.get('period_en'),
@@ -9943,7 +9989,10 @@ def compose(sel, pool):
     # (so 'river' stays out of non_seoul above) and the air is KMA.
     uses_kma = bool({'weather', 'river', 'wxday'} & cats)
     uses_kac = 'airport' in cats
-    uses_iiac = 'incheon' in cats
+    # Incheon's totals are Korea Airports Corporation's (KOSIS); only the
+    # country line is the Incheon feed's. See iiac_facts().
+    uses_icn = any(l['cat'] == 'incheon' and l.get('id', '').startswith('icn_') for l in lines)
+    uses_iiac = any(l['cat'] == 'incheon' and l.get('id') == 'iiac_top_country' for l in lines)
     uses_korail = bool({'rail', 'railstations', 'seoulstation', 'railcommuter'} & cats)
     uses_hira = 'health' in cats
     # A different HIRA dataset from uses_hira above (cost, not patient
@@ -9969,6 +10018,7 @@ def compose(sel, pool):
            (['rt.molit.go.kr'] if uses_molit else []) + \
            (['data.kma.go.kr'] if uses_kma else []) + \
            (['airport.co.kr'] if uses_kac else []) + \
+           (['airport.co.kr'] if uses_icn and not uses_kac else []) + \
            (['airport.kr'] if uses_iiac else []) + \
            (['korail.com'] if uses_korail else []) + \
            (['opendata.hira.or.kr'] if uses_hira or uses_hira_cost else []) + \
@@ -10242,9 +10292,13 @@ def compose(sel, pool):
             kac_period = kac_months.pop()
             scope_en.append((None, kac_period[0]))
             scope_ko.append((None, kac_period[1]))
+    if uses_icn and not uses_kac:
+        src_en += ' · Korea Airports Corporation'
+        src_ko += ' · 한국공항공사'
     if uses_iiac:
         src_en += ' · Incheon International Airport Corporation'
         src_ko += ' · 인천국제공항공사'
+    if uses_icn or uses_iiac:
         # Same reasoning as uses_kac above: iiac_facts() never spans two
         # months, but read it off THIS CARD's lines anyway rather than
         # assume, in case a future edit adds a then/now frame here too.

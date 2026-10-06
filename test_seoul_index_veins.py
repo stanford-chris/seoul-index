@@ -1412,131 +1412,104 @@ class MastheadCheckIsNotVeinSpecific(unittest.TestCase):
 
 
 class IncheonCardLabels(unittest.TestCase):
-    """iiac_facts() sums the API's own per-row passenger/flight counts by
-    country and returns the busiest one — counting, not modelling — plus the
-    masthead/strip behaviour is the same shape as kac_facts()'s single-month
-    frame (AirportMonthRidesTheMasthead above), so it is checked the same way,
-    end to end through compose()."""
+    """iiac_facts(): Incheon's totals from KOSIS (both directions, every
+    flight), the same month a year earlier beside them, and the busiest origin
+    country from the IIAC feed, which is scheduled ARRIVALS only (found
+    6 October 2026, when the card had been posting arrivals as the airport's
+    whole traffic)."""
 
-    def facts(self, rows, ym='202607'):
+    KOSIS = {'202608': (7072244, 38624), '202508': (6595805, 37553),
+             '202607': (6564738, 37221)}
+
+    def facts(self, iiac_rows=None, iiac_ym='202608', kosis=None):
         import subprocess as real_subprocess
+        kosis = self.KOSIS if kosis is None else kosis
 
         def run(cmd, **kw):
-            items = [dict(r, paxCode='여객', yearMonth=ym) for r in rows]
+            url = cmd[-1]
+            if 'kosis.kr' in url:
+                out = []
+                for ym, (pax, fl) in kosis.items():
+                    out.append({'PRD_DE': ym, 'ITM_ID': 'T002', 'DT': str(pax)})
+                    out.append({'PRD_DE': ym, 'ITM_ID': 'T001', 'DT': str(fl)})
+                return types.SimpleNamespace(stdout=json.dumps(out), returncode=0)
+            items = [dict(r, paxCode=r.get('paxCode', '여객'), yearMonth=iiac_ym,
+                          departuresOrArrivals=r.get('departuresOrArrivals', '도착'))
+                     for r in (iiac_rows or [])]
             body = json.dumps({'response': {'body': {'items': items}}})
             return types.SimpleNamespace(stdout=body, returncode=0)
 
         S.subprocess.run = run
         try:
-            facts = S.iiac_facts('KEY')
+            facts = S.iiac_facts('KEY', 'KOSISKEY')
         finally:
             S.subprocess.run = real_subprocess.run
         return {f['id']: f for f in facts}
 
-    def test_passengers_and_flights_sum_across_every_row(self):
-        by_id = self.facts([
-            {'nationName': '일본', 'totalEff': '100', 'flightCount': '5'},
-            {'nationName': '일본', 'totalEff': '50', 'flightCount': '3'},
-            {'nationName': '중국', 'totalEff': '80', 'flightCount': '4'},
-        ])
-        self.assertEqual(by_id['iiac_pax_total']['value_en'], '230')
-        self.assertEqual(by_id['iiac_flights_total']['value_en'], '12')
+    def test_totals_are_kosis_both_directions_with_the_year_before(self):
+        by_id = self.facts()
+        self.assertEqual(by_id['icn_pax_now']['value_en'], '7,072,244')
+        self.assertEqual(by_id['icn_pax_then']['value_en'], '6,595,805')
+        self.assertEqual(by_id['icn_flights_now']['value_en'], '38,624')
+        self.assertEqual(by_id['icn_pax_then']['label_en'],
+                         'Passengers through Incheon International Airport, August 2025')
+        self.assertEqual(by_id['icn_pax_now']['pair'], by_id['icn_pax_then']['pair'])
 
-    def test_the_busiest_country_wins_and_carries_the_month(self):
+    def test_no_year_earlier_month_means_no_card(self):
+        self.assertEqual(self.facts(kosis={'202608': (1, 1)}), {})
+
+    def test_no_kosis_key_means_no_card(self):
+        self.assertEqual(S.iiac_facts('KEY', None), [])
+
+    def test_the_country_line_counts_arrivals_and_says_so(self):
         by_id = self.facts([
             {'nationName': '일본', 'totalEff': '100', 'flightCount': '5'},
+            {'nationName': '일본', 'totalEff': '50', 'flightCount': '3',
+             'departuresOrArrivals': '출발'},
+            {'nationName': '중국', 'totalEff': '120', 'flightCount': '4',
+             'departuresOrArrivals': '출발'},
             {'nationName': '중국', 'totalEff': '80', 'flightCount': '4'},
         ])
         top = by_id['iiac_top_country']
-        self.assertEqual(top['label_en'], 'Passengers to Japan, July 2026')
+        self.assertEqual(top['label_en'], 'Scheduled arrivals from Japan, August 2026')
+        self.assertEqual(top['label_ko'], '일본발 정기편 도착 여객, 2026년 8월')
         self.assertEqual(top['value_en'], '100')
-        self.assertEqual(top['num'], 100)
-        self.assertEqual(top['unit'], 'people')
 
-    def test_a_cargo_only_row_is_excluded_from_the_passenger_total(self):
-        # paxCode is forced to '여객' by the fixture above, so this instead
-        # pins the filter itself: _iiac_rows() must drop a 화물 row rather
-        # than silently summing cargo-flight passenger fields into the total.
-        import subprocess as real_subprocess
-
-        def run(cmd, **kw):
-            items = [
-                {'nationName': '일본', 'paxCode': '여객', 'totalEff': '100',
-                 'flightCount': '5', 'yearMonth': '202607'},
-                {'nationName': '일본', 'paxCode': '화물', 'totalEff': '999',
-                 'flightCount': '99', 'yearMonth': '202607'},
-            ]
-            body = json.dumps({'response': {'body': {'items': items}}})
-            return types.SimpleNamespace(stdout=body, returncode=0)
-
-        S.subprocess.run = run
-        try:
-            facts = S.iiac_facts('KEY')
-        finally:
-            S.subprocess.run = real_subprocess.run
-        by_id = {f['id']: f for f in facts}
-        self.assertEqual(by_id['iiac_pax_total']['value_en'], '100')
+    def test_a_country_line_from_another_month_is_dropped(self):
+        by_id = self.facts([{'nationName': '일본', 'totalEff': '100', 'flightCount': '5'}],
+                           iiac_ym='202607')
+        self.assertNotIn('iiac_top_country', by_id)
 
     def test_an_unmapped_country_falls_back_to_korean_and_warns(self):
-        import io, contextlib
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            by_id = self.facts([
-                {'nationName': '없는나라', 'totalEff': '10', 'flightCount': '1'},
-            ])
-        self.assertIn('없는나라', by_id['iiac_top_country']['label_en'])
-        self.assertIn('없는나라', out.getvalue())
+        with unittest.mock.patch('builtins.print') as p:
+            by_id = self.facts([{'nationName': '네팔', 'totalEff': '9', 'flightCount': '1'}])
+        self.assertEqual(by_id['iiac_top_country']['label_en'],
+                         'Scheduled arrivals from 네팔, August 2026')
+        self.assertTrue(any('네팔' in str(c) for c in p.call_args_list))
 
-    def test_no_key_returns_nothing(self):
-        self.assertEqual(S.iiac_facts(None), [])
-        self.assertEqual(S.iiac_facts(''), [])
-
-    def test_unparseable_response_returns_nothing_not_a_crash(self):
-        import subprocess as real_subprocess
-        S.subprocess.run = lambda *a, **kw: types.SimpleNamespace(
-            stdout='not json', returncode=1)
-        try:
-            self.assertEqual(S.iiac_facts('KEY'), [])
-        finally:
-            S.subprocess.run = real_subprocess.run
-
-    def card(self, ids, rows):
-        by_id = self.facts(rows)
-        pool = [by_id[i] for i in ids]
-        sel = {'opener_en': 'Incheon, one month of routes',
-               'opener_ko': '인천공항에서', 'opener_emoji': '✈️',
+    def card(self, ids, opener_en='Through Incheon International Airport',
+             opener_ko='인천공항에서'):
+        by_id = self.facts([{'nationName': '일본', 'totalEff': '100', 'flightCount': '5'}])
+        sel = {'opener_en': opener_en, 'opener_ko': opener_ko, 'opener_emoji': '✈️',
                'picks': [{'id': i} for i in ids]}
-        return S.compose(sel, pool)
+        return S.compose(sel, [by_id[i] for i in ids])
 
-    def test_the_month_lifts_to_the_dateline_and_leaves_the_rows_bare(self):
-        rows = [{'nationName': '일본', 'totalEff': '100', 'flightCount': '5'}]
-        c = self.card(['iiac_pax_total', 'iiac_flights_total',
-                       'iiac_top_country'], rows)
-        self.assertEqual(c['dateline_en'], 'July 2026')
-        self.assertEqual(c['dateline_ko'], '2026년 7월')
-        # compose() orders rows by its own logic (unrelated to what this test
-        # checks), so this compares the SET of labels, not their sequence.
-        self.assertCountEqual(
-            [l['label_en'] for l in c['lines']],
-            ['Passengers through Incheon International Airport', 'Flights in and out',
-             'Passengers to Japan'])
-        for l in c['lines']:
-            self.assertNotIn('2026', l['label_en'])
-
-    def test_the_airport_is_not_named_twice_under_an_opener_naming_it(self):
-        rows = [{'nationName': '일본', 'totalEff': '100', 'flightCount': '5'}]
-        by_id = self.facts(rows)
-        ids = ['iiac_pax_total', 'iiac_flights_total', 'iiac_top_country']
-        sel = {'opener_en': 'Through Incheon International Airport',
-               'opener_ko': '인천공항에서', 'opener_emoji': '✈️',
-               'picks': [{'id': i} for i in ids]}
-        c = S.compose(sel, [by_id[i] for i in ids])
+    def test_two_months_keep_their_own_rows_and_the_airport_is_named_once(self):
+        c = self.card(['icn_pax_now', 'icn_pax_then', 'icn_flights_now', 'iiac_top_country'])
+        self.assertEqual(c['dateline_en'], '')
         self.assertCountEqual([l['label_en'] for l in c['lines']],
-                              ['Passengers', 'Flights in and out', 'Passengers to Japan'])
-        self.assertIn('이용객', [l['label_ko'] for l in c['lines']])
-        sel['opener_ko'] = '인천국제공항에서'
-        c = S.compose(sel, [by_id[i] for i in ids])
-        self.assertIn('이용객', [l['label_ko'] for l in c['lines']])
+                              ['Passengers, August 2026', 'Passengers, August 2025',
+                               'Flights in and out, August 2026',
+                               'Scheduled arrivals from Japan, August 2026'])
+        self.assertIn('이용객, 2025년 8월', [l['label_ko'] for l in c['lines']])
+        self.assertIn('Korea Airports Corporation', c['en_body'])
+        self.assertIn('Incheon International Airport Corporation', c['en_body'])
+
+    def test_a_card_without_the_country_line_credits_only_kosis_publisher(self):
+        c = self.card(['icn_pax_now', 'icn_pax_then', 'icn_flights_now'])
+        self.assertIn('Korea Airports Corporation', c['en_body'])
+        self.assertNotIn('Incheon International Airport Corporation', c['en_body'])
+        self.assertNotIn('airport.kr', c['en_body'].replace('airport.co.kr', ''))
 
 
 class KorailCardLabels(unittest.TestCase):
