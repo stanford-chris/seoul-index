@@ -3822,6 +3822,7 @@ PRICE_SVC = 'ListNecessariesPricesService'
 PRICE_PAGE = 1000
 PRICE_MAX_PAGES = 15
 PRICE_WINDOW_DAYS = 6
+PRICE_MIN_DISTRICTS = 22
 PRICE_MIN_LINES = 3      # a spread needs three quoted shops to be an index
 PRICE_MIN_RATIO = 1.5    # dearest/cheapest below this is not worth a card
 PRICE_STRIDE = 7         # coprime with the item list, so the walk covers it
@@ -3922,6 +3923,11 @@ def price_facts(api_key, state):
     rows = _price_rows(api_key)
     if not rows:
         return []
+    # SHAPE: a whole round reaches every district (25 in the four days to
+    # 2 October 2026); fewer means part of the city stands for all of it.
+    gus = {r.get('M_GU_NAME') for r in rows if r.get('M_GU_NAME')}
+    require(len(gus) >= PRICE_MIN_DISTRICTS,
+            f'the survey round covers {len(gus)} districts, under {PRICE_MIN_DISTRICTS}')
     for a_name, en_label, ko_label in price_window(state):
         latest = {}         # market -> its newest row for this product
         for r in rows:
@@ -3936,6 +3942,12 @@ def price_facts(api_key, state):
             m = r.get('M_NAME') or ''
             if m and (m not in latest or r['P_DATE'] > latest[m]['P_DATE']):
                 latest[m] = r
+        # SHAPE: one product is one brand and variety (SPCIES), or the
+        # cheapest and dearest can be two different things. One each, for
+        # every product listed, on 7 October 2026; a product that grows a
+        # second is skipped, not compared.
+        if len({(r.get('SPCIES') or '').strip() for r in latest.values()}) > 1:
+            continue
         shops = []
         for r in latest.values():
             kind = PRICE_KIND.get(r.get('M_TYPE_NAME') or '')
@@ -4636,6 +4648,11 @@ def sales_facts():
     if not SALES_AGG.exists():
         return []
     agg = json.loads(SALES_AGG.read_text())
+    # SHAPE: the city's own citywide series, never the old district sum
+    # (see seoul_index_sales.py); a stale file from the old harvester fails.
+    require(agg.get('source') == 'VwsmMegaSelngW',
+            f"sales_agg.json comes from {agg.get('source') or 'the old district sum'}, "
+            'not the citywide series')
     q = agg.get('latest_quarter')
     inds = agg.get('by_quarter', {}).get(q, {})
     if not inds:
@@ -5333,10 +5350,18 @@ def _kac_month(key, y, m, route=None):
     for it in root.iter('item'):
         if (it.findtext('Airport') or '').strip() == '김포':
             try:
-                return {'pax': int(float(it.findtext('subpassenger'))),
-                        'flights': int(float(it.findtext('Subflgt')))}
+                row = {'pax': int(float(it.findtext('subpassenger'))),
+                       'flights': int(float(it.findtext('Subflgt'))),
+                       'arr': int(float(it.findtext('Arrpassenger'))),
+                       'dep': int(float(it.findtext('Deppassenger')))}
             except (TypeError, ValueError):
                 return None
+            # SHAPE: the total is both directions, never one (the Incheon
+            # feed's fault). Exact in every month measured 7 October 2026.
+            require(row['pax'] == row['arr'] + row['dep'],
+                    f'Gimpo {y}-{m:02d}: total {row["pax"]:,} is not arrivals '
+                    f'{row["arr"]:,} plus departures {row["dep"]:,}')
+            return row
     return None
 
 
@@ -5384,6 +5409,9 @@ def kac_facts(key):
     dom = _kac_month(key, y, m, route=0)
     intl = _kac_month(key, y, m, route=1)
     if dom and intl:
+        # RECONCILE: the split adds up to the total, exactly (1,535,284 +
+        # 446,832 = 1,982,116 for August 2026).
+        reconcile('Gimpo domestic plus international', dom['pax'] + intl['pax'], now['pax'], 0)
         for fid, row, en, ko in (
                 ('kac_dom', dom, 'Domestic passengers', '국내선 이용객'),
                 ('kac_intl', intl, 'International passengers', '국제선 이용객')):
@@ -7844,6 +7872,73 @@ def worldbank_facts(state, kosis_key):
 
 # --- selection + composition ----------------------------------------------
 
+# --- source checks -----------------------------------------------------------
+# His call, 7 October 2026, after one day's audit found a dozen cards posting
+# figures their labels overstated (Incheon arrivals as all passengers, a
+# subway "total" taking in Korail stations outside Seoul, births as "children
+# under 1", overlapping districts summed as a city, billing contracts as
+# households). Every one was caught only by setting the card's figure against
+# an INDEPENDENT one, so that comparison is now part of building the card:
+#
+#   RECONCILE: a harvester compares its figure with a second publisher, table
+#     or endpoint and refuses outside a MEASURED tolerance.
+#   SHAPE: a harvester asserts what its raw feed must look like for the label
+#     to be true (both directions present, 25 districts, every page fetched).
+#
+# A failed check raises SourceCheckFailed; build_pool() withholds that one
+# vein for this run, prints why, and files it with the estate's observation
+# log so a check that keeps failing is seen. ⚠️ Never a plausibility range on
+# the figure itself: every wrong figure found that day was stable and
+# plausible. What each vein checks, and what its figures count, is written
+# down in PROVENANCE below.
+
+
+class SourceCheckFailed(Exception):
+    """A vein's figure or feed failed its own source check: withhold it."""
+
+
+def require(cond, msg):
+    """Raise SourceCheckFailed(msg) unless cond holds."""
+    if not cond:
+        raise SourceCheckFailed(msg)
+
+
+def reconcile(name, ours, theirs, rel_tol):
+    """Require ours to be within rel_tol of theirs (0 means exactly equal)."""
+    require(theirs not in (None, 0), f'{name}: no independent figure to check against')
+    diff = abs(ours - theirs) / abs(theirs)
+    require(diff <= rel_tol,
+            f'{name}: {ours:,.0f} against {theirs:,.0f} ({diff:.1%} apart, '
+            f'tolerance {rel_tol:.1%})')
+
+
+SOURCE_CHECK_FAILURES = []
+
+
+def guarded(fn, *args):
+    """Run one harvester; on a failed source check, withhold its facts."""
+    try:
+        return fn(*args)
+    except SourceCheckFailed as e:
+        msg = f'{fn.__name__}: {e}'
+        print(f'Source check failed, vein withheld: {msg}')
+        SOURCE_CHECK_FAILURES.append(msg)
+        _observe_source_check(fn.__name__, str(e))
+        return []
+
+
+def _observe_source_check(name, text):
+    if not reporting():
+        return
+    try:
+        subprocess.run(
+            ['python3', str(OBSERVE), 'add', '--source', 'seoul-index-source-check',
+             '--kind', 'finding', '--key', f'seoul-index-source-check-{name}', text],
+            check=False, capture_output=True, timeout=20)
+    except Exception:                       # noqa: BLE001
+        pass
+
+
 def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
                kobis_key=None, kopis_key=None, kepco_key=None):
     # gov_key is the shared data.go.kr key: one key, per-API 활용신청, so the
@@ -7853,30 +7948,30 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     # picks) is USD_RATE's only reader, for the card's "$1 ≈ ₩N" footnote.
     refresh_usd_rate(state)
     pool = []
-    pool += crowd_facts(api_key, crowd_window(state))
-    pool += air_facts(api_key)
-    pool += transport_facts(api_key, state)
+    pool += guarded(crowd_facts, api_key, crowd_window(state))
+    pool += guarded(air_facts, api_key)
+    pool += guarded(transport_facts, api_key, state)
     # Held: see RUSH_LIVE. Gated here rather than by deleting the call, so the
     # vein cannot rot unnoticed while it waits and the switch is one word.
     if RUSH_LIVE:
-        pool += rush_facts(api_key, state)
-    pool += count_facts(api_key)
-    pool += bike_facts(api_key)
-    pool += traffic_facts(api_key)
-    pool += river_facts(api_key, gov_key)
-    pool += level_facts(hrfco_key)
-    pool += price_facts(api_key, state)
-    pool += water_facts(api_key)
-    pool += daynight_facts(api_key, state)
-    pool += infant_facts(kosis_key, state)
+        pool += guarded(rush_facts, api_key, state)
+    pool += guarded(count_facts, api_key)
+    pool += guarded(bike_facts, api_key)
+    pool += guarded(traffic_facts, api_key)
+    pool += guarded(river_facts, api_key, gov_key)
+    pool += guarded(level_facts, hrfco_key)
+    pool += guarded(price_facts, api_key, state)
+    pool += guarded(water_facts, api_key)
+    pool += guarded(daynight_facts, api_key, state)
+    pool += guarded(infant_facts, kosis_key, state)
     # kosis_key is the library ratio's denominator (Seoul's registered
     # population that age); without it the vein still posts bare counts.
-    pool += library_facts(api_key, kosis_key)
-    pool += complaint_facts(api_key)
-    pool += books_facts()
-    pool += sales_facts()
-    pool += kosis_facts(kosis_key)
-    pool += world_facts()
+    pool += guarded(library_facts, api_key, kosis_key)
+    pool += guarded(complaint_facts, api_key)
+    pool += guarded(books_facts)
+    pool += guarded(sales_facts)
+    pool += guarded(kosis_facts, kosis_key)
+    pool += guarded(world_facts)
     # Re-anchored 30 Jul 2026 to LEAD with Seoul (World Bank for the countries,
     # KOSIS for Seoul), then held off pending a look at the card. Card previewed
     # and approved by the user 17 Aug 2026, so LIVE from this point:
@@ -7884,38 +7979,38 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     #     Seoul 15,509/km² · South Korea 530/km² · United States 37/km²
     # The metric used to be repeated on the source reply as well as the opener;
     # see unsaid_metrics(), fixed in the same pass.
-    pool += worldbank_facts(state, kosis_key)
-    pool += molit_facts(gov_key)
-    pool += kma_facts(gov_key)
-    pool += wx_day_facts(gov_key)
-    pool += kac_facts(gov_key)
-    pool += iiac_facts(gov_key, kosis_key)
+    pool += guarded(worldbank_facts, state, kosis_key)
+    pool += guarded(molit_facts, gov_key)
+    pool += guarded(kma_facts, gov_key)
+    pool += guarded(wx_day_facts, gov_key)
+    pool += guarded(kac_facts, gov_key)
+    pool += guarded(iiac_facts, gov_key, kosis_key)
     # rail (Korea's busiest intercity route and commuter line, and a
     # national commuter total) retired 7 October 2026, his call: posted under
     # "Seoul's railways", every figure was national (65.3M commuter boardings
     # took in the Busan-Ulsan and Daegu lines). railcommuter and railstations
     # carry Seoul's rail.
-    pool += rail_stations_facts(gov_key)
-    pool += seoul_station_facts(gov_key)
-    pool += hira_facts(gov_key)
-    pool += hira_cost_facts(gov_key)
-    pool += culture_facts(gov_key)
-    pool += tour_facts(gov_key)
-    pool += rescue_facts(gov_key)
+    pool += guarded(rail_stations_facts, gov_key)
+    pool += guarded(seoul_station_facts, gov_key)
+    pool += guarded(hira_facts, gov_key)
+    pool += guarded(hira_cost_facts, gov_key)
+    pool += guarded(culture_facts, gov_key)
+    pool += guarded(tour_facts, gov_key)
+    pool += guarded(rescue_facts, gov_key)
     # KOPIS issues its own key too, on application; the performances card is
     # silent without it.
-    pool += kopis_facts(kopis_key)
+    pool += guarded(kopis_facts, kopis_key)
     # KEPCO's own key as well (bigdata.kepco.co.kr); both electricity cards
     # are silent without it. One fetch per month per run, cached.
     _KEPCO_CACHE.clear()
     _KEPCO_HOUSE_CACHE.clear()
-    pool += kepco_facts(kepco_key, kosis_key)
-    pool += kepco_hk_facts(kepco_key, kosis_key)
-    pool += kepco_hist_facts(kepco_key)
-    pool += kepco_house_facts(kepco_key)
-    pool += rail_commuter_facts(gov_key, api_key)
+    pool += guarded(kepco_facts, kepco_key, kosis_key)
+    pool += guarded(kepco_hk_facts, kepco_key, kosis_key)
+    pool += guarded(kepco_hist_facts, kepco_key)
+    pool += guarded(kepco_house_facts, kepco_key)
+    pool += guarded(rail_commuter_facts, gov_key, api_key)
     # KOFIC issues its own key, like HRFCO: not a data.go.kr one.
-    pool += boxoffice_facts(kobis_key)
+    pool += guarded(boxoffice_facts, kobis_key)
     return pool
 
 

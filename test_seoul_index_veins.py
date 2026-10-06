@@ -315,9 +315,22 @@ def old_row():
 CABBAGE = '배추(가을) 1포기'
 
 
+SEOUL_GU = ['종로구', '중구', '용산구', '성동구', '광진구', '동대문구', '중랑구', '성북구',
+            '강북구', '도봉구', '노원구', '은평구', '서대문구', '마포구', '양천구', '강서구',
+            '구로구', '금천구', '영등포구', '동작구', '관악구', '서초구', '강남구', '송파구',
+            '강동구']
+
+
+# A whole round reaches every district (the source check refuses fewer than
+# PRICE_MIN_DISTRICTS), so every fixture carries one row per district for a
+# product no test asks about.
+def round_filler(date='2026-08-14'):
+    return [prow('필러 1개', 1000, gu, date=date) for gu in SEOUL_GU]
+
+
 class PriceSpreadGuard(unittest.TestCase):
     def facts(self, rows, state=None):
-        rows = sorted(rows, key=lambda r: r['P_DATE'], reverse=True) + [old_row()]
+        rows = sorted(rows + round_filler(), key=lambda r: r['P_DATE'], reverse=True) + [old_row()]
         with Stub({'ListNecessariesPrices':
                    ok('ListNecessariesPricesService', rows)}):
             return S.price_facts('KEY', state if state is not None else {})
@@ -382,6 +395,19 @@ class PriceSpreadGuard(unittest.TestCase):
                 prow(CABBAGE, 6900, '동작구'), prow(CABBAGE, 1000, '중구')]
         rows[-1]['ADD_COL'] = '농식품부 할인지원'
         self.assertNotIn('₩1,000', {f['value_en'] for f in self.facts(rows, {'price_i': 1})})
+
+    def test_a_round_reaching_too_few_districts_fails_its_check(self):
+        rows = [prow(CABBAGE, 2992, '노원구', '대형마트'), prow(CABBAGE, 3500, '광진구'),
+                prow(CABBAGE, 6900, '동작구'), old_row()]
+        with Stub({'ListNecessariesPrices': ok('ListNecessariesPricesService', rows)}):
+            with self.assertRaises(S.SourceCheckFailed):
+                S.price_facts('KEY', {'price_i': 1})
+
+    def test_a_product_with_two_brands_is_not_compared(self):
+        rows = [prow(CABBAGE, 3000, '노원구'), prow(CABBAGE, 3500, '광진구'),
+                prow(CABBAGE, 6900, '동작구')]
+        rows[0]['SPCIES'] = '다른 품종'
+        self.assertEqual(self.facts(rows, {'price_i': 1}), [])
 
     def test_a_round_that_never_ends_is_not_used(self):
         rows = [prow(CABBAGE, 2992, '노원구', '대형마트'), prow(CABBAGE, 3500, '광진구'),
@@ -1265,6 +1291,8 @@ class AirportMonthRidesTheMasthead(unittest.TestCase):
             xml = ('<response><body><items><item>'
                    '<Airport>김포</Airport>'
                    f'<subpassenger>{pax}</subpassenger>'
+                   f'<Arrpassenger>{pax // 2}</Arrpassenger>'
+                   f'<Deppassenger>{pax - pax // 2}</Deppassenger>'
                    f'<Subflgt>{self.FLIGHTS}</Subflgt>'
                    '</item></items></body></response>')
             return types.SimpleNamespace(stdout=xml, returncode=0)
@@ -4251,7 +4279,7 @@ class RescueCard(unittest.TestCase):
         self.assertIn('- "rescue" lines are', src)
         self.assertIn("uses_apqa = 'rescue' in cats", src)
         self.assertIn("('animal.go.kr', 'https://www.animal.go.kr')", src)
-        self.assertIn("pool += rescue_facts(gov_key)", src)
+        self.assertIn("pool += guarded(rescue_facts, gov_key)", src)
 
 
 class KopisCard(unittest.TestCase):
@@ -4332,7 +4360,7 @@ class KopisCard(unittest.TestCase):
         self.assertIn('- "kopis" lines are', src)
         self.assertIn("uses_kopis = 'kopis' in cats", src)
         self.assertIn("('kopis.or.kr', 'https://www.kopis.or.kr')", src)
-        self.assertIn("pool += kopis_facts(kopis_key)", src)
+        self.assertIn("pool += guarded(kopis_facts, kopis_key)", src)
         self.assertIn("kopis_key = config.get('kopis_key')", src)
 
 
@@ -4638,9 +4666,9 @@ class KepcoCards(unittest.TestCase):
         for needle in ('- "kepco" lines are', '- "kepcohist" lines set',
                        "uses_kepco = bool({'kepco', 'kepcohk', 'kepcohist', 'kepcohouse'} & cats)",
                        "uses_kosis = bool({'national', 'kepcohk', 'infant'} & cats)",
-                       '- "kepcohk" lines set', "pool += kepco_hk_facts(kepco_key, kosis_key)",
+                       '- "kepcohk" lines set', "pool += guarded(kepco_hk_facts, kepco_key, kosis_key)",
                        "('bigdata.kepco.co.kr', 'https://bigdata.kepco.co.kr')",
-                       "pool += kepco_facts(kepco_key, kosis_key)", "pool += kepco_hist_facts(kepco_key)",
+                       "pool += guarded(kepco_facts, kepco_key, kosis_key)", "pool += guarded(kepco_hist_facts, kepco_key)",
                        "kepco_key = config.get('kepco_key')"):
             self.assertIn(needle, src)
 
@@ -5089,10 +5117,6 @@ class LatestNoteFreshness(unittest.TestCase):
             S.latest_is_notable(S.date(2026, 1, 1), 'year', self.today)
 
 
-if __name__ == '__main__':
-    unittest.main(verbosity=1)
-
-
 class TitleWordsAreNotRepeated(unittest.TestCase):
     """strip_title_words(): a row drops the subject its own title names, his
     call, 6 October 2026, and keeps it when the title does not."""
@@ -5140,3 +5164,60 @@ class TitleWordsAreNotRepeated(unittest.TestCase):
         self.assertEqual(self.run_strip('transport', 'Total subway boardings', '전체 지하철 승차 인원',
                                         'On the subway', '서울의 지하철'),
                          ('Total subway boardings', '전체 지하철 승차 인원'))
+
+
+class SourceChecks(unittest.TestCase):
+    """The source-check framework, 7 October 2026: a failed check withholds
+    its own vein for the run, says why, and touches nothing else."""
+
+    def test_a_failed_check_withholds_only_that_vein(self):
+        def bad():
+            S.require(False, 'feed is arrivals only')
+        def good():
+            return ['fact']
+        with unittest.mock.patch('builtins.print'):
+            self.assertEqual(S.guarded(bad), [])
+        self.assertEqual(S.guarded(good), ['fact'])
+        self.assertIn('bad: feed is arrivals only', S.SOURCE_CHECK_FAILURES[-1])
+
+    def test_any_other_error_is_not_swallowed(self):
+        def broken():
+            raise KeyError('x')
+        with self.assertRaises(KeyError):
+            S.guarded(broken)
+
+    def test_reconcile_holds_its_tolerance(self):
+        S.reconcile('same', 100, 100, 0)
+        S.reconcile('close', 104, 100, 0.05)
+        with self.assertRaises(S.SourceCheckFailed):
+            S.reconcile('far', 106, 100, 0.05)
+        with self.assertRaises(S.SourceCheckFailed):
+            S.reconcile('nothing to check', 100, None, 0.05)
+
+    def test_build_pool_wraps_every_harvester(self):
+        import inspect
+        src = inspect.getsource(S.build_pool)
+        bare = [l for l in src.splitlines() if 'pool += ' in l and 'guarded(' not in l]
+        self.assertEqual(bare, [])
+
+
+class GimpoSourceChecks(AirportMonthRidesTheMasthead):
+    def test_a_one_direction_total_fails(self):
+        import subprocess as real_subprocess
+
+        def run(cmd, **kw):
+            xml = ('<response><body><items><item><Airport>김포</Airport>'
+                   '<subpassenger>100</subpassenger><Arrpassenger>100</Arrpassenger>'
+                   '<Deppassenger>100</Deppassenger><Subflgt>1</Subflgt>'
+                   '</item></items></body></response>')
+            return types.SimpleNamespace(stdout=xml, returncode=0)
+        S.subprocess.run = run
+        try:
+            with self.assertRaises(S.SourceCheckFailed):
+                S.kac_facts('KEY')
+        finally:
+            S.subprocess.run = real_subprocess.run
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=1)
