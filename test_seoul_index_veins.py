@@ -2067,7 +2067,7 @@ class StationsVein(unittest.TestCase):
 
     def test_a_card_with_the_subway_total_says_what_it_counts(self):
         facts = self._facts()
-        pool = [self.by_id(facts, 'sub_total'), self.by_id(facts, 'bus_total')]
+        pool = [self.by_id(facts, i) for i in ('sub_total', 'bus_total', 'sub_busiest')]
         c = S.compose({'opener_en': 'Seoul on the move', 'opener_ko': '움직이는 서울',
                        'picks': [{'id': f['id']} for f in pool]}, pool)
         self.assertIn('except Shinbundang and GTX-A', c['note_en'])
