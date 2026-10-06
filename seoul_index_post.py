@@ -539,7 +539,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # sites since April. Each is released as it is fixed, on his say-so.
 # stations and transport released 7 October 2026, Seoul-only totals;
 # infant the same day, rebuilt on KOSIS.
-HELD_CATS = {'rail', 'kepco', 'kepcohk',
+HELD_CATS = {'kepco', 'kepcohk',
              'price', 'spending', 'avgbill', 'infra', 'air', 'tourism'}
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
@@ -6266,10 +6266,9 @@ def kepco_house_facts(key):
 # --- Korea by rail (KORAIL) --------------------------------------------------
 # 한국철도공사's ticketing/movement-type statistics via data.go.kr (자동승인,
 # approved 2 Sep 2026): ten operations, covering intercity trains (간선열차:
-# KTX/새마을/무궁화) and commuter rail (광역철도) separately. This vein reads
-# two of the ten — mainLineRoutePer (intercity, by route) and
-# wideRailloadRoutePer (commuter, by line) — and reports the busiest of each,
-# one month.
+# KTX/새마을/무궁화) and commuter rail (광역철도) separately. The station
+# cards below read it; the "rail" vein that read whole lines nationally
+# (mainLineRoutePer, wideRailloadRoutePer) was retired 7 October 2026.
 #
 # ⚠️ Both operations return roughly a YEAR of history when no month is
 # specified — there is no query parameter to select one — so the newest
@@ -6280,30 +6279,6 @@ def kepco_house_facts(key):
 
 KORAIL_BASE = 'http://apis.data.go.kr/B551457/issueStatistics/{op}'
 
-# Official English names for the route/line fields most likely to top the
-# tables. An unmapped name falls back to Korean with a warning, same as
-# CULTURE_EN and IIAC_COUNTRY_EN above. Intercity and commuter lines can
-# share a Korean name (e.g. 경부선 names both a KTX trunk line and a separate
-# commuter corridor) — that's fine, each is a distinct fact with its own
-# "intercity"/"commuter" framing in label_en, not a lookup collision.
-KORAIL_LINE_EN = {
-    '경부선': 'the Gyeongbu Line', '호남선': 'the Honam Line',
-    '전라선': 'the Jeolla Line', '동해선': 'the Donghae Line',
-    '경전선': 'the Gyeongjeon Line', '강릉선': 'the Gangneung Line',
-    '장항선': 'the Janghang Line', '중앙선': 'the Jungang Line',
-    '충북선': 'the Chungbuk Line', '분당선': 'the Bundang Line',
-    '경인선': 'the Gyeongin Line', '경원선': 'the Gyeongwon Line',
-    '일산선': 'the Ilsan Line', '경의선': 'the Gyeongui Line',
-    '안산선': 'the Ansan Line', '과천선': 'the Gwacheon Line',
-    '수인선': 'the Suin Line', '경춘선': 'the Gyeongchun Line',
-    '서해선': 'the Seohae Line', '경강선': 'the Gyeonggang Line',
-    '대경선': 'the Daegyeong Line',
-    # The rest of mainLineRoutePer's July 2026 roster, added 12 September
-    # 2026 for the commuter-rail card's sibling work; kept, harmless.
-    '태백선': 'the Taebaek Line', '중부내륙선': 'the Jungbu Naeryuk Line',
-    '영동선': 'the Yeongdong Line', '경북선': 'the Gyeongbuk Line',
-    '대구선': 'the Daegu Line', '공항철도': 'the Airport Railroad',
-}
 
 
 def _korail_fetch(key, op, numofrows, page=1):
@@ -6325,13 +6300,6 @@ def _korail_newest(items, field):
     if not newest:
         return [], None
     return [x for x in items if x.get(field) == newest], newest
-
-
-def _korail_newest_rows(key, op, numofrows):
-    """One operation's rows for its OWN newest run_ym, as (rows, 'YYYYMM'),
-    or ([], None). numofrows must cover the operation's full history, since
-    the API's own row order is not guaranteed newest-first."""
-    return _korail_newest(_korail_fetch(key, op, numofrows), 'run_ym')
 
 
 # --- Korail per-station history -------------------------------------------------
@@ -6768,87 +6736,6 @@ def rail_commuter_facts(gov_key, api_key):
     total = sum(seoul.values())
     facts.append(fact('railcom_total', 'railcommuter', 'All Seoul stations', grouped(total),
                       grouped(total), pin=True, label_ko='서울 시내 역 전체', num=total, unit='people'))
-    return facts
-
-
-def _korail_top_line(rows, name_field, value_field):
-    """The busiest route/line as (korean_name, total), summed across every
-    row sharing that name (e.g. one row per train model on a route)."""
-    totals = {}
-    for x in rows:
-        name = (x.get(name_field) or '').strip()
-        try:
-            v = int(x.get(value_field) or 0)
-        except (TypeError, ValueError):
-            continue
-        if name:
-            totals[name] = totals.get(name, 0) + v
-    return max(totals.items(), key=lambda kv: kv[1], default=None)
-
-
-def _korail_line_en(ko_name):
-    en = KORAIL_LINE_EN.get(ko_name)
-    if not en:
-        print(f'Warning: no English name for {ko_name!r} — '
-              f'using Korean on the English card.')
-        en = ko_name
-    return en
-
-
-def rail_facts(key):
-    """Korea's busiest intercity route and Seoul's busiest commuter line,
-    one month each. Counting, not modelling: each figure is the API's own
-    published ridership total for the busiest named route/line, summed
-    across whichever rows (train models) share that name."""
-    if not key:
-        return []
-    facts = []
-
-    inter_rows, inter_ym = _korail_newest_rows(key, 'mainLineRoutePer', 800)
-    if inter_rows and inter_ym:
-        y, m = int(inter_ym[:4]), int(inter_ym[4:])
-        per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
-        top = _korail_top_line(inter_rows, 'rte_nm', 'utztn_nope')
-        if top:
-            ko_name, n = top
-            en = _korail_line_en(ko_name)
-            facts.append(fact('korail_inter_top', 'rail',
-                              f'Riders on {en}, {per_en}',
-                              grouped(n), grouped(n), pin=True,
-                              label_ko=f'{ko_name} 이용객, {per_ko}',
-                              period_en=per_en, period_ko=per_ko,
-                              num=n, unit='people'))
-
-    comm_rows, comm_ym = _korail_newest_rows(key, 'wideRailloadRoutePer', 300)
-    if comm_rows and comm_ym:
-        y, m = int(comm_ym[:4]), int(comm_ym[4:])
-        per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
-        top = _korail_top_line(comm_rows, 'sbwy_ln_nm', 'ride_nope')
-        if top:
-            ko_name, n = top
-            en = _korail_line_en(ko_name)
-            facts.append(fact('korail_comm_top', 'rail',
-                              f'Boardings on {en}, {per_en}',
-                              grouped(n), grouped(n), pin=True,
-                              label_ko=f'{ko_name} 승차인원, {per_ko}',
-                              period_en=per_en, period_ko=per_ko,
-                              num=n, unit='people'))
-        # A third line, on top of the two "top line" facts above, so the vein
-        # can stand on its own (build_pool()'s solo-card floor is 3 lines) and
-        # not only ever ride along inside a bigger card. A straight sum of
-        # every commuter line's own published boardings — still counting.
-        comm_total = sum(int(x.get('ride_nope') or 0) for x in comm_rows)
-        if comm_total:
-            # ⚠️ '승차인원' here, not '이용객' — matching korail_comm_top's own
-            # word for "boardings". check_labels() caught these disagreeing
-            # (both pinned, so neither is rewritten) on the first live
-            # --dry-run: same English word, two different Korean ones.
-            facts.append(fact('korail_comm_total', 'rail',
-                              f'Commuter rail boardings, {per_en}',
-                              grouped(comm_total), grouped(comm_total),
-                              pin=True, label_ko=f'광역철도 승차인원, {per_ko}',
-                              period_en=per_en, period_ko=per_ko,
-                              num=comm_total, unit='people'))
     return facts
 
 
@@ -7962,7 +7849,11 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += wx_day_facts(gov_key)
     pool += kac_facts(gov_key)
     pool += iiac_facts(gov_key, kosis_key)
-    pool += rail_facts(gov_key)
+    # rail (Korea's busiest intercity route and commuter line, and a
+    # national commuter total) retired 7 October 2026, his call: posted under
+    # "Seoul's railways", every figure was national (65.3M commuter boardings
+    # took in the Busan-Ulsan and Daegu lines). railcommuter and railstations
+    # carry Seoul's rail.
     pool += rail_stations_facts(gov_key)
     pool += seoul_station_facts(gov_key)
     pool += hira_facts(gov_key)
