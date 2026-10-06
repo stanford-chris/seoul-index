@@ -542,7 +542,13 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # kepco and kepcohk released 7 October 2026, per household not per contract.
 # price released 7 October 2026: whole round, exact product.
 # spending and avgbill released 7 October 2026: citywide estimates.
-HELD_CATS = {'infra', 'air', 'tourism'}
+# Held 7 October 2026, after the provenance pass: daynight's daily table
+# runs 9-10 percent above Seoul's own hourly series citywide (up to 30
+# percent in a district); spotlight's "usual" baseline is keyed on the
+# logger's run hour, about an hour off the reading; busmovers treats a public
+# holiday on a weekend (3 October) as an ordinary day; nightbus's "Boardings
+# on Friday" is mostly Thursday night's riders.
+HELD_CATS = {'infra', 'air', 'tourism', 'daynight', 'spotlight', 'busmovers', 'nightbus'}
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.

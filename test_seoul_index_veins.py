@@ -2954,7 +2954,9 @@ class HeldVeins(unittest.TestCase):
         # kepco and kepcohk released 7 October 2026.
         # price released 7 October 2026.
         # spending and avgbill released 7 October 2026.
-        self.assertEqual(self._held, {'infra', 'air', 'tourism'})
+        # daynight, spotlight, busmovers, nightbus held 7 October 2026 (provenance pass).
+        self.assertEqual(self._held, {'infra', 'air', 'tourism', 'daynight', 'spotlight',
+                                      'busmovers', 'nightbus'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
