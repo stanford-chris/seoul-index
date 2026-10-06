@@ -2022,14 +2022,61 @@ class StationsVein(unittest.TestCase):
         self.assertIn('Oksu', self.by_id(facts, 'sub_quietest')['label_en'])
         self.assertEqual(self.by_id(facts, 'sub_quietest')['value_en'], '5,050')
 
-    def test_a_station_outside_seoul_never_ranks_but_is_counted_in_the_total(self):
+    def test_a_station_outside_seoul_neither_ranks_nor_counts_in_the_total(self):
+        # Until 6 October 2026 the total summed every row, Korail lines to
+        # Cheonan and Ilsan included (6,375,751 on 3 October against 4,823,150
+        # inside Seoul). 임진강's 9 is outside and is not counted.
         facts = self._facts()
         quiet = self.by_id(facts, 'st_quietest')
         self.assertNotIn('임진강', quiet['label_ko'])
         total = self.by_id(facts, 'st_total')
         self.assertEqual(total['label_en'], 'Total subway boardings')
-        self.assertEqual(total['value_en'], '200,059')   # every row, 임진강's 9 included
-        self.assertEqual(self.by_id(facts, 'sub_total')['value_en'], '200,059')
+        self.assertEqual(total['value_en'], '200,050')
+        self.assertEqual(self.by_id(facts, 'sub_total')['value_en'], '200,050')
+
+    def test_two_stations_of_one_name_are_judged_by_their_own_line(self):
+        # 양평: Line 5's in Yeongdeungpo-gu, the Jungang line's in Gyeonggi,
+        # 53 km apart. The name alone once put both outside.
+        master = self.MASTER + [
+            {'BLDN_NM': '양평', 'ROUTE': '5호선', 'LAT': '37.5402', 'LOT': '127.0170'},
+            {'BLDN_NM': '양평', 'ROUTE': '중앙선', 'LAT': '37.4928', 'LOT': '127.4918'}]
+        rows = self.SUB_ROWS + [
+            {'SBWY_ROUT_LN_NM': '5호선', 'SBWY_STNS_NM': '양평', 'GTON_TNOPE': '4000'},
+            {'SBWY_ROUT_LN_NM': '중앙선', 'SBWY_STNS_NM': '양평', 'GTON_TNOPE': '5000'}]
+        facts = self._facts(sub_rows=rows, master=master)
+        self.assertEqual(self.by_id(facts, 'sub_total')['value_en'], '204,050')
+        self.assertEqual(self.by_id(facts, 'st_quietest')['label_ko'], '가장 한산함: 양평')
+        self.assertEqual(self.by_id(facts, 'st_quietest')['value_en'], '4,000')
+
+    def test_a_renamed_station_is_found_under_its_old_name(self):
+        # 자양 is listed as 뚝섬유원지 in subwayStationMaster.
+        master = self.MASTER + [
+            {'BLDN_NM': '뚝섬유원지', 'ROUTE': '7호선', 'LAT': '37.5403', 'LOT': '127.0175'}]
+        rows = self.SUB_ROWS + [
+            {'SBWY_ROUT_LN_NM': '7호선', 'SBWY_STNS_NM': '자양', 'GTON_TNOPE': '20000'}]
+        facts = self._facts(sub_rows=rows, master=master)
+        self.assertEqual(self.by_id(facts, 'sub_total')['value_en'], '220,050')
+
+    def test_a_row_that_cannot_be_placed_is_left_out_and_said(self):
+        rows = self.SUB_ROWS + [
+            {'SBWY_ROUT_LN_NM': '경의선', 'SBWY_STNS_NM': '어딘가', 'GTON_TNOPE': '7000'}]
+        with unittest.mock.patch('builtins.print') as p:
+            facts = self._facts(sub_rows=rows)
+        self.assertEqual(self.by_id(facts, 'sub_total')['value_en'], '200,050')
+        self.assertTrue(any('어딘가' in str(c) for c in p.call_args_list))
+
+    def test_a_card_with_the_subway_total_says_what_it_counts(self):
+        facts = self._facts()
+        pool = [self.by_id(facts, 'sub_total'), self.by_id(facts, 'bus_total')]
+        c = S.compose({'opener_en': 'Seoul on the move', 'opener_ko': '움직이는 서울',
+                       'picks': [{'id': f['id']} for f in pool]}, pool)
+        self.assertIn('except Shinbundang and GTX-A', c['note_en'])
+        self.assertIn('신분당선과 GTX-A 제외', c['note_ko'])
+
+    def test_no_membership_withholds_the_subway_total_not_the_bus_one(self):
+        facts = self._facts(stub_extra={'subwayStationMaster': RuntimeError('down')})
+        self.assertIsNone(self.by_id(facts, 'sub_total'))
+        self.assertIsNotNone(self.by_id(facts, 'bus_total'))
 
     def test_a_gyeonggi_bus_stop_does_not_confer_membership(self):
         # 임진강 has a '2'-prefixed stop 20 m away; only '1' stops count.
@@ -2277,9 +2324,9 @@ class StationsCard(unittest.TestCase):
         # The bus cards' closing sentence, on this card too: his call,
         # 12 September 2026. The footnote keeps the bare date even though
         # the masthead above now carries the day of the week.
-        self.assertEqual(c['note_en'], 'All lines combined. '
+        self.assertEqual(c['note_en'], S.STATION_CAVEAT_EN + '. '
                                        '7 September is the latest date for which data is available.')
-        self.assertEqual(c['note_ko'], '전 노선 합산. 9월 7일은 데이터가 공개된 가장 최근 날짜.')
+        self.assertEqual(c['note_ko'], S.STATION_CAVEAT_KO + '. 9월 7일은 데이터가 공개된 가장 최근 날짜.')
 
     def test_the_streak_follows_the_latest_date_sentence_with_one_period(self):
         # The 16 September 2026 card (posted 20 September) read
@@ -2291,14 +2338,14 @@ class StationsCard(unittest.TestCase):
             'Seoul Station', 'Dorimcheon', '서울역', '도림천')
         c = self._card()
         self.assertEqual(c['note_en'],
-                         'All lines combined. '
+                         S.STATION_CAVEAT_EN + '. '
                          '7 September is the latest date for which data is available. '
                          'Seoul Station was the busiest and Dorimcheon the quietest on every day '
                          'recorded, 10 since September 7.')
         self.assertNotIn('..', c['note_en'])
         self.assertNotIn('..', c['note_ko'])
         self.assertEqual(c['note_ko'],
-                         '전 노선 합산. 9월 7일은 데이터가 공개된 가장 최근 날짜. '
+                         S.STATION_CAVEAT_KO + '. 9월 7일은 데이터가 공개된 가장 최근 날짜. '
                          '기록된 10일(9월 7일부터) 내내 가장 붐빈 역은 서울역이었다. '
                          '가장 한산한 역은 도림천이었다.')
 
@@ -2311,7 +2358,7 @@ class StationsCard(unittest.TestCase):
             'Seoul Station', 'Dorimcheon', '서울역', '도림천')
         c = self._card()
         self.assertTrue(c['note_en'].startswith(
-            'All lines combined. Seoul Station was the busiest'))
+            S.STATION_CAVEAT_EN + '. Seoul Station was the busiest'))
         self.assertNotIn('..', c['note_en'])
 
     def test_picking_two_of_four_completes_the_ranking(self):
@@ -2631,7 +2678,7 @@ class RankedVeinsOnACrowdCard(unittest.TestCase):
         c = self._card(facts)
         self._check(c, 'Subway boardings, Monday, September 7', '9월 7일 (월요일) 지하철 승차', '🚇', 1)
         self.assertEqual(c['items_en'][1]['emph'], 'Quietest')
-        self.assertTrue(c['note_en'].startswith('All lines combined.'), c['note_en'])
+        self.assertTrue(c['note_en'].startswith(S.STATION_CAVEAT_EN + '.'), c['note_en'])
 
     def test_stationgap(self):
         S.RANKED_CARD_INFO['stationgap'] = {
@@ -2639,8 +2686,8 @@ class RankedVeinsOnACrowdCard(unittest.TestCase):
             'dateline_en': 'Monday, September 7', 'dateline_ko': '9월 7일 (월요일)',
             'cross_dateline_en': 'Monday, September 7', 'cross_dateline_ko': '9월 7일 (월요일)',
             'cross_emoji': '🚇',
-            'note_en': 'The station with the day’s widest gap. All lines combined.',
-            'note_ko': '하차와 승차의 차이가 그날 가장 큰 역. 전 노선 합산.'}
+            'note_en': 'The station with the day’s widest gap. ' + S.STATION_CAVEAT_EN + '.',
+            'note_ko': '하차와 승차의 차이가 그날 가장 큰 역. ' + S.STATION_CAVEAT_KO + '.'}
         facts = [S.fact('st_gap_off', 'stationgap', 'Got off at Yeouinaru', '24,991', '24,991',
                         pin=True, label_ko='여의나루 하차', place_en='Yeouinaru', place_ko='여의나루',
                         num=24991, unit='people')]
@@ -2758,8 +2805,8 @@ class TwoRankedVeinsOnOneCard(unittest.TestCase):
                   'dateline_en': 'Monday, September 7', 'dateline_ko': '9월 7일 (월요일)',
                   'cross_dateline_en': 'Monday, September 7', 'cross_dateline_ko': '9월 7일 (월요일)',
                   'cross_emoji': '🚇',
-                  'note_en': 'All lines combined. September 7 is the latest date for which data is available.',
-                  'note_ko': '전 노선 합산. 9월 7일은 데이터가 공개된 가장 최근 날짜.'}
+                  'note_en': S.STATION_CAVEAT_EN + '. September 7 is the latest date for which data is available.',
+                  'note_ko': S.STATION_CAVEAT_KO + '. 9월 7일은 데이터가 공개된 가장 최근 날짜.'}
     RAIL = {'day_en': 'September 10', 'day_ko': '9월 10일',
             'dateline_en': 'Intercity rail boardings on September 10', 'dateline_ko': '9월 10일 열차 승차',
             'cross_dateline_en': 'Intercity rail boardings, Thursday, September 10',
@@ -2837,8 +2884,8 @@ class TwoRankedVeinsOnOneCard(unittest.TestCase):
         # The latest-date sentence, true of both, is said once.
         self.assertEqual(c['note_en'],
                          'Night routes only. September 7 is the latest date for which data is available. '
-                         'All lines combined.')
-        self.assertEqual(c['note_ko'], '심야 노선만. 9월 7일은 데이터가 공개된 가장 최근 날짜. 전 노선 합산.')
+                         + S.STATION_CAVEAT_EN + '.')
+        self.assertEqual(c['note_ko'], '심야 노선만. 9월 7일은 데이터가 공개된 가장 최근 날짜. ' + S.STATION_CAVEAT_KO + '.')
         self.assertEqual(c['opener']['emoji'], '🏙')
         self.assertEqual([it['emoji'] for it in c['items_en']], ['🚌', '🚌', '🚇'])
 
@@ -2858,7 +2905,7 @@ class TwoRankedVeinsOnOneCard(unittest.TestCase):
         # RANKED_CATS order, and the shared latest-date sentence is said once.
         self.assertEqual(c['note_en'],
                          'Night routes only. September 7 is the latest date for which data is available. '
-                         'All lines combined.')
+                         + S.STATION_CAVEAT_EN + '.')
         self.assertEqual(c['items_en'][4]['emph'], 'Quietest')
         # Neither subhead is repeated in the footnote.
         self.assertNotIn('Subway boardings', c['note_en'])

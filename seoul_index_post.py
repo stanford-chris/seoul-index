@@ -1437,12 +1437,15 @@ STATION_STREAK = {'en': '', 'ko': ''}
 # feed reaches Gyeonggi learns anything from it. "All lines combined"
 # stays because it changes who is named: per row Gangnam leads, summed
 # Seoul Station does. The rule itself (STATION_IN_SEOUL_KM) is unchanged.
-STATION_CAVEAT_EN = 'All lines combined'
-STATION_CAVEAT_KO = '전 노선 합산'
+# "All lines combined" was false until 6 October 2026: Seoul's card data
+# carries neither the Shinbundang line nor GTX-A.
+STATION_CAVEAT_EN = 'All lines combined except Shinbundang and GTX-A, which are not in the card data'
+STATION_CAVEAT_KO = '신분당선과 GTX-A를 뺀 전 노선 합산(교통카드 자료에 없음)'
 STATION_IN_SEOUL_KM = 0.3
 STATION_QUIET_FLOOR = 10     # the transport vein's own feed-artifact floor
 # Stamped into transport_cache beside bus_rank_rule, same reasoning.
-STATION_RANK_RULE = 'seoul-summed-2'   # -2: the transport lines follow it too
+STATION_RANK_RULE = 'seoul-summed-3'   # -2: the transport lines follow it too;
+                                       # -3: per-line membership, Seoul-only total
 
 # The stations card ranks by raw daily boardings, and 9 of 9 days measured
 # 7-15 September 2026 had Seoul Station busiest and Dorimcheon quietest
@@ -1874,6 +1877,90 @@ def stations_in_seoul(coords, seoul_stops, within_km=STATION_IN_SEOUL_KM):
                for q in grid.get((gx + dx, gy + dy), ())):
             inside.add(name)
     return inside
+
+
+# ⚠️⚠️ MEMBERSHIP IS PER LINE AND STATION, not per name, since 6 October
+# 2026. The name-keyed version above (stations_in_seoul over station_coords)
+# took the FIRST coordinate a name had, so Line 5's 양평 in Yeongdeungpo-gu
+# read as the Jungang line's 양평 in Gyeonggi and was left out, and summing
+# by name would have merged the two had either been in. It also never placed
+# 자양 (Line 7, ~20,000 boardings a day), which subwayStationMaster still
+# lists under its old name. The boardings feed and the station list spell
+# some lines differently, hence _line_key().
+# Measured 6 October 2026 over subwayStationMaster: every name listed more
+# than once spans at most 0.72 km (신촌) except 운정 (3.58, both in Paju)
+# and 양평 (53.55, one in Seoul, one in Gyeonggi).
+STATION_SAME_PLACE_KM = 1.5
+STATION_ALIASES = {'자양': '뚝섬유원지', '평택지제': '지제'}
+_LINE_ALIASES = {'경의선': '경의중앙선', '9호선2~3단계': '9호선'}
+
+
+def _line_key(line):
+    line = re.sub(r'\(.*?\)', '', re.sub(r'\s+', '', line or ''))
+    return _LINE_ALIASES.get(line, line)
+
+
+def station_master(api_key):
+    """subwayStationMaster as ({(line, folded name): (lon, lat)},
+    {folded name: [(lon, lat), ...]})."""
+    base = f'http://openapi.seoul.go.kr:8088/{api_key}/json'
+    tot = int(http_get_json(f'{base}/subwayStationMaster/1/1')
+              ['subwayStationMaster']['list_total_count'])
+    by_key, by_name = {}, {}
+    for s in range(1, tot + 1, 1000):
+        d = http_get_json(f'{base}/subwayStationMaster/{s}/{min(s + 999, tot)}')
+        for r in d.get('subwayStationMaster', {}).get('row', []):
+            name = fold_station(r.get('BLDN_NM'))
+            try:
+                xy = (float(r['LOT']), float(r['LAT']))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if name:
+                by_key.setdefault((_line_key(r.get('ROUTE')), name), xy)
+                by_name.setdefault(name, []).append(xy)
+    return by_key, by_name
+
+
+def station_rows_in_seoul(srows, master, seoul_stops):
+    """The boardings rows whose own line's station is inside Seoul, the
+    coordinate each kept station is pinned at, and the rows that could not
+    be placed (printed, and left out: a total must not guess)."""
+    by_key, by_name = master
+    cache = {}
+
+    def inside(xy):
+        if xy not in cache:
+            cache[xy] = bool(stations_in_seoul({'_': xy}, seoul_stops))
+        return cache[xy]
+
+    rows, coords, unplaced = [], {}, []
+    for x in srows:
+        name = fold_station(x.get('SBWY_STNS_NM'))
+        look = STATION_ALIASES.get(name, name)
+        xy = by_key.get((_line_key(x.get('SBWY_ROUT_LN_NM')), look))
+        if xy is None:
+            # A line the station list spells some other way: the name alone
+            # decides, but only if every place of that name agrees.
+            # Places of one name within STATION_SAME_PLACE_KM are one
+            # station's platforms (서울역's Line 1 and Line 4 entries are
+            # 0.51 km apart, and only one is within 300 m of a Seoul stop),
+            # so any one inside puts it inside; farther apart they are
+            # different stations (양평, 53.55 km) and the row is not placed.
+            places = by_name.get(look, [])
+            if not places or (len({inside(p) for p in places}) > 1 and max(
+                    _km(a, b) for a in places for b in places) > STATION_SAME_PLACE_KM):
+                unplaced.append(x)
+                continue
+            xy = places[0]
+        # One station's platforms are judged together: a line's entry can sit
+        # just beyond 300 m of a Seoul stop while the station's other lines
+        # are within it, and the station is one place.
+        near = [p for p in by_name.get(look, [xy]) if _km(p, xy) <= STATION_SAME_PLACE_KM]
+        pin = next((p for p in [xy] + near if inside(p)), None)
+        if pin:
+            rows.append(x)
+            coords.setdefault(name, pin)
+    return rows, coords, unplaced
 
 
 # --- the station gap card ----------------------------------------------------
@@ -2656,7 +2743,12 @@ def transport_facts(api_key, state):
         # Subway: one page holds all ~617 stations.
         sd = http_get_json(f'{base}/CardSubwayStatsNew/1/{max(sub_total_rows, 700)}/{day}')
         srows = [x for x in sd['CardSubwayStatsNew']['row'] if x['GTON_TNOPE'].isdigit()]
-        sub_total = sum(int(x['GTON_TNOPE']) for x in srows)
+        # ⚠️ The day's total is boardings at stations INSIDE Seoul, set below
+        # once membership is known, and None (the line withheld) when it is
+        # not. Until 6 October 2026 it summed every row, Korail lines to
+        # Cheonan, Ansan and Ilsan included: 6,375,751 on 3 October 2026
+        # against 4,823,150 inside Seoul.
+        sub_total = None
         # Busiest station, and quietest *sane* one (drop sub-handful feed artifacts
         # at major stations by ignoring boardings < 10).
         srows.sort(key=lambda x: int(x['GTON_TNOPE']))
@@ -2684,13 +2776,18 @@ def transport_facts(api_key, state):
         except RuntimeError as e:
             print(f'Bus stop coordinates unavailable ({e}): the stations and bus stops cards are withheld.')
         try:
-            coords = station_coords(api_key)
             if not stop_xy:
                 raise RuntimeError('bus stop coordinates unavailable')
-            in_seoul = stations_in_seoul(coords, list(stop_xy.values()))
+            in_rows, coords, unplaced = station_rows_in_seoul(
+                srows, station_master(api_key), list(stop_xy.values()))
+            for x in unplaced:
+                print(f"Subway row not placed, left out: {x.get('SBWY_ROUT_LN_NM')} "
+                      f"{x.get('SBWY_STNS_NM')} ({x.get('GTON_TNOPE')}).")
+            in_seoul = set(coords)
             st_count = len(in_seoul)
-            st_ranked, st_bottom = rank_stations(srows, in_seoul)
-            gap = station_gap(srows, in_seoul)
+            sub_total = sum(int(x['GTON_TNOPE']) for x in in_rows)
+            st_ranked, st_bottom = rank_stations(in_rows, in_seoul)
+            gap = station_gap(in_rows, in_seoul)
             st_ranked = st_ranked[:2]
             st_coords = {n: coords[n] for n, _ in st_ranked + ([st_bottom] if st_bottom else [])
                          if n in coords}
@@ -2783,12 +2880,15 @@ def transport_facts(api_key, state):
     # All of these are pinned: the date says which day the count belongs to, and the
     # station/route identifiers are either looked up from the English name table or
     # need no lookup at all, so none of it is the selector's to reword away.
-    facts = [
+    # No Seoul-only total (membership unavailable): the subway line goes,
+    # never the all-network sum. See sub_total in the harvest above.
+    facts = [] if c.get('sub_total') is None else [
         fact('sub_total', 'transport', f'Subway boardings on {d}',
              grouped(c['sub_total']), grouped(c['sub_total']), pair='modes',
              pin=True, label_ko=f'{d_ko} 지하철 승차 인원',
              period_en=d, period_ko=d_ko,
-             num=c['sub_total'], unit='people'),
+             num=c['sub_total'], unit='people')]
+    facts += [
         fact('bus_total', 'transport', f'Bus boardings the same day',
              grouped(c['bus_total']), grouped(c['bus_total']), pair='modes',
              pin=True, label_ko='같은 날 버스 승차 인원',
@@ -10359,6 +10459,12 @@ def compose(sel, pool):
                 transport_masthead = transport_period
             scope_en.append((None, transport_masthead[0]))
             scope_ko.append((None, transport_masthead[1]))
+    if any(l.get('id') == 'sub_total' for l in lines):
+        # The subway total is Seoul's stations only and misses two lines the
+        # card data never carried, 6 October 2026 (see sub_total's harvest).
+        scope_en.append(('Subway: stations in Seoul, every line except Shinbundang and GTX-A, '
+                         'which are not in the card data', None))
+        scope_ko.append(('지하철: 서울 소재 역, 신분당선과 GTX-A 제외(교통카드 자료에 없음)', None))
     if uses_hira:
         # Both provisos are keys to the figures: the region is where the
         # institution is, and the counts are insurance claims.
