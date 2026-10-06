@@ -9475,6 +9475,70 @@ def merge_ranked_notes(parts):
     return out
 
 
+# --- words the title already carries ----------------------------------------
+# His call, 6 October 2026: under "Through Incheon International Airport" the
+# row read "Passengers through Incheon International Airport", the airport
+# twice; then Gimpo, then "the same for any other card naming its subject
+# twice". Each entry is (vein, triggers, substitutions, language). A row is
+# trimmed only when THAT LANGUAGE's opener carries one of the triggers
+# (case-insensitive), so a card whose title does not name the subject (a
+# cross-vein card, a looser selector opener) keeps the full label. A
+# substitution starting '^' applies only at the start of the label.
+#
+# Measured on the last 339 posts before choosing these; left alone on
+# purpose: "Stops with at least one boarding" (bare, it is not English),
+# "Electricity used" (the metric's own name), the Hong Kong rows on the
+# Seoul-and-Hong-Kong card and "All animals" (each tells its row from the
+# others), and the Korean property and Ttareungi-count rows, where 아파트 and
+# 따릉이 are the noun a clause modifies and cannot go without a rewrite.
+TITLE_WORD_STRIPS = [
+    ('incheon', ('Incheon International Airport',),
+     ((' through Incheon International Airport', ''),), 'en'),
+    ('incheon', ('인천공항', '인천국제공항'), (('^인천공항 ', ''),), 'ko'),
+    ('airport', ('Gimpo International Airport',),
+     ((' through Gimpo International Airport', ''),), 'en'),
+    ('airport', ('김포공항', '김포국제공항'), (('^김포공항 ', ''),), 'ko'),
+    ('stations', ('subway',), (('Total subway boardings', 'Total boardings'),), 'en'),
+    ('stations', ('지하철',), (('전체 지하철 승차 인원', '전체 승차 인원'),), 'ko'),
+    ('nightbus', ('night bus', 'night-bus'),
+     (('Total night-bus boardings', 'Total boardings'),), 'en'),
+    ('nightbus', ('심야버스',), (('심야버스 전체 승차 인원', '전체 승차 인원'),), 'ko'),
+    ('air', ('air quality', 'air-quality'), (('Air-quality monitors', 'Monitors'),), 'en'),
+    ('air', ('대기질',), (('대기질 측정소', '측정소'),), 'ko'),
+    ('bike', ('ttareungi',), (('^Ttareungi ', ''),), 'en'),
+    ('bike', ('right now',), ((' right now', ''),), 'en'),
+    ('bike', ('따릉이',), (('따릉이 거치대', '거치대'),), 'ko'),
+    ('culture', ('museum',), (('Museums in Seoul', 'Museums'),
+                              ('Art galleries in Seoul', 'Art galleries')), 'en'),
+    ('culture', ('박물관',), (('^서울의 박물관', '박물관'), ('^서울의 미술관', '미술관')), 'ko'),
+    ('property', ('apartment',), ((' for an apartment', ''),
+                                  ('Apartment sales', 'Sales')), 'en'),
+]
+
+
+def strip_title_words(lines, opener_en, opener_ko):
+    """Drop from each row the subject its card's own title already names
+    (TITLE_WORD_STRIPS). English rows are re-capitalised after a cut."""
+    openers = {'en': (opener_en or '').lower(), 'ko': opener_ko or ''}
+    for cat, triggers, subs, lang in TITLE_WORD_STRIPS:
+        if not any(t.lower() in openers[lang] for t in triggers):
+            continue
+        key = f'label_{lang}'
+        for l in lines:
+            if l.get('cat') != cat or not l.get(key):
+                continue
+            text = l[key]
+            for old, new in subs:
+                if old.startswith('^'):
+                    if text.startswith(old[1:]):
+                        text = new + text[len(old) - 1:]
+                else:
+                    text = text.replace(old, new)
+            if lang == 'en' and text != l[key] and text:
+                text = text[0].upper() + text[1:]
+            l[key] = text
+
+
 def compose(sel, pool):
     by_id = {f['id']: f for f in pool}
     picks = [p for p in sel.get('picks', []) if p.get('id') in by_id]
@@ -10575,23 +10639,7 @@ def compose(sel, pool):
             if l['cat'] == 'incheon':
                 l['label_en'] = l['label_en'].removesuffix(f', {iiac_period[0]}')
                 l['label_ko'] = l['label_ko'].removesuffix(f', {iiac_period[1]}')
-    # His call, 6 October 2026: under "Through Incheon International Airport"
-    # the row read "Passengers through Incheon International Airport", the
-    # airport twice; Gimpo the same, his call that day. Each language is
-    # stripped only when ITS OWN opener names the airport, so a card whose
-    # opener does not keeps the full label. On Gimpo's twenty-year pair the
-    # month stays on the row ("Passengers, July 2006"): only the airport goes.
-    for cat, name_en, name_ko in (('incheon', 'Incheon', '인천공항'),
-                                  ('airport', 'Gimpo', '김포공항')):
-        for l in lines:
-            if l['cat'] != cat:
-                continue
-            if f'{name_en} International Airport' in opener_en:
-                l['label_en'] = l['label_en'].replace(
-                    f' through {name_en} International Airport', '')
-            # 인천공항 or 인천국제공항: the selector writes either in a title.
-            if name_ko in opener_ko or name_ko.replace('공항', '국제공항') in opener_ko:
-                l['label_ko'] = l['label_ko'].removeprefix(f'{name_ko} ')
+    strip_title_words(lines, opener_en, opener_ko)
     if korail_period[0] and (group_en or dateline_en) == korail_period[0]:
         for l in lines:
             if l['cat'] == 'rail':

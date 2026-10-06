@@ -2288,7 +2288,8 @@ class StationsCard(unittest.TestCase):
         self.assertTrue(c['lines'][3].get('bold'))
         self.assertEqual([l['label_en'] for l in c['lines']],
                          ['Busiest: Seoul Station', '2nd-busiest: Jamsil', 'Quietest: Oksu',
-                          'Total subway boardings'])
+                          # "subway" is in the title (On the subway), 6 Oct 2026.
+                          'Total boardings'])
         # The masthead carries the day of the week, his call, 13 September
         # 2026; day_en (STATION_DAY, used by the footnote below) stays bare.
         self.assertEqual(c['dateline_en'], 'Monday, September 7')
@@ -5220,3 +5221,52 @@ class LatestNoteFreshness(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main(verbosity=1)
+
+
+class TitleWordsAreNotRepeated(unittest.TestCase):
+    """strip_title_words(): a row drops the subject its own title names, his
+    call, 6 October 2026, and keeps it when the title does not."""
+
+    def run_strip(self, cat, en, ko, opener_en, opener_ko):
+        lines = [{'cat': cat, 'label_en': en, 'label_ko': ko}]
+        S.strip_title_words(lines, opener_en, opener_ko)
+        return lines[0]['label_en'], lines[0]['label_ko']
+
+    def test_each_card_named_twice_on_the_feed(self):
+        cases = [
+            ('stations', 'Total subway boardings', '전체 지하철 승차 인원',
+             'On the subway', '서울의 지하철', 'Total boardings', '전체 승차 인원'),
+            ('nightbus', 'Total night-bus boardings', '심야버스 전체 승차 인원',
+             'On the night buses', '서울의 심야버스', 'Total boardings', '전체 승차 인원'),
+            ('air', 'Air-quality monitors reporting live', '실시간으로 보고하는 대기질 측정소',
+             'Seoul’s air quality, right now', '지금 서울의 대기질',
+             'Monitors reporting live', '실시간으로 보고하는 측정소'),
+            ('bike', 'Ttareungi stations with no bike left right now', '서울 전역 따릉이 거치대 수',
+             'Ttareungi bikes, right now', '지금 서울의 따릉이',
+             'Stations with no bike left', '서울 전역 거치대 수'),
+            ('culture', 'Museums in Seoul', '서울의 박물관 수',
+             "A year at Seoul's museums", '서울 박물관의 1년', 'Museums', '박물관 수'),
+            ('property', 'Most paid for an apartment (Gangnam-gu)', '가장 비싸게 팔린 아파트, 강남구',
+             'The apartment market, one month', '한 달의 아파트 시장',
+             'Most paid (Gangnam-gu)', '가장 비싸게 팔린 아파트, 강남구'),
+            ('airport', 'Passengers through Gimpo International Airport, July 2006',
+             '김포공항 이용객, 2006년 7월', 'Through Gimpo International Airport',
+             '김포국제공항에서', 'Passengers, July 2006', '이용객, 2006년 7월'),
+        ]
+        for cat, en, ko, op_en, op_ko, want_en, want_ko in cases:
+            with self.subTest(cat=cat):
+                self.assertEqual(self.run_strip(cat, en, ko, op_en, op_ko),
+                                 (want_en, want_ko))
+
+    def test_a_title_that_does_not_name_the_subject_keeps_the_row_whole(self):
+        for cat, en, ko in (('stations', 'Total subway boardings', '전체 지하철 승차 인원'),
+                            ('nightbus', 'Total night-bus boardings', '심야버스 전체 승차 인원'),
+                            ('bike', 'Ttareungi stations citywide', '서울 전역 따릉이 거치대 수')):
+            with self.subTest(cat=cat):
+                self.assertEqual(self.run_strip(cat, en, ko, 'Seoul on the move',
+                                                '움직이는 서울'), (en, ko))
+
+    def test_another_veins_row_is_never_touched(self):
+        self.assertEqual(self.run_strip('transport', 'Total subway boardings', '전체 지하철 승차 인원',
+                                        'On the subway', '서울의 지하철'),
+                         ('Total subway boardings', '전체 지하철 승차 인원'))
