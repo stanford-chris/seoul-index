@@ -62,70 +62,75 @@ def ok(service, rows):
 
 
 # ---------------------------------------------------------------------------
-# statInfantNumInfo: the field LABELS are wrong in the feed itself
+# infant: KOSIS registered children by single year of age (since 7 Oct 2026)
 # ---------------------------------------------------------------------------
-# Three year columns, because a card needs three lines: a two-year fixture
-# makes every one of these tests pass for the wrong reason.
-INFANT_ROWS = [
-    # GBCODE 00 is a HEADER: its YEARnn hold the year labels, not counts.
-    {'GBCODE': '00', 'GBCODENM': '연도별',
-     'YEAR01': '2016', 'YEAR02': '2021', 'YEAR03': '2025'},
-    {'GBCODE': '01', 'GBCODENM': '0세',
-     'YEAR01': '75,536', 'YEAR02': '45,531', 'YEAR03': '41,600'},
-    {'GBCODE': '02', 'GBCODENM': '출산율(%)',
-     'YEAR01': '0.94', 'YEAR02': '0.64', 'YEAR03': '0.580'},
-    # ⚠️ '수' means count and holds a PERCENTAGE; '비율' means ratio and holds a
-    # COUNT. They are swapped in the feed. Neither may ever reach a card.
-    {'GBCODE': '07', 'GBCODENM': '어린이집,계,수',
-     'YEAR01': '44.1%', 'YEAR02': '45.0%', 'YEAR03': '46.1%'},
-    {'GBCODE': '08', 'GBCODENM': '어린이집,계,비율',
-     'YEAR01': '131,081', 'YEAR02': '100,000', 'YEAR03': '89,559'},
-]
+# Real Seoul figures from DT_1B04006, ages 0 to 5, for the three years a card
+# shows (fetched 7 October 2026). The old feed (statInfantNumInfo) posted births as "under 1" and a
+# 2025 copied from 2024; see infant_facts().
+INFANT_KOSIS = {
+    2015: [77668, 78187, 76152, 83046, 78850, 78745],
+    2020: [45165, 50482, 53099, 57331, 64404, 68808],
+    2025: [43645, 39703, 37268, 39955, 42056, 43053],
+}
 
 
-class InfantFeedLabelsLie(unittest.TestCase):
-    def facts(self, rows=None, state=None):
-        with Stub({'statInfantNumInfo': ok('statInfantNumInfo', rows or INFANT_ROWS)}):
-            return S.infant_facts('KEY', state if state is not None else {})
+class InfantFromKosis(unittest.TestCase):
+    def facts(self, data=None, state=None):
+        import subprocess as real_subprocess
+        data = INFANT_KOSIS if data is None else data
+        codes = list(S.INFANT_AGE_CODE.values())
 
-    def test_header_row_is_never_read_as_data(self):
-        # Reading GBCODE 00 would publish the YEAR as a population: '2016' people.
-        vals = {f['value_en'] for f in self.facts()}
-        self.assertNotIn('2,016', vals)
-        self.assertNotIn('2016', vals)
+        def run(cmd, **kw):
+            out = [{'PRD_DE': str(y), 'C2': codes[a], 'DT': str(v)}
+                   for y, ages in data.items() for a, v in enumerate(ages)]
+            return types.SimpleNamespace(stdout=json.dumps(out), returncode=0)
 
-    def test_year_labels_come_from_the_header(self):
-        labels = {f['label_en'] for f in self.facts()}
-        self.assertTrue(labels <= {'2016', '2021', '2025'}, labels)
+        S.subprocess.run = run
+        try:
+            return S.infant_facts('KOSISKEY', state if state is not None else {})
+        finally:
+            S.subprocess.run = real_subprocess.run
 
-    def test_percentage_row_can_never_reach_a_card(self):
-        # GBCODE 07 says 'count' and holds "44.1%". Every rotation must skip it.
-        state = {}
-        seen = set()
-        for _ in range(8):
-            for f in self.facts(state=state):
-                seen.add(f['value_en'])
-        self.assertNotIn('44.1%', seen)
-        self.assertNotIn('44', seen)
+    def test_under_1_is_the_registered_population_aged_0_not_births(self):
+        facts = self.facts(state={'infant_i': 0})
+        self.assertEqual([f['label_en'] for f in facts], ['2015', '2020', '2025'])
+        # 2025: 43,645 children aged 0, where 45,516 were born that year.
+        self.assertEqual(facts[-1]['value_en'], '43,645')
+        self.assertEqual(S.INFANT_PERIOD['en'], 'Children under 1')
 
-    def test_only_allowlisted_gbcodes_are_read(self):
-        # 08 is a real count, but it is not on the list and stays off the card.
-        state = {}
-        seen = set()
-        for _ in range(8):
-            for f in self.facts(state=state):
-                seen.add(f['value_en'])
-        self.assertNotIn('131,081', seen)
+    def test_a_band_sums_its_single_years(self):
+        facts = self.facts(state={'infant_i': 3})       # under 6
+        self.assertEqual(S.INFANT_PERIOD['en'], 'Children under 6')
+        self.assertEqual(facts[-1]['num'], sum(INFANT_KOSIS[2025]))
 
-    def test_a_renamed_series_is_dropped_not_guessed(self):
-        rows = [dict(r) for r in INFANT_ROWS]
-        rows[1]['GBCODENM'] = '만0세'          # label changes, GBCODE does not
-        self.assertTrue(self.facts(rows))       # keyed on GBCODE, so still read
+    def test_the_bands_rotate(self):
+        state, seen = {}, []
+        for _ in range(len(S.INFANT_SERIES)):
+            self.facts(state=state)
+            seen.append(S.INFANT_PERIOD['en'])
+        self.assertEqual(len(set(seen)), len(S.INFANT_SERIES))
 
-    def test_a_renumbered_series_is_dropped(self):
-        rows = [dict(r) for r in INFANT_ROWS]
-        rows[1]['GBCODE'] = '99'               # no longer allow-listed
-        self.assertEqual(self.facts(rows), [])
+    def test_a_missing_year_means_no_card(self):
+        data = {y: v for y, v in INFANT_KOSIS.items() if y != 2015}
+        self.assertEqual(self.facts(data), [])
+
+    def test_a_year_missing_an_age_is_not_used(self):
+        data = dict(INFANT_KOSIS)
+        data[2026] = [1, 2, 3]          # a partial newest year
+        facts = self.facts(data, state={'infant_i': 0})
+        self.assertEqual([f['label_en'] for f in facts], ['2015', '2020', '2025'])
+
+    def test_no_kosis_key_means_no_card(self):
+        self.assertEqual(S.infant_facts(None, {}), [])
+
+    def test_the_card_credits_kosis_and_says_registered(self):
+        facts = self.facts(state={'infant_i': 0})
+        c = S.compose({'opener_en': 'Seoul’s children, a decade apart',
+                       'opener_ko': '10년 사이 서울의 아이들',
+                       'picks': [{'id': f['id']} for f in facts]}, facts)
+        self.assertIn('Statistics Korea', c['src_en'])
+        self.assertNotIn('data.seoul.go.kr', c['src_en'])
+        self.assertIn('Registered residents', c['note_en'])
 
 
 # ---------------------------------------------------------------------------
@@ -4795,7 +4800,7 @@ class KepcoCards(unittest.TestCase):
         src = open(S.__file__, encoding='utf-8').read()
         for needle in ('- "kepco" lines are', '- "kepcohist" lines set',
                        "uses_kepco = bool({'kepco', 'kepcohk', 'kepcohist', 'kepcohouse'} & cats)",
-                       "uses_kosis = bool({'national', 'kepcohk'} & cats)",
+                       "uses_kosis = bool({'national', 'kepcohk', 'infant'} & cats)",
                        '- "kepcohk" lines set', "pool += kepco_hk_facts(kepco_key, kosis_key)",
                        "('bigdata.kepco.co.kr', 'https://bigdata.kepco.co.kr')",
                        "pool += kepco_facts(kepco_key, kosis_key)", "pool += kepco_hist_facts(kepco_key)",

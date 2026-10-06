@@ -4107,75 +4107,83 @@ def daynight_facts(api_key, state):
 
 
 # --- the youngest ----------------------------------------------------------
-# statInfantNumInfo: Seoul's count of children at each age, one column per year,
-# 2016 to 2025. The account already sets Seoul's fertility rate against the
-# country's; this is the same story told in whole children rather than a rate,
-# which is the more legible half.
+# Seoul's registered children at one age, the newest year against five and
+# ten years before. From KOSIS DT_1B04006 (행정구역별/1세별 주민등록인구,
+# year-end, Seoul = 11), summed over single years of age.
 #
-# ⚠️ Row GBCODE '00' is a HEADER, not data: its YEAR01..YEAR10 hold the year
-# labels ('2016'…'2025'), and reading it as a row would publish the year as a
-# population. The year labels are taken FROM it, which is why it is read first
-# rather than skipped.
-INFANT_SVC = 'statInfantNumInfo'
+# ⚠️⚠️ Until 7 October 2026 this read data.seoul.go.kr's statInfantNumInfo,
+# and every series it took was wrong. Measured against KOSIS that day: its
+# "0세" row is BIRTHS (equal to DT_1B81A01 to the child for 2016-2022), its
+# 2025 column repeats 2024's 41,600 where 45,516 were born, its "영유아 계"
+# row matches no age band at all (296,000 in 2016 against 453,439 aged 0-5),
+# and its 0-2 and 3-5 rows run 5 to 10 percent above the register. Its
+# labels were already known to be swapped on the 어린이집 rows. Do not go
+# back to it.
+# ⚠️ 주민등록인구 is Korean nationals on the resident register; registered
+# foreign children are a separate count. Hence "registered" in the footnote.
+INFANT_TBL = 'DT_1B04006'
 INFANT_MIN_LINES = 3
-# ⚠️⚠️ KEYED ON GBCODE, NEVER ON THE LABEL, because this feed's labels lie.
-# Row '어린이집,계,수' ("count") holds "44.1%" and '어린이집,계,비율' ("ratio")
-# holds 131,081: the two are swapped. Row 12 also misspells 유치원 as 유지원.
-# Only these four rows were checked to be unambiguous whole-number counts, and
-# anything not on this list is left alone rather than trusted.
-# ⚠️ '0세' is NOT "aged 0", which an English reader takes to mean newborns. It
-# is the first year of life, 0 to 11 months. The feed is on 만 나이
-# (international age) — Korean counting age starts at 1 and has no 0세 at all,
-# so a 0세 row can only be the international reckoning — which makes the honest
-# English "under 1". Same reasoning turns '영아(0~2)세' into "under 3".
-INFANT_SERIES = {'01': ('Children under 1', '0세 인구'),
-                 '04': ('Children under 6', '영유아 인구'),
-                 '05': ('Children under 3', '영아(0~2세) 인구'),
-                 '06': ('Children aged 3 to 5', '유아(3~5세) 인구')}
+INFANT_YEARS_APART = 5
+# Age codes in DT_1B04006 (OBJ YRE): 0401 = 0세 ... 0405 = 4세, 0501 = 5세.
+INFANT_AGE_CODE = {0: '0401', 1: '0402', 2: '0403', 3: '0404', 4: '0405', 5: '0501'}
+# (ages summed, English band, Korean band). "Under 1" is 0세 on 만 나이.
+INFANT_SERIES = [((0,), 'Children under 1', '0세 인구'),
+                 ((0, 1, 2), 'Children under 3', '0~2세 인구'),
+                 ((3, 4, 5), 'Children aged 3 to 5', '3~5세 인구'),
+                 ((0, 1, 2, 3, 4, 5), 'Children under 6', '0~5세 인구')]
 INFANT_PERIOD = {'en': None, 'ko': None}
 
 
-def infant_facts(api_key, state):
-    """Seoul's children at one age, a decade apart."""
+def _infant_ages(kosis_key):
+    """{year: {age: registered Seoul children}} for ages 0-5, or {}."""
+    from urllib.parse import quote
+    this = datetime.now(SEOUL_TZ).year
+    codes = '+'.join(INFANT_AGE_CODE.values())
+    url = ('https://kosis.kr/openapi/Param/statisticsParameterData.do'
+           f'?method=getList&apiKey={quote(kosis_key, safe="")}&format=json'
+           f'&jsonVD=Y&orgId=101&tblId={INFANT_TBL}&itmId=T2&objL1=11'
+           f'&objL2={codes}&prdSe=Y&startPrdDe={this - 2 * INFANT_YEARS_APART - 2}'
+           f'&endPrdDe={this}')
     try:
-        d = http_get_json(f'http://openapi.seoul.go.kr:8088/{api_key}/json/'
-                          f'{INFANT_SVC}/1/50/')
-    except RuntimeError:
-        return []
-    body = d.get(INFANT_SVC) or {}
-    if ((body.get('RESULT') or {}).get('CODE') or '') != 'INFO-000':
-        return []
-    rows = body.get('row') or []
-    header = next((r for r in rows if r.get('GBCODE') == '00'), None)
-    if not header:
-        return []
-    cols = [f'YEAR{i:02d}' for i in range(1, 11)]
-    years = {c: (header.get(c) or '').strip() for c in cols}
+        rows = http_get_json(url)
+    except (RuntimeError, ValueError, OSError):
+        return {}
+    if not isinstance(rows, list):
+        return {}
+    age_of = {c: a for a, c in INFANT_AGE_CODE.items()}
+    out = {}
+    for r in rows:
+        try:
+            out.setdefault(int(r['PRD_DE']), {})[age_of[r['C2']]] = int(float(r['DT']))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return {y: a for y, a in out.items() if len(a) == len(INFANT_AGE_CODE)}
 
-    ages = [r for r in rows if r.get('GBCODE') in INFANT_SERIES]
-    if not ages:
+
+def infant_facts(kosis_key, state):
+    """Seoul's registered children in one age band: the newest year, five
+    years before and ten. Bands rotate run to run."""
+    if not kosis_key:
+        return []
+    by_year = _infant_ages(kosis_key)
+    if not by_year:
+        return []
+    newest = max(by_year)
+    years = [newest - 2 * INFANT_YEARS_APART, newest - INFANT_YEARS_APART, newest]
+    if any(y not in by_year for y in years):
         return []
     i = int(state.get('infant_i', 0))
-    state['infant_i'] = (i + 1) % len(ages)
-    r = ages[i % len(ages)]
-    en_age, ko_age = INFANT_SERIES[r['GBCODE']]
-
+    state['infant_i'] = (i + 1) % len(INFANT_SERIES)
+    ages, en_age, ko_age = INFANT_SERIES[i % len(INFANT_SERIES)]
+    key = '-'.join(map(str, (ages[0], ages[-1])))
     facts = []
-    for c in cols:
-        yr = years.get(c)
-        raw = (r.get(c) or '').replace(',', '').strip()
-        if not yr or not raw.isdigit():
-            continue
-        v = int(raw)
-        if v <= 0:
-            continue
-        facts.append(fact(f'infant_{r["GBCODE"]}_{yr}', 'infant', yr,
+    for y in years:
+        v = sum(by_year[y][a] for a in ages)
+        facts.append(fact(f'infant_{key}_{y}', 'infant', str(y),
                           grouped(v), grouped(v), pair='infant_decade',
-                          pin=True, label_ko=f'{yr}년', num=v, unit='people'))
+                          pin=True, label_ko=f'{y}년', num=v, unit='people'))
     if len(facts) < INFANT_MIN_LINES:
         return []
-    # The ends of the decade carry it; the middle years only pad the card.
-    facts = [facts[0], facts[len(facts) // 2], facts[-1]]
     INFANT_PERIOD['en'] = en_age
     INFANT_PERIOD['ko'] = ko_age
     return facts
@@ -7931,7 +7939,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += price_facts(api_key, state)
     pool += water_facts(api_key)
     pool += daynight_facts(api_key, state)
-    pool += infant_facts(api_key, state)
+    pool += infant_facts(kosis_key, state)
     # kosis_key is the library ratio's denominator (Seoul's registered
     # population that age); without it the vein still posts bare counts.
     pool += library_facts(api_key, kosis_key)
@@ -10093,10 +10101,11 @@ def compose(sel, pool):
                  'health', 'healthcost', 'culture', 'tourism', 'level', 'boxoffice',
                  'boxhist', 'incheon', 'rail', 'railstations', 'seoulstation', 'wxday',
                  'rescue', 'kopis', 'kepco', 'kepcohk', 'kepcohist', 'kepcohouse',
-                 'railcommuter'}
+                 'railcommuter', 'infant'}
     uses_seoul = any(c not in non_seoul for c in cats)
     # kepcohk divides by KOSIS's registered population, so it credits KOSIS.
-    uses_kosis = bool({'national', 'kepcohk'} & cats)
+    # infant is KOSIS's registered population since 7 October 2026.
+    uses_kosis = bool({'national', 'kepcohk', 'infant'} & cats)
     # The library "1 in N" divides by KOSIS's registered population, so a card
     # carrying the ratio credits KOSIS exactly as a national card does. Guarded
     # on LIBRARY_POP rather than on the category, because a KOSIS outage leaves
@@ -10671,6 +10680,8 @@ def compose(sel, pool):
         # exactly as it owns every value.
         scope_en.append((None, INFANT_PERIOD['en']))
         scope_ko.append((None, INFANT_PERIOD['ko']))
+        scope_en.append(('Registered residents at the end of each year', None))
+        scope_ko.append(('각 연도 말 주민등록인구', None))
     # ⚠️ library: Seoul Library, not Seoul's 215 public libraries. Both of these
     # read from DESCRIPTOR_SCOPES so the words a cross pair promotes to a group
     # subhead and the words in the footnote can never be two different things.
