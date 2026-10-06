@@ -297,53 +297,97 @@ class WaterOneMeasureOnly(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # ListNecessariesPricesService: a flat spread is not an index
 # ---------------------------------------------------------------------------
-def prow(name, unit, price, gu, kind='전통시장', date='2026-08-14'):
-    return {'PRDLST_NM': name, 'UNIT': unit, 'A_PRICE': str(price),
-            'M_GU_NAME': gu, 'M_TYPE_NAME': kind, 'P_DATE': date,
-            'M_NAME': f'{gu} 시장'}
+_PSEQ = iter(range(1, 10**6))
+
+
+def prow(a_name, price, gu, kind='전통시장', date='2026-08-14', market=None):
+    return {'A_NAME': a_name, 'A_PRICE': str(price), 'M_GU_NAME': gu,
+            'M_TYPE_NAME': kind, 'P_DATE': date, 'P_SEQ': next(_PSEQ),
+            'M_NAME': market or f'{gu} {kind} 시장'}
+
+
+# A row older than the window, so the newest-first paging knows the round is
+# whole: without one, _price_rows never reaches the round's start and gives up.
+def old_row():
+    return prow('계란 10개', 1, '종로구', date='2026-08-01')
+
+
+CABBAGE = '배추(가을) 1포기'
 
 
 class PriceSpreadGuard(unittest.TestCase):
     def facts(self, rows, state=None):
+        rows = sorted(rows, key=lambda r: r['P_DATE'], reverse=True) + [old_row()]
         with Stub({'ListNecessariesPrices':
                    ok('ListNecessariesPricesService', rows)}):
             return S.price_facts('KEY', state if state is not None else {})
 
     def test_a_flat_item_is_skipped(self):
-        rows = [prow('배추', '1포기', 5000, '종로구'),
-                prow('배추', '1포기', 5200, '중구'),
-                prow('배추', '1포기', 5400, '강남구')]   # 1.08x, far under 1.5
+        rows = [prow(CABBAGE, 5000, '종로구'), prow(CABBAGE, 5200, '중구'),
+                prow(CABBAGE, 5400, '강남구')]          # 1.08x, far under 1.5
         self.assertEqual(self.facts(rows), [])
 
     def test_a_real_spread_makes_a_card(self):
-        rows = [prow('배추', '1포기', 2992, '노원구', '대형마트'),
-                prow('배추', '1포기', 3500, '광진구'),
-                prow('배추', '1포기', 6900, '동작구')]
+        rows = [prow(CABBAGE, 2992, '노원구', '대형마트'), prow(CABBAGE, 3500, '광진구'),
+                prow(CABBAGE, 6900, '동작구')]
         vals = {f['value_en'] for f in self.facts(rows)}
         self.assertIn('₩2,992', vals)
         self.assertIn('₩6,900', vals)       # both ends must survive
 
-    def test_one_line_per_district_and_kind(self):
-        rows = [prow('배추', '1포기', 2992, '노원구', '대형마트'),
-                prow('배추', '1포기', 3100, '노원구', '대형마트'),   # same label
-                prow('배추', '1포기', 3500, '광진구'),
-                prow('배추', '1포기', 6900, '동작구')]
-        labels = [f['label_en'] for f in self.facts(rows)]
+    def test_dearest_is_the_dearest_shop_not_a_districts_cheapest(self):
+        # Two markets in Dongjak: until 7 October 2026 the district kept its
+        # MINIMUM (6,900) and "Dearest" was that, not the 9,000 shop.
+        rows = [prow(CABBAGE, 2992, '노원구', '대형마트'), prow(CABBAGE, 3500, '광진구'),
+                prow(CABBAGE, 6900, '동작구', market='a'), prow(CABBAGE, 9000, '동작구', market='b')]
+        top = next(f for f in self.facts(rows) if f['label_en'].startswith('Dearest'))
+        self.assertEqual(top['value_en'], '₩9,000')
+
+    def test_another_variety_is_never_set_beside_it(self):
+        rows = [prow(CABBAGE, 3000, '노원구'), prow(CABBAGE, 3500, '광진구'),
+                prow(CABBAGE, 4600, '동작구'),
+                prow('배추(여름) 1포기', 9900, '중구')]   # summer cabbage
+        self.assertNotIn('₩9,900', {f['value_en'] for f in self.facts(rows, {'price_i': 1})})
+
+    def test_the_whole_round_counts_and_each_market_its_latest(self):
+        rows = [prow(CABBAGE, 2000, '노원구', date='2026-08-10'),
+                prow(CABBAGE, 3500, '광진구', date='2026-08-12'),
+                prow(CABBAGE, 6900, '동작구', date='2026-08-14'),
+                prow(CABBAGE, 1000, '광진구', date='2026-08-11', market='광진구 전통시장 시장')]
+        facts = self.facts(rows, {'price_i': 1})
+        vals = {f['value_en'] for f in facts}
+        self.assertIn('₩2,000', vals)        # four days back, same round
+        self.assertNotIn('₩1,000', vals)     # that market's older price
+        self.assertEqual(S.PRICE_PERIOD['en'], 'August 10 to 14')
+
+    def test_labels_are_never_repeated(self):
+        rows = [prow(CABBAGE, 2992, '노원구', '대형마트', market='x'),
+                prow(CABBAGE, 3100, '노원구', '대형마트', market='y'),
+                prow(CABBAGE, 3200, '노원구', '대형마트', market='z'),
+                prow(CABBAGE, 3500, '광진구'), prow(CABBAGE, 6900, '동작구')]
+        labels = [f['label_en'] for f in self.facts(rows, {'price_i': 1})]
         self.assertEqual(len(labels), len(set(labels)))
 
     def test_an_unmapped_district_is_dropped(self):
-        rows = [prow('배추', '1포기', 2992, '노원구', '대형마트'),
-                prow('배추', '1포기', 3500, '광진구'),
-                prow('배추', '1포기', 6900, '동작구'),
-                prow('배추', '1포기', 9900, '없는구')]
-        self.assertNotIn('₩9,900', {f['value_en'] for f in self.facts(rows)})
+        rows = [prow(CABBAGE, 2992, '노원구', '대형마트'), prow(CABBAGE, 3500, '광진구'),
+                prow(CABBAGE, 6900, '동작구'), prow(CABBAGE, 9900, '없는구')]
+        self.assertNotIn('₩9,900', {f['value_en'] for f in self.facts(rows, {'price_i': 1})})
 
     def test_a_zero_price_is_not_a_price(self):
-        rows = [prow('배추', '1포기', 0, '노원구', '대형마트'),
-                prow('배추', '1포기', 3500, '광진구'),
-                prow('배추', '1포기', 6900, '동작구'),
-                prow('배추', '1포기', 2992, '중구', '대형마트')]
-        self.assertNotIn('₩0', {f['value_en'] for f in self.facts(rows)})
+        rows = [prow(CABBAGE, 0, '노원구', '대형마트'), prow(CABBAGE, 3500, '광진구'),
+                prow(CABBAGE, 6900, '동작구'), prow(CABBAGE, 2992, '중구', '대형마트')]
+        self.assertNotIn('₩0', {f['value_en'] for f in self.facts(rows, {'price_i': 1})})
+
+    def test_a_noted_price_is_left_out(self):
+        rows = [prow(CABBAGE, 3000, '노원구'), prow(CABBAGE, 3500, '광진구'),
+                prow(CABBAGE, 6900, '동작구'), prow(CABBAGE, 1000, '중구')]
+        rows[-1]['ADD_COL'] = '농식품부 할인지원'
+        self.assertNotIn('₩1,000', {f['value_en'] for f in self.facts(rows, {'price_i': 1})})
+
+    def test_a_round_that_never_ends_is_not_used(self):
+        rows = [prow(CABBAGE, 2992, '노원구', '대형마트'), prow(CABBAGE, 3500, '광진구'),
+                prow(CABBAGE, 6900, '동작구')]
+        with Stub({'ListNecessariesPrices': ok('ListNecessariesPricesService', rows)}):
+            self.assertEqual(S.price_facts('KEY', {'price_i': 1}), [])
 
 
 # ---------------------------------------------------------------------------

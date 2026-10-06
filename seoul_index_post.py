@@ -3810,39 +3810,57 @@ def level_facts(hrfco_key):
 # is a published field and is the more interesting half anyway: it changes sides
 # from item to item, which a card should let the reader notice unremarked.
 PRICE_SVC = 'ListNecessariesPricesService'
-PRICE_ROWS = 1000        # newest-first, ~2 days of observations
+# ⚠️⚠️ ONE SURVEY ROUND, NOT ONE DAY, since 7 October 2026. Each market is
+# priced once a round and a round runs over about five weekdays (measured
+# 2 October 2026: that day 1,872 rows from 17 districts; the four days to it
+# reached all 25 and 90 markets). The vein read one 1,000-row page and kept
+# its newest day, which held 13 of that day's 17 districts, and called the
+# result prices "across Seoul". It now pages back PRICE_WINDOW_DAYS from the
+# newest date and keeps each market's latest price.
+PRICE_PAGE = 1000
+PRICE_MAX_PAGES = 15
+PRICE_WINDOW_DAYS = 6
 PRICE_MIN_LINES = 3      # a spread needs three quoted shops to be an index
 PRICE_MIN_RATIO = 1.5    # dearest/cheapest below this is not worth a card
 PRICE_STRIDE = 7         # coprime with the item list, so the walk covers it
 
-# Curated because the feed's 93 product/unit pairs include several a reader
-# outside Korea cannot place, and because the unit belongs in the opener rather
-# than on every line. Korean labels are the feed's own wording.
+# ⚠️⚠️ KEYED ON THE EXACT PRODUCT (A_NAME), since 7 October 2026. Keyed on the
+# item name and unit, one card set summer cabbage against autumn cabbage,
+# Hongro apples against Fuji, frozen hairtail against fresh, and a single
+# fresh mackerel against a 손 of salted ones (two fish), and called 10 eggs
+# "a tray" (a 판 is 30). One product per entry now, the feed's own name in
+# Korean. Every product below carries one brand in the feed (checked the same
+# day), so a line never sets two brands against each other either.
 PRICE_ITEMS = [
-    ('배추',   '1포기',  'a napa cabbage',      '배추 1포기'),
-    ('수박',   '',       'a watermelon',        '수박 한 통'),
-    ('계란',   '',       'a tray of eggs',      '계란 한 판'),
-    ('사과',   '',       'apples',              '사과'),
-    ('삼겹살', '100g',   'pork belly, 100g',    '삼겹살 100g'),
-    ('돼지고기','100g',  'pork, 100g',          '돼지고기 100g'),
-    ('소고기(국산)','100g','Korean beef, 100g',  '국산 소고기 100g'),
-    ('고등어', '대',     'a large mackerel',    '고등어(대)'),
-    ('갈치',   '대',     'a large hairtail',    '갈치(대)'),
-    ('쌀',     '10kg',   'rice, 10kg',          '쌀 10kg'),
-    ('양파',   '1kg',    'onions, 1kg',         '양파 1kg'),
-    ('마늘',   '1kg',    'garlic, 1kg',         '마늘 1kg'),
-    ('풋고추', '100g',   'green chillies, 100g','풋고추 100g'),
-    ('상추',   '100g',   'lettuce, 100g',       '상추 100g'),
-    ('두부',   '380g',   'a block of tofu',     '두부 380g'),
-    ('콩나물', '340g',   'bean sprouts, 340g',  '콩나물 340g'),
-    ('우유',   '1L',     'milk, 1L',            '우유 1L'),
-    ('소주',   '360ml',  'a bottle of soju',    '소주 360ml'),
-    ('맥주',   '500ml',  'a can of beer',       '맥주 500ml'),
-    ('라면',   '5개입',  'instant noodles, 5-pack', '라면 5개입'),
-    ('식용유', '1.8L',   'cooking oil, 1.8L',   '식용유 1.8L'),
-    ('참기름', '320ml',  'sesame oil, 320ml',   '참기름 320ml'),
-    ('고추장', '1kg',    'gochujang, 1kg',      '고추장 1kg'),
-    ('김치',   '3.3kg',  'kimchi, 3.3kg',       '김치 3.3kg'),
+    ('배추(여름) 1포기',          'a summer napa cabbage',       '배추(여름) 1포기'),
+    ('배추(가을) 1포기',          'an autumn napa cabbage',      '배추(가을) 1포기'),
+    ('배추(월동) 1포기',          'a winter napa cabbage',       '배추(월동) 1포기'),
+    ('수박 1통',                  'a watermelon',                '수박 1통'),
+    ('계란 10개',                 '10 eggs',                     '계란 10개'),
+    ('사과(홍로) 1개',            'a Hongro apple',              '사과(홍로) 1개'),
+    ('사과(부사) 1개',            'a Fuji apple',                '사과(부사) 1개'),
+    ('돼지고기 100g',             'pork belly, 100g',            '삼겹살 100g'),
+    ('소고기(국산) 100g',         'Korean beef sirloin, 100g',   '한우 등심 100g'),
+    ('고등어(신선냉장) 1마리(대)', 'a large fresh mackerel',     '신선 고등어(대) 1마리'),
+    ('고등어(염장) 1손(대)',      'a pair of large salted mackerel', '염장 고등어(대) 1손'),
+    ('갈치(생물) 1마리(대)',      'a large fresh hairtail',      '생물 갈치(대) 1마리'),
+    ('갈치(냉동) 1마리(대)',      'a large frozen hairtail',     '냉동 갈치(대) 1마리'),
+    ('쌀(이천쌀) 10kg 1포',       'Icheon rice, 10kg',           '이천쌀 10kg'),
+    ('쌀(오대쌀) 10kg 1포',       'Odae rice, 10kg',             '오대쌀 10kg'),
+    ('양파 1망',                  'a 1kg net of onions',         '양파 1kg 1망'),
+    ('깐마늘 1kg',                'peeled garlic, 1kg',          '깐마늘 1kg'),
+    ('청양고추 100g',             'Cheongyang chillies, 100g',   '청양고추 100g'),
+    ('상추(적상추) 100g',         'red-leaf lettuce, 100g',      '적상추 100g'),
+    ('두부 380g',                 'a block of tofu, 380g',       '두부 380g'),
+    ('콩나물 340g',               'bean sprouts, 340g',          '콩나물 340g'),
+    ('우유 1L',                   'milk, 1L',                    '우유 1L'),
+    ('소주 360ml, 1병',           'a bottle of soju',            '소주 360ml'),
+    ('맥주 500ml 1캔',            'a can of beer',               '맥주 500ml'),
+    ('라면 5개입 1봉',            'instant noodles, 5-pack',     '라면 5개입'),
+    ('식용유 1.8L',               'cooking oil, 1.8L',           '식용유 1.8L'),
+    ('참기름 320ml',              'sesame oil, 320ml',           '참기름 320ml'),
+    ('고추장 1kg',                'gochujang, 1kg',              '고추장 1kg'),
+    ('김치 3.3kg 1개',            'kimchi, 3.3kg',               '김치 3.3kg'),
 ]
 PRICE_KIND = {'전통시장': ('a traditional market', '전통시장'),
               '대형마트': ('a supermarket', '대형마트')}
@@ -3853,17 +3871,40 @@ PRICE_LABEL = {'en': None, 'ko': None}
 
 
 def _price_rows(api_key):
-    """The newest page of price observations, or []."""
-    url = (f'http://openapi.seoul.go.kr:8088/{api_key}/json/'
-           f'{PRICE_SVC}/1/{PRICE_ROWS}/')
-    try:
-        d = http_get_json(url)
-    except RuntimeError:
-        return []
-    body = d.get(PRICE_SVC) or {}
-    if ((body.get('RESULT') or {}).get('CODE') or '') != 'INFO-000':
-        return []
-    return body.get('row') or []
+    """The newest survey round: every row dated within PRICE_WINDOW_DAYS of
+    the newest, paged newest-first, duplicates (the feed serves some rows
+    twice under one P_SEQ) dropped. [] on any failure: a round cut short
+    by a failed page is not a round."""
+    rows, seen, cutoff = [], set(), None
+    for page in range(PRICE_MAX_PAGES):
+        a = page * PRICE_PAGE + 1
+        url = (f'http://openapi.seoul.go.kr:8088/{api_key}/json/'
+               f'{PRICE_SVC}/{a}/{a + PRICE_PAGE - 1}/')
+        try:
+            d = http_get_json(url)
+        except RuntimeError:
+            return []
+        body = d.get(PRICE_SVC) or {}
+        if ((body.get('RESULT') or {}).get('CODE') or '') != 'INFO-000':
+            return []
+        got = body.get('row') or []
+        if not got:
+            return []
+        if cutoff is None:
+            try:
+                newest = datetime.strptime(got[0].get('P_DATE') or '', '%Y-%m-%d')
+            except ValueError:
+                return []
+            cutoff = (newest - timedelta(days=PRICE_WINDOW_DAYS)).strftime('%Y-%m-%d')
+        for r in got:
+            if (r.get('P_DATE') or '') < cutoff:
+                return rows
+            key = r.get('P_SEQ')
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(r)
+    return []    # never reached the round's start: not a whole round
 
 
 def price_window(state):
@@ -3874,20 +3915,27 @@ def price_window(state):
 
 
 def price_facts(api_key, state):
-    """One everyday item, priced at shops across Seoul, on the newest day."""
+    """One product, priced at markets across Seoul in the newest survey round:
+    the cheapest shop, the dearest, and two between."""
     rows = _price_rows(api_key)
     if not rows:
         return []
-    newest = max(r.get('P_DATE') or '' for r in rows)
-    if not newest:
-        return []
-    day = [r for r in rows if r.get('P_DATE') == newest]
-
-    for ko_name, unit, en_label, ko_label in price_window(state):
-        seen = {}
-        for r in day:
-            if r.get('PRDLST_NM') != ko_name or (r.get('UNIT') or '') != unit:
+    for a_name, en_label, ko_label in price_window(state):
+        latest = {}         # market -> its newest row for this product
+        for r in rows:
+            if (r.get('A_NAME') or '') != a_name:
                 continue
+            # A row with a note is not the standard product at its shelf
+            # price: the notes are discounts (할인, 세일, 농식품부 할인지원,
+            # which put 10 eggs at ₩1,994), multi-buy prices, imported stock
+            # (미국산, 중국산) and other grades. 7 percent of rows, left out.
+            if (r.get('ADD_COL') or '').strip():
+                continue
+            m = r.get('M_NAME') or ''
+            if m and (m not in latest or r['P_DATE'] > latest[m]['P_DATE']):
+                latest[m] = r
+        shops = []
+        for r in latest.values():
             kind = PRICE_KIND.get(r.get('M_TYPE_NAME') or '')
             gu_ko = r.get('M_GU_NAME') or ''
             if not kind or not gu_ko:
@@ -3900,50 +3948,48 @@ def price_facts(api_key, state):
                 price = float(r.get('A_PRICE'))
             except (TypeError, ValueError):
                 continue
-            if price <= 0:
-                continue
-            # One line per (district, kind): several shops of the same kind in
-            # one district would otherwise put the same label on the card twice.
-            key = (gu_ko, r['M_TYPE_NAME'])
-            if key not in seen or price < seen[key][0]:
-                seen[key] = (price, kind, gu_en, gu_ko)
-        if len(seen) < PRICE_MIN_LINES:
+            if price > 0:
+                shops.append((price, kind, gu_en, gu_ko, r['P_DATE']))
+        if len(shops) < PRICE_MIN_LINES:
             continue
-        vals = sorted(seen.values())
-        if vals[-1][0] / max(vals[0][0], 1) < PRICE_MIN_RATIO:
+        shops.sort()
+        if shops[-1][0] / max(shops[0][0], 1) < PRICE_MIN_RATIO:
             continue            # too flat to be worth a reader's attention
-
-        # Keep the two ends and, if room, the widest-apart middles: the card is
-        # the SPREAD, so the extremes must both survive the selector's trim.
-        # ⚠️ THE LABEL LEADS WITH WHAT THE NUMBER MEANS. "A traditional market
-        # in Dongjak-gu" puts the unplaceable part first and never says the
-        # thing that matters — that this is the dearest in the city that day —
-        # leaving a reader who cannot place Dongjak with four prices and no way
-        # to read them. The two ends therefore carry their rank, exactly as the
-        # property vein's "Most paid for an apartment (Yongsan-gu)" does. The
-        # rank is true of the whole city, not of the card, so it stays true
-        # whichever companions the selector keeps.
-        picks = [vals[0], vals[-1]] + vals[1:-1][:2]
-        rank = {id(vals[0]): ('Cheapest', '가장 싼'),
-                id(vals[-1]): ('Dearest', '가장 비싼')}
-        try:
-            d = datetime.strptime(newest, '%Y-%m-%d')
-            PRICE_PERIOD['en'] = f'{en_date(d)}'
-            PRICE_PERIOD['ko'] = f'{d.month}월 {d.day}일'
-        except ValueError:
-            PRICE_PERIOD['en'] = PRICE_PERIOD['ko'] = newest
+        # The two ends are the cheapest and the DEAREST SHOP in the round.
+        # (Until 7 October 2026 "Dearest" was the cheapest shop in the dearest
+        # district, because each district kept its minimum before ranking.)
+        # Two between them, each a district-and-kind the card has not used,
+        # since a label must not appear twice.
+        lo, hi = shops[0], shops[-1]
+        used, mids = {(lo[3], lo[1]), (hi[3], hi[1])}, []
+        for e in shops[1:-1]:
+            if (e[3], e[1]) not in used and len(mids) < 2:
+                used.add((e[3], e[1]))
+                mids.append(e)
+        if not mids:
+            continue
+        dates = sorted(e[4] for e in shops)
+        d0, d1 = dates[0].replace('-', ''), dates[-1].replace('-', '')
+        if d0 == d1:
+            PRICE_PERIOD['en'] = en_date(_day_dt(d0))
+            PRICE_PERIOD['ko'] = f'{_day_dt(d0).month}월 {_day_dt(d0).day}일'
+        else:
+            PRICE_PERIOD['en'], PRICE_PERIOD['ko'] = _span_en(d0, d1), _span_ko(d0, d1)
         PRICE_LABEL['en'] = en_label
         PRICE_LABEL['ko'] = ko_label
+        idx = next(k for k, it in enumerate(PRICE_ITEMS) if it[0] == a_name)
         facts = []
-        for entry in picks:
-            price, kind, gu_en, gu_ko = entry
-            lead = rank.get(id(entry))
-            label_en = f'{kind[0].capitalize()} in {gu_en}'
-            label_ko = f'{gu_ko}의 {kind[1]}'
+        for n, (entry, lead) in enumerate([(lo, ('Cheapest', '가장 싼')),
+                                           (hi, ('Dearest', '가장 비싼'))]
+                                          + [(e, None) for e in mids]):
+            price, kind, gu_en, gu_ko, _ = entry
             if lead:
                 label_en = f'{lead[0]}, {kind[0]} ({gu_en})'
                 label_ko = f'{lead[1]} {kind[1]} ({gu_ko})'
-            facts.append(fact(f'price_{ko_name}_{gu_ko}_{kind[1]}', 'price',
+            else:
+                label_en = f'{kind[0].capitalize()} in {gu_en}'
+                label_ko = f'{gu_ko}의 {kind[1]}'
+            facts.append(fact(f'price_{idx}_{gu_ko}_{kind[1]}_{n}', 'price',
                               label_en, won_en(price), won_ko(price),
                               pair='price_spread', pin=True, label_ko=label_ko,
                               num=price, unit='won'))
