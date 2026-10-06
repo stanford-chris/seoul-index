@@ -5748,11 +5748,12 @@ KEPCO_OPENER_KO = '서울의 전기'
 KEPCOHK_OPENER_EN = 'Electricity in Seoul and Hong Kong'
 KEPCOHK_OPENER_KO = '서울과 홍콩의 전기'
 KEPCOHK_NOTE_EN = ('Per capita is all electricity used over population: KOSIS’s registered '
-                   'population for Seoul, the government’s figures for Hong Kong · Per household '
-                   'is residential customers: KEPCO’s residential tariff for Seoul, CLP Power '
-                   'and HK Electric for Hong Kong')
+                   'population for Seoul, the government’s figures for Hong Kong · Per household: '
+                   'KEPCO’s published household averages for Seoul; for Hong Kong, CLP Power and '
+                   'HK Electric’s residential sales over the government’s household count')
 KEPCOHK_NOTE_KO = ('1인당은 전체 전력 사용량을 인구로 나눈 값: 서울은 주민등록인구, 홍콩은 정부 통계 · '
-                   '가구당은 주택용 고객 기준: 서울은 한국전력 주택용, 홍콩은 CLP Power·HK Electric')
+                   '가구당: 서울은 한국전력이 공표한 가구 평균, 홍콩은 CLP Power·HK Electric의 '
+                   '주택용 판매량을 정부 가구 수로 나눈 값')
 KEPCO_HIST_OPENER_EN = 'Seoul’s electricity, 20 years apart'
 KEPCO_HIST_OPENER_KO = '서울의 전기, 20년 전과 지금'
 # The shares clause ("households are its residential tariff, shops and
@@ -5798,7 +5799,8 @@ _KEPCO_CACHE = {}
 #   HK Electric -- Sustainability Report 2025, statistics PDF p.121:
 #     477,000 residential customers, 2,387,000,000 kWh sold.
 HK_ANNUAL_YEAR = 2025
-HK_ANNUAL_CUST = 2_528_522 + 477_000
+# (CLP Power's 2,528,522 and HK Electric's 477,000 residential ACCOUNTS were
+# the divisor until 7 October 2026; see HK_HOUSEHOLDS.)
 HK_ANNUAL_KWH = 9_966_000_000 + 2_387_000_000
 # Per-capita pair, added the same day after he caught what the household pair
 # had already fixed and the total pair had not: a raw Seoul-total-vs-Hong-
@@ -5821,6 +5823,14 @@ HK_ANNUAL_KWH = 9_966_000_000 + 2_387_000_000
 #   Population: Census and Statistics Department press release "Year-end
 #     Population for 2025" (12 February 2026), provisional: 7,510,800.
 # 1 TJ = 1e12 J / 3.6e6 J per kWh = 1e6/3.6 kWh.
+# Hong Kong's domestic households, 2025 annual: 2,778.1 thousand, Census
+# and Statistics Department table 130-06102 (series DH, freq Y), read
+# 7 October 2026 through its own API. The per-household row divides CLP
+# Power's and HK Electric's residential kWh by this, not by their
+# 3,005,522 residential ACCOUNTS: an account is not a household (vacant
+# flats, second homes), and the Seoul side is households too.
+HK_HOUSEHOLDS_YEAR = 2025
+HK_HOUSEHOLDS = 2_778_100
 HK_TOTAL_YEAR = 2025
 HK_TOTAL_KWH = 164_433 * 1e6 / 3.6
 HK_TOTAL_POP = 7_510_800
@@ -5835,19 +5845,6 @@ HK_SOURCE_DOMAINS = ['clpgroup.com', 'hkelectric.com', 'censtatd.gov.hk']
 # card, so this and that card can never quote two different Seoul
 # populations. See _seoul_population() below.
 _SEOUL_POP_CACHE = {}
-# Same contractType.do endpoint, metroCd omitted: verified 13 September 2026
-# to return the whole country's total by contract type for the month, so
-# a national comparison needs no new key and no new signup. ⚠️ The response
-# is NOT one JSON object -- it is two concatenated: a small nationwide
-# total by contract type ('totData', 7 rows) first, then a full
-# city-by-city breakdown for the entire country ('data', ~1,600 rows)
-# that nothing here needs. json.JSONDecoder().raw_decode() stops after the
-# first object, so the second (and the ~280 KB it costs to hold) is never
-# parsed, though curl still has to receive it over the wire either way --
-# there is no lighter "totals only" variant of this endpoint.
-KEPCO_NATIONAL_BASE = ('https://bigdata.kepco.co.kr/openapi/v1/powerUsage/contractType.do'
-                       '?year={y}&month={m:02d}&apiKey={key}&returnType=json')
-_KEPCO_NATIONAL_CACHE = {}
 # KEPCO's household-average endpoint (가구평균, houseAve.do): per district, the
 # month's households on the residential tariff, the AVERAGE kWh per household
 # and the AVERAGE bill, all published by KEPCO itself. That is the per-household
@@ -5929,32 +5926,6 @@ def _kepco_totals(rows):
     return t if t['kwh'] else None
 
 
-def _kepco_national_house(key, y, m):
-    """(custCnt, powerUsage) for 주택용 (residential) nationwide for y-m, or
-    None: a failed call, an unpublished month, or a response that doesn't
-    parse. Never raises -- a caller that can't get this must fall back to
-    the card without a national comparison, not withhold the card."""
-    if (y, m) in _KEPCO_NATIONAL_CACHE:
-        return _KEPCO_NATIONAL_CACHE[(y, m)]
-    url = KEPCO_NATIONAL_BASE.format(key=key, y=y, m=m)
-    stdout = _curl(url, follow=True)
-    result = None
-    try:
-        d, _ = json.JSONDecoder().raw_decode(stdout)
-        rows = d['totData']
-        if isinstance(rows, list):
-            for r in rows:
-                if not isinstance(r, dict):
-                    continue
-                if (r.get('cntr') or '').replace(' ', '') == '주택용':
-                    result = (int(r['custCnt']), int(r['powerUsage']))
-                    break
-    except (ValueError, KeyError, TypeError):
-        result = None
-    _KEPCO_NATIONAL_CACHE[(y, m)] = result
-    return result
-
-
 def _kepco_seoul_annual(key, end_y, end_m):
     """{'kwh': total, 'house_kwh': total, 'house_cust': avg} for Seoul's own
     trailing 12 months ending at end_y-end_m, or None if any of the 12
@@ -5991,6 +5962,36 @@ def _kepco_seoul_annual(key, end_y, end_m):
             y -= 1
     return {'kwh': total_kwh, 'house_kwh': total_house_kwh,
             'house_cust': sum(cust_samples) / len(cust_samples)}
+
+
+def _kepco_seoul_house_annual(key, end_y, end_m):
+    """kWh per household over the 12 months ending end_y-end_m, from KEPCO's
+    OWN published household averages (houseAve.do): each month's 25 district
+    averages weighted by their households, summed across the year. None if
+    any month is missing: a partial year is never an annual figure.
+
+    ⚠️ Not 주택용 kWh over 주택용 contracts (the card's figure until 7 October
+    2026): contracts count a bulk-metered apartment complex once, which put
+    July 2026 at 518 kWh against KEPCO's own 279. Note that KEPCO's average
+    also sits about 8 percent under 주택용 kWh over its own household count
+    (303 in July); unexplained, and the publisher's figure is the one used."""
+    total = 0.0
+    y, m = end_y, end_m
+    for _ in range(12):
+        rows = _kepco_house_rows(key, y, m)
+        if not rows:
+            return None
+        try:
+            hc = sum(int(float(r['houseCnt'])) for r in rows)
+            if not hc:
+                return None
+            total += sum(float(r['powerUsage']) * int(float(r['houseCnt'])) for r in rows) / hc
+        except (KeyError, TypeError, ValueError):
+            return None
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    return total
 
 
 def _kepco_newest(key):
@@ -6038,23 +6039,14 @@ def kepco_facts(key, kosis_key=None):
         print(f'Electricity card withheld: the rows for {y}-{m:02d} did not sum.')
         return []
     per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
-    # National comparison, added 13 September 2026, his ask, after he
-    # rejected a share-of-national-total framing as confounded by nothing
-    # more than Seoul holding a big share of the national population --
-    # per household is the confound-free cut, and it's derived identically
-    # on both sides (see _kepco_totals' house_cust docstring) so the two
-    # numbers are directly comparable. Optional: a fetch that fails or a
-    # month with no residential rows just leaves the note as it was: this
-    # comparison is not load-bearing for the card, which already worked
-    # without it.
+    # The footnote's Seoul-against-national comparison (13 September 2026)
+    # divided residential use by billing CONTRACTS, which count a bulk-metered
+    # apartment complex once: 518 kWh in July 2026 where KEPCO's own household
+    # average was 279. KEPCO's household figure cannot be had nationally
+    # (houseAve.do needs a province code and Gwangju and South Jeolla return
+    # nothing), so the comparison was dropped 7 October 2026, his call. The
+    # household figure lives on the kepcohouse card, in KEPCO's own numbers.
     base_note_en, base_note_ko = KEPCO_NOTE_EN, KEPCO_NOTE_KO
-    if t['house_cust']:
-        nat = _kepco_national_house(key, y, m)
-        if nat and nat[0]:
-            seoul_avg, nat_avg = kwh_avg(t['house_kwh'] / t['house_cust']), kwh_avg(nat[1] / nat[0])
-            base_note_en = (f'{base_note_en} · Seoul’s average residential customer used '
-                            f'{seoul_avg}; nationally, {nat_avg}')
-            base_note_ko = f'{base_note_ko} · 서울 가정 평균 사용량은 {seoul_avg}, 전국 평균은 {nat_avg}'
     kepco_note_en, kepco_note_ko = with_latest(
         base_note_en, base_note_ko, per_en, per_ko, date(y, m, 1), 'month')
     RANKED_CARD_INFO['kepco'] = {
@@ -6094,7 +6086,8 @@ def kepco_hk_facts(key, kosis_key=None):
         return []
     y, m, _ = got
     annual = _kepco_seoul_annual(key, y, m)
-    if not annual or not annual['house_cust']:
+    house_year = _kepco_seoul_house_annual(key, y, m)
+    if not annual or not house_year:
         print(f'Seoul and Hong Kong electricity card withheld: no full year to {y}-{m:02d}.')
         return []
     seoul_pop = _seoul_population(kosis_key)
@@ -6102,13 +6095,13 @@ def kepco_hk_facts(key, kosis_key=None):
         print('Seoul and Hong Kong electricity card withheld: no Seoul population from KOSIS.')
         return []
     per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
-    hk_years = sorted({HK_TOTAL_YEAR, HK_ANNUAL_YEAR})
+    hk_years = sorted({HK_TOTAL_YEAR, HK_ANNUAL_YEAR, HK_HOUSEHOLDS_YEAR})
     hk_en = ' and '.join(str(v) for v in hk_years)
     hk_ko = '·'.join(f'{v}년' for v in hk_years)
     seoul_pc = kwh_avg(annual['kwh'] / seoul_pop)
     hk_pc = kwh_avg(HK_TOTAL_KWH / HK_TOTAL_POP)
-    seoul_house = kwh_avg(annual['house_kwh'] / annual['house_cust'])
-    hk_house = kwh_avg(HK_ANNUAL_KWH / HK_ANNUAL_CUST)
+    seoul_house = kwh_avg(house_year)
+    hk_house = kwh_avg(HK_ANNUAL_KWH / HK_HOUSEHOLDS)
     RANKED_CARD_INFO['kepcohk'] = {
         'day_en': per_en, 'day_ko': per_ko,
         'opener_en': KEPCOHK_OPENER_EN, 'opener_ko': KEPCOHK_OPENER_KO,

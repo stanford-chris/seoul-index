@@ -4313,19 +4313,7 @@ class KepcoCards(unittest.TestCase):
                             'unitCost': 1.0, 'cntrPwr': 1})
         return out
 
-    def natrows(self, cust, kwh):
-        """A totData-shaped nationwide response: one 주택용 row (all that
-        _kepco_national_house reads) plus one other type, so a test that
-        forgets to filter by cntr would fail loudly rather than pass by
-        accident."""
-        return [{'year': '2026', 'month': '06', 'metro': '전체', 'city': '전체',
-                  'cntr': '주택용', 'custCnt': cust, 'powerUsage': kwh, 'bill': 1,
-                  'unitCost': 1.0, 'cntrPwr': 1},
-                {'year': '2026', 'month': '06', 'metro': '전체', 'city': '전체',
-                  'cntr': '일반용', 'custCnt': 1, 'powerUsage': 1, 'bill': 1,
-                  'unitCost': 1.0, 'cntrPwr': 1}]
-
-    def run_with(self, by_month, national=None, seoul_pop=None):
+    def run_with(self, by_month, seoul_pop=None, house=None):
         """by_month: {(y, m): rows or an error dict} for the Seoul
         (metroCd=11) fetch. Unlisted months 404. national, if given:
         {(y, m): totData rows} for the metroCd-omitted national fetch; a
@@ -4348,17 +4336,18 @@ class KepcoCards(unittest.TestCase):
                 body = [{'DT': str(seoul_pop)}] if seoul_pop is not None else []
                 return types.SimpleNamespace(stdout=json.dumps(body, ensure_ascii=False), returncode=0)
             y = int(url.split('year=')[1][:4]); m = int(url.split('month=')[1][:2])
+            if 'houseAve' in url:
+                v = (house or {}).get((y, m), {'errCd': '404', 'errMsg': 'no data'})
+                body = {'data': v} if isinstance(v, list) else v
+                return types.SimpleNamespace(stdout=json.dumps(body, ensure_ascii=False), returncode=0)
             calls.append((y, m))
-            if 'metroCd=' not in url:
-                nat = (national or {}).get((y, m))
-                body = {'totData': nat} if nat is not None else {'errCd': '404', 'errMsg': 'no data'}
-            else:
+            if True:
                 v = by_month.get((y, m), {'errCd': '404', 'errMsg': 'no data'})
                 body = {'data': v} if isinstance(v, list) else v
             return types.SimpleNamespace(stdout=json.dumps(body, ensure_ascii=False), returncode=0)
         S.subprocess.run = run
         S._KEPCO_CACHE.clear()
-        S._KEPCO_NATIONAL_CACHE.clear()
+        S._KEPCO_HOUSE_CACHE.clear()
         S._SEOUL_POP_CACHE.clear()
         S.KEPCO_MIN_ROWS = 8
         try:
@@ -4374,7 +4363,7 @@ class KepcoCards(unittest.TestCase):
         S.RANKED_CARD_INFO.pop('kepcohist', None)
         S.RANKED_CARD_INFO.pop('kepcohk', None)
         S._KEPCO_CACHE.clear()
-        S._KEPCO_NATIONAL_CACHE.clear()
+        S._KEPCO_HOUSE_CACHE.clear()
         S._SEOUL_POP_CACHE.clear()
 
     def newest(self):
@@ -4440,12 +4429,9 @@ class KepcoCards(unittest.TestCase):
         self.assertEqual([f['value_en'] for f in hist][:2], ['3,000 GWh', '2,400 GWh'])
         self.assertEqual(hist[0]['pair'], hist[1]['pair'])
         self.assertTrue(all(f['pin'] for f in hist))
-        # one Seoul fetch feeds both cards; a second (y, m) call is the
-        # metroCd-omitted national fetch kepco_facts makes for its
-        # per-household comparison clause -- absent from `national` here,
-        # so it 404s and the clause is silently skipped (see
-        # NationalComparison.test_a_failed_national_fetch_leaves_the_note_unchanged).
-        self.assertEqual(calls.count((y, m)), 2)
+        # one Seoul fetch feeds both cards (the national fetch went with the
+        # per-contract comparison, 7 October 2026).
+        self.assertEqual(calls.count((y, m)), 1)
         self.assertEqual(S.RANKED_CARD_INFO['kepcohist']['opener_en'], 'Seoul’s electricity, 20 years apart')
         self.assertNotIn('dateline_en', S.RANKED_CARD_INFO['kepcohist'])   # the periods are in the groups
         # newest() is always last calendar month, which is as fresh as a
@@ -4459,48 +4445,20 @@ class KepcoCards(unittest.TestCase):
         self.assertEqual(len(facts), 3)
         self.assertEqual(hist, [])
 
-    def test_a_national_comparison_is_added_to_the_note(self):
-        y, m = self.newest()
-        self.run_with({(y, m): self.rows(500_000_000)},
-                      national={(y, m): self.natrows(1_000, 400_000_000)})
-        seoul_avg, nat_avg = S.kwh_avg(1_000_000_000 / 200), S.kwh_avg(400_000_000 / 1_000)
-        note_en = S.RANKED_CARD_INFO['kepco']['note_en']
-        note_ko = S.RANKED_CARD_INFO['kepco']['note_ko']
-        self.assertIn(seoul_avg, note_en)
-        self.assertIn(nat_avg, note_en)
-        self.assertIn('nationally', note_en)
-        self.assertTrue(note_en.startswith(S.KEPCO_NOTE_EN + ' · '))
-        self.assertIn(seoul_avg, note_ko)
-        self.assertIn(nat_avg, note_ko)
-        self.assertIn('전국 평균', note_ko)
+    def house_rows(self):
+        # 25 districts (fewer is a partial answer): 13 of 12 households at
+        # 300 kWh and 12 of 13 at 200, so 156 households each way and a
+        # weighted city average of exactly 250 kWh a month.
+        return ([{'city': f'a{i}', 'houseCnt': 12, 'powerUsage': 300.0, 'bill': 1} for i in range(13)]
+                + [{'city': f'b{i}', 'houseCnt': 13, 'powerUsage': 200.0, 'bill': 1} for i in range(12)])
 
-    def test_a_failed_national_fetch_leaves_the_note_and_card_unchanged(self):
+    def test_a_missing_household_month_withholds_the_hong_kong_card(self):
         y, m = self.newest()
-        facts, _, _ = self.run_with({(y, m): self.rows(500_000_000)})   # no `national` -> 404
-        self.assertEqual(len(facts), 3)                                 # card still builds
-        self.assertEqual(S.RANKED_CARD_INFO['kepco']['note_en'], S.KEPCO_NOTE_EN)
-        self.assertNotIn('nationally', S.RANKED_CARD_INFO['kepco']['note_en'])
-
-    def test_a_national_month_with_no_residential_row_is_the_same_as_a_failed_fetch(self):
-        y, m = self.newest()
-        # totData present and parses, but its only row is a type this
-        # doesn't read -- _kepco_national_house must return None, not a
-        # false '0 kWh' average.
-        self.run_with({(y, m): self.rows(500_000_000)},
-                      national={(y, m): [{'cntr': '일반용', 'custCnt': 1, 'powerUsage': 1, 'bill': 1}]})
-        self.assertNotIn('nationally', S.RANKED_CARD_INFO['kepco']['note_en'])
-
-    def test_kepco_national_house_parses_the_two_concatenated_json_objects(self):
-        S._KEPCO_NATIONAL_CACHE.clear()
-        import subprocess as real_subprocess
-        stdout = (json.dumps({'totData': self.natrows(2_000, 800_000)}, ensure_ascii=False)
-                  + json.dumps({'data': [{'anything': 1}] * 5}, ensure_ascii=False))
-        S.subprocess.run = lambda cmd, **kw: types.SimpleNamespace(stdout=stdout, returncode=0)
-        try:
-            self.assertEqual(S._kepco_national_house('KEY', 2026, 6), (2_000, 800_000))
-        finally:
-            S.subprocess.run = real_subprocess.run
-            S._KEPCO_NATIONAL_CACHE.clear()
+        months = self.trailing_months(y, m)
+        by_month = {mm: self.rows(1_000_000) for mm in months}
+        house = {mm: self.house_rows() for mm in months[:-1]}
+        self.run_with(by_month, seoul_pop=1_000_000, house=house)
+        self.assertEqual(self.hk, [])
 
     def test_the_hong_kong_card_is_four_yearly_lines_in_a_fixed_order(self):
         # His call, 25 September 2026 ("B now, then C"): Seoul against Hong
@@ -4509,15 +4467,17 @@ class KepcoCards(unittest.TestCase):
         # not the raw totals), then per household.
         y, m = self.newest()
         by_month = {(yy, mm): self.rows(1_000_000) for yy, mm in self.trailing_months(y, m)}
-        facts, _, _ = self.run_with(by_month, seoul_pop=1_000_000)
+        house = {mm: self.house_rows() for mm in self.trailing_months(y, m)}
+        facts, _, _ = self.run_with(by_month, seoul_pop=1_000_000, house=house)
         # rows(1_000_000) x 12 months: t['kwh'] (every type, both cities) is
-        # 6,000,004 a month -> 72,000,048 a year over 1,000,000 people;
-        # house_kwh 2,000,000 a month -> 24,000,000 a year over 200 customers.
+        # 6,000,004 a month -> 72,000,048 a year over 1,000,000 people.
+        # Households: KEPCO's own averages, 250 kWh a month weighted by
+        # households (see house_rows) -> 3,000 a year.
         self.assertEqual([(f['label_en'], f['value_en']) for f in self.hk],
                          [('Seoul per capita', S.kwh_avg(72_000_048 / 1_000_000)),
                           ('Hong Kong per capita', S.kwh_avg(S.HK_TOTAL_KWH / S.HK_TOTAL_POP)),
-                          ('Seoul household', S.kwh_avg(24_000_000 / 200)),
-                          ('Hong Kong household', S.kwh_avg(S.HK_ANNUAL_KWH / S.HK_ANNUAL_CUST))])
+                          ('Seoul household', S.kwh_avg(3_000)),
+                          ('Hong Kong household', S.kwh_avg(S.HK_ANNUAL_KWH / S.HK_HOUSEHOLDS))])
         self.assertEqual([f['label_ko'] for f in self.hk],
                          ['서울 1인당', '홍콩 1인당', '서울 가정', '홍콩 가정'])
         self.assertEqual([f['pair'] for f in self.hk],
@@ -4535,14 +4495,15 @@ class KepcoCards(unittest.TestCase):
     def test_the_month_card_no_longer_carries_hong_kong(self):
         y, m = self.newest()
         by_month = {(yy, mm): self.rows(1_000_000) for yy, mm in self.trailing_months(y, m)}
-        facts, _, _ = self.run_with(by_month, seoul_pop=1_000_000,
-                                    national={(y, m): self.natrows(1_000, 400_000_000)})
+        facts, _, _ = self.run_with(by_month, seoul_pop=1_000_000)
         self.assertEqual([f['label_en'] for f in facts], ['Customers', 'Electricity used', 'Billed'])
         note_en = S.RANKED_CARD_INFO['kepco']['note_en']
         self.assertNotIn('Hong Kong', note_en)
         self.assertNotIn('Per capita', note_en)
         self.assertNotIn('shops and offices', note_en)
-        self.assertIn('nationally', note_en)   # its own comparison is unaffected
+        # The per-contract national comparison was dropped 7 October 2026.
+        self.assertNotIn('nationally', note_en)
+        self.assertNotIn('residential customer', note_en)
 
     def test_no_population_or_no_full_year_withholds_the_hong_kong_card(self):
         # An empty KOSIS response must read as "no population", never as
@@ -4601,25 +4562,15 @@ class KepcoCards(unittest.TestCase):
 
     def test_hong_kong_constants_match_the_documented_sources(self):
         self.assertEqual(S.HK_ANNUAL_YEAR, 2025)
-        self.assertEqual(S.HK_ANNUAL_CUST, 2_528_522 + 477_000)
+        self.assertEqual(S.HK_HOUSEHOLDS, 2_778_100)
         self.assertEqual(S.HK_ANNUAL_KWH, 9_966_000_000 + 2_387_000_000)
-        self.assertAlmostEqual(S.HK_ANNUAL_KWH / S.HK_ANNUAL_CUST, 4_110.0, delta=1.0)
+        self.assertAlmostEqual(S.HK_ANNUAL_KWH / S.HK_HOUSEHOLDS, 4_446.6, delta=1.0)
         # The whole-territory total (C&SD, Table 4.1) and population
         # (year-end 2025 press release) behind the per-capita pair.
         self.assertEqual(S.HK_TOTAL_YEAR, 2025)
         self.assertEqual(S.HK_TOTAL_POP, 7_510_800)
         self.assertAlmostEqual(S.HK_TOTAL_KWH, 164_433 * 1e6 / 3.6, delta=1.0)
         self.assertAlmostEqual(S.HK_TOTAL_KWH / S.HK_TOTAL_POP, 6_081.0, delta=1.0)
-
-    def test_kepco_national_house_is_none_on_garbage_or_a_404(self):
-        S._KEPCO_NATIONAL_CACHE.clear()
-        import subprocess as real_subprocess
-        for stdout in ('not json at all', json.dumps({'errCd': '404', 'errMsg': 'no data'}),
-                       json.dumps({'totData': 'not a list'})):
-            S.subprocess.run = lambda cmd, _s=stdout, **kw: types.SimpleNamespace(stdout=_s, returncode=0)
-            self.assertIsNone(S._kepco_national_house('KEY', 2026, 6))
-            S._KEPCO_NATIONAL_CACHE.clear()
-        S.subprocess.run = real_subprocess.run
 
     def test_gwh_formatting(self):
         self.assertEqual(S.gwh(4_155_959_477), '4,156 GWh')
