@@ -3021,7 +3021,8 @@ class HeldVeins(unittest.TestCase):
         # card, kepcohk, held for his look the same day; both released
         # 26 September 2026. Twelve held 6 October 2026 after the source
         # audit, until each is fixed.
-        self.assertEqual(self._held, {'stations', 'transport', 'infant', 'rail', 'kepco',
+        # stations and transport released 7 October 2026.
+        self.assertEqual(self._held, {'infant', 'rail', 'kepco',
                                       'kepcohk', 'price', 'spending', 'avgbill', 'infra',
                                       'air', 'tourism'})
 
