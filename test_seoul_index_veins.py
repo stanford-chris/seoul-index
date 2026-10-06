@@ -2914,7 +2914,8 @@ class HeldVeins(unittest.TestCase):
         # rail retired, not held, 7 October 2026.
         # kepco and kepcohk released 7 October 2026.
         # price released 7 October 2026.
-        self.assertEqual(self._held, {'spending', 'avgbill', 'infra', 'air', 'tourism'})
+        # spending and avgbill released 7 October 2026.
+        self.assertEqual(self._held, {'infra', 'air', 'tourism'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the

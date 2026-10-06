@@ -541,7 +541,8 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # infant the same day, rebuilt on KOSIS.
 # kepco and kepcohk released 7 October 2026, per household not per contract.
 # price released 7 October 2026: whole round, exact product.
-HELD_CATS = {'spending', 'avgbill', 'infra', 'air', 'tourism'}
+# spending and avgbill released 7 October 2026: citywide estimates.
+HELD_CATS = {'infra', 'air', 'tourism'}
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
