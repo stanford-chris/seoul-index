@@ -687,7 +687,7 @@ class PropertySpendingCrossPairGroupsBySpan(unittest.TestCase):
         c = S.compose(*self._pool_and_sel())
         self.assertEqual(self._subheads(c['items_en']),
                          ['Apartment filings, July 2026',
-                          'Commercial districts, 2026 Q2'])
+                          'Estimated sales, citywide, 2026 Q2'])
         self.assertEqual(
             self._rows_under(c['items_en'], 'Apartment filings, July 2026'),
             ['Apartment sales filed, Gangnam-gu'])
@@ -695,21 +695,21 @@ class PropertySpendingCrossPairGroupsBySpan(unittest.TestCase):
         # metric word on a genuine cross-pair card (see _CROSS_HINT) --
         # unrelated to this fix, but real behaviour the fixture runs into.
         self.assertEqual(
-            self._rows_under(c['items_en'], 'Commercial districts, 2026 Q2'),
+            self._rows_under(c['items_en'], 'Estimated sales, citywide, 2026 Q2'),
             ['Quarterly spending, Food and beverage',
              'Quarterly spending, Retail'])
 
     def test_korean_card_groups_too(self):
         c = S.compose(*self._pool_and_sel())
         self.assertEqual(self._subheads(c['items_ko']),
-                         ['아파트 실거래 신고, 2026년 7월', '상권, 2026년 2분기'])
+                         ['아파트 실거래 신고, 2026년 7월', '서울 전체 추정 매출, 2026년 2분기'])
 
     def test_the_span_is_not_also_left_in_the_footnote(self):
         c = S.compose(*self._pool_and_sel())
         self.assertNotIn('Apartment filings', c['note_en'])
-        self.assertNotIn('Commercial districts', c['note_en'])
+        self.assertNotIn('Estimated sales, citywide', c['note_en'])
         self.assertEqual(c['en_body'].count('Apartment filings, July 2026'), 1)
-        self.assertEqual(c['en_body'].count('Commercial districts, 2026 Q2'), 1)
+        self.assertEqual(c['en_body'].count('Estimated sales, citywide, 2026 Q2'), 1)
 
     def test_no_masthead_flies_over_the_whole_card(self):
         c = S.compose(*self._pool_and_sel())

@@ -9784,8 +9784,8 @@ def compose(sel, pool):
         # EACH OTHER never disagrees and never reaches period_grouped —
         # only pairing either with a differently-sourced dated vein
         # (property) can.
-        _spending_subhead_en = f'Commercial districts, {SALES_Q["en"]}'
-        _spending_subhead_ko = f'상권, {SALES_Q["ko"]}'
+        _spending_subhead_en = f'Estimated sales, citywide, {SALES_Q["en"]}'
+        _spending_subhead_ko = f'서울 전체 추정 매출, {SALES_Q["ko"]}'
         period_group_entries['spending'] = (
             SALES_Q['en'], SALES_Q['ko'],
             _spending_subhead_en, _spending_subhead_ko)
@@ -10134,8 +10134,9 @@ def compose(sel, pool):
     # period_group_entries can be captured and stripped the same way.
     dated_scope_pair = {}
     if ('spending' in cats or 'avgbill' in cats) and SALES_Q['en']:
-        _spending_pair = (('Commercial districts', SALES_Q['en']),
-                          ('상권', SALES_Q['ko']))
+        # Citywide estimates since 7 October 2026 (see seoul_index_sales.py).
+        _spending_pair = (('Estimated sales, citywide', SALES_Q['en']),
+                          ('서울 전체 추정 매출', SALES_Q['ko']))
         scope_en.append(_spending_pair[0])
         scope_ko.append(_spending_pair[1])
         if 'spending' in cats:
