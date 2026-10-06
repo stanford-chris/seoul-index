@@ -1506,6 +1506,18 @@ class IncheonCardLabels(unittest.TestCase):
         for l in c['lines']:
             self.assertNotIn('2026', l['label_en'])
 
+    def test_the_airport_is_not_named_twice_under_an_opener_naming_it(self):
+        rows = [{'nationName': '일본', 'totalEff': '100', 'flightCount': '5'}]
+        by_id = self.facts(rows)
+        ids = ['iiac_pax_total', 'iiac_flights_total', 'iiac_top_country']
+        sel = {'opener_en': 'Through Incheon International Airport',
+               'opener_ko': '인천공항에서', 'opener_emoji': '✈️',
+               'picks': [{'id': i} for i in ids]}
+        c = S.compose(sel, [by_id[i] for i in ids])
+        self.assertCountEqual([l['label_en'] for l in c['lines']],
+                              ['Passengers', 'Flights in and out', 'Passengers to Japan'])
+        self.assertIn('이용객', [l['label_ko'] for l in c['lines']])
+
 
 class KorailCardLabels(unittest.TestCase):
     """rail_facts() reads two operations off one Korail base — intercity

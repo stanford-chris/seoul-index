@@ -10575,6 +10575,17 @@ def compose(sel, pool):
             if l['cat'] == 'incheon':
                 l['label_en'] = l['label_en'].removesuffix(f', {iiac_period[0]}')
                 l['label_ko'] = l['label_ko'].removesuffix(f', {iiac_period[1]}')
+    # His call, 6 October 2026: under "Through Incheon International Airport"
+    # the row read "Passengers through Incheon International Airport", the
+    # airport twice. Each language is stripped only when ITS OWN opener names
+    # the airport, so a card whose opener does not keeps the full label.
+    for l in lines:
+        if l['cat'] == 'incheon':
+            if 'Incheon International Airport' in opener_en:
+                l['label_en'] = l['label_en'].replace(
+                    ' through Incheon International Airport', '')
+            if '인천공항' in opener_ko:
+                l['label_ko'] = l['label_ko'].removeprefix('인천공항 ')
     if korail_period[0] and (group_en or dateline_en) == korail_period[0]:
         for l in lines:
             if l['cat'] == 'rail':
