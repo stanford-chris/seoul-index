@@ -2868,8 +2868,8 @@ class HeldVeins(unittest.TestCase):
         # stations and transport released 7 October 2026.
         # infant released 7 October 2026.
         # rail retired, not held, 7 October 2026.
-        self.assertEqual(self._held, {'kepco',
-                                      'kepcohk', 'price', 'spending', 'avgbill', 'infra',
+        # kepco and kepcohk released 7 October 2026.
+        self.assertEqual(self._held, {'price', 'spending', 'avgbill', 'infra',
                                       'air', 'tourism'})
 
 class InfraCooldown(unittest.TestCase):
