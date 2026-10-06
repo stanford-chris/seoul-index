@@ -527,7 +527,18 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # needs touching. Empty since 11 September 2026.
 # kepco held 25 September 2026 while its Hong Kong rows moved to kepcohk,
 # new that day; both held for his look and released 26 September 2026.
-HELD_CATS = set()
+# Held 6 October 2026, his call, after an audit of every vein against its
+# live source found figures wrong in the way the Incheon card's were (arrivals
+# posted as all traffic): the subway totals take in Korail lines outside Seoul
+# and miss Shinbundang and GTX-A (stations, transport); infant's "under 1" is
+# births and its newest year a copy of the last; rail's commuter total is
+# national; kepco and kepcohk divide by billing contracts, not households;
+# price ranks part of one survey day; spending and avgbill sum overlapping
+# modelled districts; infra's car parks and events count rows, not things;
+# air's "good" count is the ozone-inclusive index; tourism is three Lotte
+# sites since April. Each is released as it is fixed, on his say-so.
+HELD_CATS = {'stations', 'transport', 'infant', 'rail', 'kepco', 'kepcohk',
+             'price', 'spending', 'avgbill', 'infra', 'air', 'tourism'}
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
