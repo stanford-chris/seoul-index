@@ -1266,9 +1266,26 @@ class AirportMonthRidesTheMasthead(unittest.TestCase):
              f'Flights in and out, {S.MONTHS_EN[self.m - 1]} {self.y}'])
         self.assertEqual(
             [l['label_ko'] for l in c['lines']],
-            [f'김포공항 이용객, {self.y}년 {self.m}월',
-             f'김포공항 이용객, {then}년 {self.m}월',
+            # Bare 이용객: this card's Korean opener (김포공항에서) names the
+            # airport, though its English one does not spell it out in full.
+            [f'이용객, {self.y}년 {self.m}월',
+             f'이용객, {then}년 {self.m}월',
              f'운항 편수, {self.y}년 {self.m}월'])
+
+    def test_the_airport_is_not_named_twice_under_an_opener_naming_it(self):
+        ids = ['kac_pax_now', 'kac_pax_then', 'kac_flights_now']
+        by_id = self.facts()
+        sel = {'opener_en': 'Through Gimpo International Airport',
+               'opener_ko': '김포공항에서', 'opener_emoji': '✈️',
+               'picks': [{'id': i} for i in ids]}
+        c = S.compose(sel, [by_id[i] for i in ids])
+        mon, then = S.MONTHS_EN[self.m - 1], self.y - S.KAC_YEARS_BACK
+        self.assertEqual([l['label_en'] for l in c['lines']],
+                         [f'Passengers, {mon} {self.y}', f'Passengers, {mon} {then}',
+                          f'Flights in and out, {mon} {self.y}'])
+        self.assertEqual([l['label_ko'] for l in c['lines']],
+                         [f'이용객, {self.y}년 {self.m}월', f'이용객, {then}년 {self.m}월',
+                          f'운항 편수, {self.y}년 {self.m}월'])
 
 
 class MastheadCheckIsNotVeinSpecific(unittest.TestCase):
