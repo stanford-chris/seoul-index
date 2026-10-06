@@ -31,7 +31,7 @@ def main():
     if not items:
         sys.exit('nothing fetched; history untouched')
     days = sp.korail_days_from_rows(items)
-    if sp.korail_history_add(h, days):
+    if sp.korail_history_add(h, days, complete=True):
         sp.save_korail_history(h)
     print(f'{len(items)} rows, {len(days)} days fetched ({min(days)} to {max(days)}); '
           f'history {before} -> {len(h["days"])} days at {sp.KORAIL_HISTORY}')

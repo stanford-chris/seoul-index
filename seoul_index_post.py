@@ -1875,6 +1875,8 @@ def stations_in_seoul(coords, seoul_stops, within_km=STATION_IN_SEOUL_KM):
         grid.setdefault((int(lon / cell), int(lat / cell)), []).append((lon, lat))
     inside = set()
     for name, (lon, lat) in coords.items():
+        if name in STATION_NOT_IN_SEOUL:
+            continue
         gx, gy = int(lon / cell), int(lat / cell)
         if any(_km((lon, lat), q) <= within_km
                for dx in (-1, 0, 1) for dy in (-1, 0, 1)
@@ -1895,7 +1897,13 @@ def stations_in_seoul(coords, seoul_stops, within_km=STATION_IN_SEOUL_KM):
 # than once spans at most 0.72 km (신촌) except 운정 (3.58, both in Paju)
 # and 양평 (53.55, one in Seoul, one in Gyeonggi).
 STATION_SAME_PLACE_KM = 1.5
-STATION_ALIASES = {'자양': '뚝섬유원지', '평택지제': '지제'}
+STATION_ALIASES = {'자양': '뚝섬유원지', '평택지제': '지제', '디엠시': '디지털미디어시티'}
+# The one station the 300 m rule puts inside Seoul that is not: 석수, in
+# Anyang (만안구 석수동), near Geumcheon-gu's bus stops. Measured 7 October
+# 2026 by reverse-geocoding all 310 stations the rule calls inside (Kakao
+# coord2regioncode): every other one is in 서울특별시. Re-run that check if
+# the station list grows.
+STATION_NOT_IN_SEOUL = {'석수'}
 _LINE_ALIASES = {'경의선': '경의중앙선', '9호선2~3단계': '9호선'}
 
 
@@ -1940,6 +1948,8 @@ def station_rows_in_seoul(srows, master, seoul_stops):
     rows, coords, unplaced = [], {}, []
     for x in srows:
         name = fold_station(x.get('SBWY_STNS_NM'))
+        if name in STATION_NOT_IN_SEOUL:
+            continue
         look = STATION_ALIASES.get(name, name)
         xy = by_key.get((_line_key(x.get('SBWY_ROUT_LN_NM')), look))
         if xy is None:
@@ -5334,7 +5344,7 @@ def kma_facts(key):
 # a subtraction.
 
 KAC_BASE = ('http://apis.data.go.kr/B551178/airport-transport-stats/info'
-            '?serviceKey={key}&startDePd={ym}&endDePd={ym}{extra}')
+            '?serviceKey={key}&startDePd={ym}&endDePd={ym}&numOfRows=100{extra}')
 KAC_YEARS_BACK = 20
 
 
@@ -5347,7 +5357,14 @@ def _kac_month(key, y, m, route=None):
         root = ET.fromstring(stdout)
     except ET.ParseError:
         return None
-    for it in root.iter('item'):
+    # SHAPE: every airport row came back. The feed's default page is 10 rows
+    # against 14 airports; 김포 sorted third, which was luck (7 October 2026).
+    items = list(root.iter('item'))
+    total = root.findtext('.//totalCount')
+    if total and total.strip().isdigit():
+        require(len(items) >= int(total),
+                f'Gimpo {y}-{m:02d}: {len(items)} of {total} airport rows fetched')
+    for it in items:
         if (it.findtext('Airport') or '').strip() == '김포':
             try:
                 row = {'pax': int(float(it.findtext('subpassenger'))),
@@ -5555,12 +5572,18 @@ def iiac_facts(key, kosis_key=None):
     if rows and str(rows[0].get('yearMonth') or '') == ym:
         by_country = {}
         for it in rows:
+            # Every passenger on the flight: fare-paying (totalEff), non-fare
+            # (totalNff) and transfer (totalTrf). totalEff alone left out
+            # about 10 percent (Japan, August 2026: 830,886 of 919,972).
             try:
-                pax = int(it.get('totalEff') or 0)
+                pax = sum(int(it.get(k) or 0) for k in ('totalEff', 'totalNff', 'totalTrf'))
             except (TypeError, ValueError):
                 continue
             nation = (it.get('nationName') or '').strip()
-            if nation and it.get('departuresOrArrivals') == '도착':
+            # "Scheduled" is the label's word, so it is the filter too: the
+            # feed held only 정기 rows on 7 October 2026, which is luck.
+            if (nation and it.get('departuresOrArrivals') == '도착'
+                    and it.get('regularCode') == '정기'):
                 by_country[nation] = by_country.get(nation, 0) + pax
         top = max(by_country.items(), key=lambda kv: kv[1], default=None)
         if top:
@@ -6418,12 +6441,26 @@ def korail_days_from_rows(items):
     return out
 
 
-def korail_history_add(h, days):
+def korail_history_add(h, days, complete=False):
     """Fold fetched days into the history; the feed wins for a day it still
-    serves (a revised figure replaces the stored one). True if anything changed."""
+    serves (a revised figure replaces the stored one). True if anything changed.
+
+    ⚠️ Two guards since 7 October 2026, when 27 stored days (23 June to
+    19 July) were found holding 162 of about 258 stations. The fetch is
+    KORAIL_FETCH_PAGES pages of rows sorted newest day first, so its OLDEST
+    day is cut at the page boundary, and "the feed wins" let that partial day
+    replace a whole one, a day further back each run. So: unless the caller
+    fetched the whole feed (complete=True, the backfill), the oldest fetched
+    day is never stored; and a day is never replaced by one with fewer
+    stations."""
     changed = False
+    if days and not complete:
+        days = {d: v for d, v in days.items() if d != min(days)}
     for day, stations in days.items():
-        if h['days'].get(day) != stations:
+        old = h['days'].get(day)
+        if old and len(stations) < len(old):
+            continue
+        if old != stations:
             h['days'][day] = stations
             changed = True
     return changed
@@ -6442,7 +6479,9 @@ def korail_station_days(key):
         items += got
     fetched = korail_days_from_rows(items)
     h = load_korail_history()
-    if fetched and korail_history_add(h, fetched):
+    # Only a fetch that filled every page can have cut its oldest day short.
+    complete = len(items) < KORAIL_FETCH_PAGES * KORAIL_PAGE_ROWS
+    if fetched and korail_history_add(h, fetched, complete=complete):
         save_korail_history(h)
     _KORAIL_RUN['history'], _KORAIL_RUN['fetched'] = h['days'], fetched
     return h['days'], fetched
@@ -6681,6 +6720,9 @@ RAILCOMMUTER_MIN_STATIONS = 20   # 62 inside Seoul in July 2026; far fewer is a 
 # the threaded pin map without a refetch; 'stops' is the backdrop's count
 # for the map's caption. An entry without those keys is recomputed.
 RAILCOMMUTER_CACHE = Path(__file__).with_name('railcommuter_cache.json')
+# Stamped on each cached month; a month built under another rule is rebuilt.
+# 2: 석수 (Anyang) out and 디엠시 (Digital Media City) in, 7 October 2026.
+RAILCOMMUTER_RULE = 2
 # ⚠️ A bracket naming ANOTHER CITY excludes the row; folding it off would
 # hand Busan's 교대 and 송정 to Seoul's stations of the same name, which the
 # first join did (12 September 2026, 교대(부산) 151,849 credited to Seoul).
@@ -6705,6 +6747,7 @@ def rail_commuter_month(gov_key, api_key):
         cache = {}
     got = cache.get(ym)
     if (isinstance(got, dict) and isinstance(got.get('rides'), dict)
+            and got.get('rule') == RAILCOMMUTER_RULE
             and len(got['rides']) >= RAILCOMMUTER_MIN_STATIONS and got.get('coords')):
         return got, ym
     try:
@@ -6720,6 +6763,7 @@ def rail_commuter_month(gov_key, api_key):
         if RAILCOMMUTER_OTHER_CITY.search(raw):
             continue
         name = fold_station(raw)
+        name = STATION_ALIASES.get(name, name)
         if name not in inside:
             continue
         try:
@@ -6731,7 +6775,7 @@ def rail_commuter_month(gov_key, api_key):
     if len(seoul) < RAILCOMMUTER_MIN_STATIONS:
         print(f'Commuter rail card withheld: only {len(seoul)} stations joined for {ym}.')
         return None, None
-    month = {'rides': seoul,
+    month = {'rule': RAILCOMMUTER_RULE, 'rides': seoul,
              'coords': {n: [coords[n][0], coords[n][1]] for n in seoul if n in coords},
              'stops': len(stop_map)}
     cache[ym] = month

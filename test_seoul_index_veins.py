@@ -1511,6 +1511,7 @@ class IncheonCardLabels(unittest.TestCase):
                     out.append({'PRD_DE': ym, 'ITM_ID': 'T001', 'DT': str(fl)})
                 return types.SimpleNamespace(stdout=json.dumps(out), returncode=0)
             items = [dict(r, paxCode=r.get('paxCode', '여객'), yearMonth=iiac_ym,
+                          regularCode=r.get('regularCode', '정기'),
                           departuresOrArrivals=r.get('departuresOrArrivals', '도착'))
                      for r in (iiac_rows or [])]
             body = json.dumps({'response': {'body': {'items': items}}})
@@ -1555,6 +1556,16 @@ class IncheonCardLabels(unittest.TestCase):
         self.assertEqual(top['label_en'], 'Scheduled arrivals from Japan, August 2026')
         self.assertEqual(top['label_ko'], '일본발 정기편 도착 여객, 2026년 8월')
         self.assertEqual(top['value_en'], '100')
+
+    def test_the_country_line_counts_every_passenger_on_scheduled_flights(self):
+        by_id = self.facts([
+            {'nationName': '일본', 'totalEff': '100', 'totalNff': '5', 'totalTrf': '20',
+             'flightCount': '5'},
+            {'nationName': '일본', 'totalEff': '900', 'flightCount': '9', 'regularCode': '부정기'},
+            {'nationName': '중국', 'totalEff': '110', 'flightCount': '4'}])
+        top = by_id['iiac_top_country']
+        self.assertEqual(top['label_en'], 'Scheduled arrivals from Japan, August 2026')
+        self.assertEqual(top['value_en'], '125')
 
     def test_a_country_line_from_another_month_is_dropped(self):
         by_id = self.facts([{'nationName': '일본', 'totalEff': '100', 'flightCount': '5'}],
@@ -5042,7 +5053,7 @@ class RailCommuterCard(unittest.TestCase):
         cache = json.loads(S.RAILCOMMUTER_CACHE.read_text())
         self.assertEqual(set(cache), {'202607'})
         self.assertNotIn('교대', cache['202607']['rides'])
-        self.assertEqual(set(cache['202607']), {'rides', 'coords', 'stops'})
+        self.assertEqual(set(cache['202607']), {'rule', 'rides', 'coords', 'stops'})
         self.assertEqual(cache['202607']['stops'], 1)
         S.station_coords = lambda key: (_ for _ in ()).throw(AssertionError('coords refetched'))
         self.assertEqual(len(S.rail_commuter_facts('G', 'A')), 4)
@@ -5217,6 +5228,26 @@ class GimpoSourceChecks(AirportMonthRidesTheMasthead):
                 S.kac_facts('KEY')
         finally:
             S.subprocess.run = real_subprocess.run
+
+class SourceFixesOctober7(unittest.TestCase):
+    """Faults the 7 October 2026 provenance pass found, each pinned."""
+
+    def test_a_day_is_never_replaced_by_one_with_fewer_stations(self):
+        h = {'days': {'20260701': {'서울': [1, 1], '청량리': [2, 2]}}}
+        S.korail_history_add(h, {'20260701': {'서울': [1, 1]}}, complete=True)
+        self.assertIn('청량리', h['days']['20260701'])
+
+    def test_the_oldest_day_of_a_capped_fetch_is_not_stored(self):
+        h = {'days': {}}
+        S.korail_history_add(h, {'20260701': {'a': [1, 1]}, '20260702': {'a': [1, 1]}})
+        self.assertEqual(set(h['days']), {'20260702'})
+
+    def test_seoksu_in_anyang_is_never_inside_seoul(self):
+        stops = [(126.89, 37.43)]
+        self.assertEqual(S.stations_in_seoul({'석수': (126.89, 37.43)}, stops), set())
+        rows = [{'SBWY_ROUT_LN_NM': '경부선', 'SBWY_STNS_NM': '석수', 'GTON_TNOPE': '5'}]
+        master = ({('경부선', '석수'): (126.89, 37.43)}, {'석수': [(126.89, 37.43)]})
+        self.assertEqual(S.station_rows_in_seoul(rows, master, stops)[0], [])
 
 
 if __name__ == '__main__':
