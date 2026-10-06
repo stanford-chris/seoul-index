@@ -3027,7 +3027,8 @@ class HeldVeins(unittest.TestCase):
         # 26 September 2026. Twelve held 6 October 2026 after the source
         # audit, until each is fixed.
         # stations and transport released 7 October 2026.
-        self.assertEqual(self._held, {'infant', 'rail', 'kepco',
+        # infant released 7 October 2026.
+        self.assertEqual(self._held, {'rail', 'kepco',
                                       'kepcohk', 'price', 'spending', 'avgbill', 'infra',
                                       'air', 'tourism'})
 

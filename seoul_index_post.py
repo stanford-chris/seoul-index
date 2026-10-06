@@ -537,8 +537,9 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # modelled districts; infra's car parks and events count rows, not things;
 # air's "good" count is the ozone-inclusive index; tourism is three Lotte
 # sites since April. Each is released as it is fixed, on his say-so.
-# stations and transport released 7 October 2026, Seoul-only totals.
-HELD_CATS = {'infant', 'rail', 'kepco', 'kepcohk',
+# stations and transport released 7 October 2026, Seoul-only totals;
+# infant the same day, rebuilt on KOSIS.
+HELD_CATS = {'rail', 'kepco', 'kepcohk',
              'price', 'spending', 'avgbill', 'infra', 'air', 'tourism'}
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
