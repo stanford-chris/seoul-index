@@ -37,6 +37,7 @@ import collections
 import csv
 import fcntl
 import io
+import functools
 import json
 import os
 import random
@@ -937,6 +938,44 @@ def crowd_window(state):
     return [CROWD_SPOTS[(i + k * CROWD_STRIDE) % n] for k in range(min(CROWD_WINDOW, n))]
 
 
+def source_check(fn):
+    """Decorator for a check_* helper: a row too malformed to check (a
+    missing field, a value that will not parse) fails the check, so the vein
+    is withheld, rather than escaping guarded() as an error that would stop
+    the whole run."""
+    @functools.wraps(fn)
+    def run(*a, **k):
+        if not SOURCE_CHECKS:
+            return None
+        try:
+            return fn(*a, **k)
+        except (KeyError, IndexError, TypeError, ValueError, AttributeError) as e:
+            raise SourceCheckFailed(f'{fn.__name__}: unreadable row ({type(e).__name__}: {e})')
+    return run
+
+
+@source_check
+def check_crowd_row(r, area):
+    """Source check on one citydata_ppltn row (see PROVENANCE['crowd']).
+
+    There is no second publisher of KT's estimate, so this checks the row's
+    own shape: it is the place asked for, live and not a substituted reading,
+    the band runs the right way, and each set of shares adds up to the whole.
+    All held on 26 of 26 places on 7 October 2026 (age shares 99.8 to 100.1,
+    male plus female and resident plus non-resident exactly 100.0)."""
+    require(r.get('AREA_NM') == area,
+            f'crowd: asked for {area}, the feed answered {r.get("AREA_NM")}')
+    require(r.get('REPLACE_YN', 'N') == 'N', f'crowd: {area} is a substituted reading')
+    lo, hi = int(r['AREA_PPLTN_MIN']), int(r['AREA_PPLTN_MAX'])
+    require(lo <= hi, f'crowd: {area} band runs backwards ({lo} to {hi})')
+    ages = sum(float(r[f'PPLTN_RATE_{a}']) for a in (0, 10, 20, 30, 40, 50, 60, 70))
+    require(abs(ages - 100) <= 0.5, f'crowd: {area} age shares sum to {ages:.1f}')
+    for a, b in (('MALE_PPLTN_RATE', 'FEMALE_PPLTN_RATE'),
+                 ('RESNT_PPLTN_RATE', 'NON_RESNT_PPLTN_RATE')):
+        tot = float(r[a]) + float(r[b])
+        require(abs(tot - 100) <= 0.2, f'crowd: {area} {a} + {b} = {tot:.1f}')
+
+
 def crowd_facts(api_key, spots=None):
     """Live crowd estimates for the given spots + a fullest/quietest contrast."""
     spots = CROWD_SPOTS if spots is None else spots
@@ -947,12 +986,14 @@ def crowd_facts(api_key, spots=None):
         try:
             d = http_get_json(f'{base}/1/1/{_url(area)}')
             r = d['SeoulRtd.citydata_ppltn'][0]
+            check_crowd_row(r, area)
             mid = (int(r['AREA_PPLTN_MIN']) + int(r['AREA_PPLTN_MAX'])) // 2
             got.append({'en': en, 'ko': spot.get('ko') or area, 'mid': mid,
                         'visitor': r['NON_RESNT_PPLTN_RATE'],
                         'female': r['FEMALE_PPLTN_RATE'],
                         'twenties': r['PPLTN_RATE_20']})
-        except (RuntimeError, KeyError, IndexError, ValueError):
+        except (RuntimeError, KeyError, IndexError, ValueError) as e:
+            print(f'Crowd: {area} skipped ({type(e).__name__}: {e})')
             continue
     facts = []
     for g in got:
@@ -1070,6 +1111,14 @@ def spotlight_facts(api_key, spot):
         now_mid = (int(r['AREA_PPLTN_MIN']) + int(r['AREA_PPLTN_MAX'])) // 2
     except (RuntimeError, KeyError, IndexError, ValueError):
         return []
+    check_crowd_row(r, area)
+    # The forecast must be the next twelve hours after this reading, as it
+    # was for every place on 7 October 2026: the busiest and quietest "hours
+    # ahead" lines are only true of a forecast that is ahead.
+    fc = r.get('FCST_PPLTN') or []
+    require(len(fc) == 12, f'spotlight: {area} forecast has {len(fc)} hours, not 12')
+    require(all(str(x.get('FCST_TIME', '')) > str(r.get('PPLTN_TIME', '')) for x in fc),
+            f'spotlight: {area} forecast includes an hour at or before the reading')
 
     stamp = r.get('PPLTN_TIME') or ''
     try:                                   # the reading's own clock, not ours
@@ -1252,6 +1301,41 @@ AIR_SCALE_NOTE_KO = '초미세먼지: 15까지 좋음, 36부터 나쁨; 미세�
 AIR_NOW = {'emoji': None}
 
 
+@source_check
+def check_air_rows(api_key, rows):
+    """SHAPE (PROVENANCE['air']): one row per district, all from one
+    measurement hour no more than three hours old, PM10 never below PM2.5,
+    and every grade one of the four the index publishes.
+
+    ⚠️ No RECONCILE. The same institute's RealtimeCityAir service carries
+    the same fields and matched this one exactly on 24 of 24 districts at
+    06:00 and 20:00 on 7 October 2026, but at 21:00 it disagreed on all 24
+    under the same hour stamp (구로구 PM2.5 16 against 7) and on the grade in
+    three. Two services that agree only some hours are not a check; which
+    one the card should trust is a question for the air vein's release."""
+    names = {x.get('MSRSTN_NM') for x in rows}
+    require(len(rows) == 25 and len(names) == 25,
+            f'air: {len(rows)} rows for {len(names)} districts, not 25')
+    hours = {x.get('MSRMT_YMD') for x in rows}
+    require(len(hours) == 1, f'air: rows from {len(hours)} different hours')
+    when = datetime.strptime(next(iter(hours)), '%Y%m%d%H%M').replace(tzinfo=SEOUL_TZ)
+    age = datetime.now(SEOUL_TZ) - when
+    require(age <= timedelta(hours=3), f'air: newest reading is {age} old')
+
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+    for x in rows:
+        pm, fpm = num(x.get('PM')), num(x.get('FPM'))
+        if pm is not None and fpm is not None:
+            require(pm >= fpm, f'air: {x.get("MSRSTN_NM")} PM10 {pm} below PM2.5 {fpm}')
+        g = (x.get('CAI_GRD') or '').strip()
+        require(g in ('', '좋음', '보통', '나쁨', '매우나쁨'),
+                f'air: unknown grade {g!r} at {x.get("MSRSTN_NM")}')
+
+
 def air_facts(api_key):
     """Four live lines. Two facts until 11 September 2026, which kept the vein
     under STARVE_MIN_FACTS: it could ride along on another card but never
@@ -1266,6 +1350,7 @@ def air_facts(api_key):
         rows = air_rows(api_key)
         if not rows:
             return []
+        check_air_rows(api_key, rows)
         vals = [(x.get('MSRSTE_NM') or x.get('SAREA_NM') or x.get('MSRSTN_NM'),
                  float(x['FPM'])) for x in rows
                 if str(x.get('FPM', '')).replace('.', '', 1).isdigit()]
@@ -2723,6 +2808,12 @@ def bus_routes_facts(h, day, d, d_ko):
     if r is None:
         print(f'Bus routes withheld for {d}: {why}.')
         return []
+    # Source check (PROVENANCE['busroutes']): a ranking over part of the
+    # network is not "busiest". 326 or 327 eligible routes on every day from
+    # 26 August to 4 October 2026.
+    if SOURCE_CHECKS and len(r['ranked']) < 300:
+        check_failed('bus_routes_facts', f'{day}: only {len(r["ranked"])} eligible routes')
+        return []
     top, second, bottom = r['ranked'][0], r['ranked'][1], r['ranked'][-1]
     streak_en, streak_ko = _streak_note(h, day)
     # His layout, 11 September 2026: the measure rides the dateline, the
@@ -2795,7 +2886,21 @@ def transport_facts(api_key, state):
         base = f'http://openapi.seoul.go.kr:8088/{api_key}/json'
         # Subway: one page holds all ~617 stations.
         sd = http_get_json(f'{base}/CardSubwayStatsNew/1/{max(sub_total_rows, 700)}/{day}')
-        srows = [x for x in sd['CardSubwayStatsNew']['row'] if x['GTON_TNOPE'].isdigit()]
+        raw = sd['CardSubwayStatsNew']['row']
+        # Source checks (PROVENANCE['transport']): every row of the day
+        # arrived (617 of 617 on 3 October 2026), all of it for that day,
+        # none with an unreadable count, and no Shinbundang or GTX-A line,
+        # whose absence the stations card's footnote states.
+        require(len(raw) == int(sd['CardSubwayStatsNew']['list_total_count']),
+                f'transport: subway {len(raw)} rows of '
+                f'{sd["CardSubwayStatsNew"]["list_total_count"]}')
+        require({x.get('USE_YMD') for x in raw} == {day},
+                f'transport: subway rows are not all for {day}')
+        require(all(str(x.get('GTON_TNOPE', '')).isdigit() and str(x.get('GTOFF_TNOPE', '')).isdigit() for x in raw),
+                'transport: subway rows with an unreadable count')
+        require(not any(k in (x.get('SBWY_ROUT_LN_NM') or '') for x in raw for k in ('신분당', 'GTX')),
+                'transport: a Shinbundang or GTX line is now in the feed; the footnote says it is not')
+        srows = raw
         # ⚠️ The day's total is boardings at stations INSIDE Seoul, set below
         # once membership is known, and None (the line withheld) when it is
         # not. Until 6 October 2026 it summed every row, Korail lines to
@@ -2836,6 +2941,11 @@ def transport_facts(api_key, state):
             for x in unplaced:
                 print(f"Subway row not placed, left out: {x.get('SBWY_ROUT_LN_NM')} "
                       f"{x.get('SBWY_STNS_NM')} ({x.get('GTON_TNOPE')}).")
+            # One row could not be placed on 3 October 2026 (경의선 한국항공대,
+            # outside Seoul). More than three means the station master or the
+            # stop table changed, and the Seoul total would be guessing.
+            require(len(unplaced) <= 3,
+                    f'transport: {len(unplaced)} subway rows could not be placed in or out of Seoul')
             in_seoul = set(coords)
             st_count = len(in_seoul)
             sub_total = sum(int(x['GTON_TNOPE']) for x in in_rows)
@@ -2882,12 +2992,15 @@ def transport_facts(api_key, state):
         # block): the same rows, summed on the stop id across every route
         # that calls there, Seoul stops only.
         stop_sum, stop_nm = {}, {}
+        bus_rows_read, stop_prefix = 0, {}
         for s in range(1, btot_rows + 1, 1000):
             bd = http_get_json(f'{base}/CardBusStatisticsServiceNew/{s}/{min(s + 999, btot_rows)}/{day}')
             for x in bd.get('CardBusStatisticsServiceNew', {}).get('row', []):
+                bus_rows_read += 1
                 v = int(x.get('GTON_TNOPE', '0') or 0)
                 bus_total += v
                 sid = str(x.get('STOPS_ID') or '')
+                stop_prefix[sid[:1]] = stop_prefix.get(sid[:1], 0) + v
                 if sid.startswith('1'):
                     stop_sum[sid] = stop_sum.get(sid, 0) + v
                     if sid not in stop_nm:
@@ -2902,6 +3015,16 @@ def transport_facts(api_key, state):
                 # a coincidence to guard against.
                 no = x.get('RTE_NO', '?')
                 route[no] = route.get(no, 0) + v
+        # Source checks (PROVENANCE['transport']): every page arrived (40,250
+        # of 40,250 rows on 3 October 2026), and the stop ids are Seoul's (1),
+        # Gyeonggi's (2) or Incheon's (9), with Seoul's at least nine in ten
+        # (0.953): the bus figures are Seoul-licensed buses wherever they stop.
+        require(bus_rows_read == btot_rows,
+                f'transport: bus {bus_rows_read} rows of {btot_rows}')
+        require(set(stop_prefix) <= {'1', '2', '9'},
+                f'transport: unknown stop id prefixes {sorted(set(stop_prefix) - {"1", "2", "9"})}')
+        require(stop_prefix.get('1', 0) >= 0.9 * bus_total,
+                f'transport: only {stop_prefix.get("1", 0) / max(bus_total, 1):.1%} of bus boardings at Seoul stops')
         # Every route's total goes into the history file (idempotent), for the
         # three history cards.
         if bus_history_add(hist, day, route, {no: len(ids) for no, ids in route_stop_ids.items()}):
@@ -3246,7 +3369,10 @@ def _rush_month(api_key, month):
             return {}
         rows += d.get('CardSubwayTime', {}).get('row', [])
     if len(rows) != total:
-        return {}      # a short read must not become a quieter city
+        # A short read must not become a quieter city, nor quietly hand the
+        # card an older month: a failed source check, logged and withheld.
+        require(False, f'rush: {month} read {len(rows)} of {total} rows')
+        return {}
     seen, agg = set(), {}
     for r in rows:
         sig = tuple(sorted((k, str(v)) for k, v in r.items()))
@@ -3379,7 +3505,7 @@ def count_facts(api_key):
     return out
 
 
-def bike_counts(api_key):
+def bike_counts(api_key, racks_by_id=None):
     """Citywide Ttareungi totals right now: (stations, bikes, racks, empty),
     or None if the sweep could not be completed.
 
@@ -3420,6 +3546,9 @@ def bike_counts(api_key):
         for x in rows:
             b = int(float(x.get('parkingBikeTotCnt', 0) or 0))
             racks += int(float(x.get('rackTotCnt', 0) or 0))
+            if racks_by_id is not None:   # bike_facts' source check, below
+                racks_by_id.setdefault(x.get('stationId'), []).append(
+                    int(float(x.get('rackTotCnt', 0) or 0)))
             stations += 1
             bikes += b
             if b == 0:
@@ -3430,6 +3559,34 @@ def bike_counts(api_key):
     return (stations, bikes, racks, empty) if stations else None
 
 
+@source_check
+def check_bike_racks(api_key, by_id, racks):
+    """Source check (PROVENANCE['bike']): each live station once, every live
+    station in the operator's station register (tbCycleStationInfo), and the
+    racks the live feed reports equal to the register's HOLD_NUM over the
+    same stations. Exact on 7 October 2026: 32,955 against 32,955 over 2,738
+    stations, none of them unregistered. The register also lists about 500
+    stations the live feed leaves out; the card counts live stations only."""
+    dup = [k for k, v in by_id.items() if len(v) > 1]
+    require(not dup, f'bike: {len(dup)} stations appear twice in the live feed')
+    base = f'http://openapi.seoul.go.kr:8088/{api_key}/json/tbCycleStationInfo'
+    try:
+        head = http_get_json(f'{base}/1/1/')
+        total = int(head['stationInfo']['list_total_count'])
+        reg = {}
+        for start in range(1, total + 1, 1000):
+            d = http_get_json(f'{base}/{start}/{min(start + 999, total)}/')
+            for r in d['stationInfo']['row']:
+                reg[r['RENT_ID']] = int(float(r.get('HOLD_NUM') or 0))
+    except (RuntimeError, KeyError, TypeError, ValueError) as e:
+        raise SourceCheckFailed(f'bike: station register unreadable ({e})')
+    require(len(reg) == total, f'bike: register read {len(reg)} of {total}')
+    missing = set(by_id) - set(reg)
+    require(not missing, f'bike: {len(missing)} live stations not in the register')
+    reconcile('bike: racks against the register', racks,
+              sum(reg[k] for k in by_id), 0)
+
+
 def bike_facts(api_key):
     """Live Ttareungi (public-bike) numbers, citywide, right now.
 
@@ -3437,10 +3594,12 @@ def bike_facts(api_key):
     ('102. 망원역 1번출구 앞') that the English name table does not carry, so a
     named line would fall back to Korean on the English card. The citywide totals
     carry the story without names, and stay fully owned by Python."""
-    got = bike_counts(api_key)
+    by_id = {}
+    got = bike_counts(api_key, by_id)
     if not got:
         return []
     stations, bikes, racks, empty = got
+    check_bike_racks(api_key, by_id, racks)
     # pin the two "right now" labels: the selector would otherwise trim "right
     # now" as ornament and leave a live count reading like a fixed total.
     return [
@@ -3462,7 +3621,15 @@ TRAFFIC_LINKS = HERE / 'traffic_links.json'
 
 
 def _traffic_speed(api_key, link_id):
-    """Current speed (km/h) on one TOPIS road link, or None.
+    """Current speed (km/h) on one TOPIS road link, or None."""
+    got = _traffic_reading(api_key, link_id)
+    return round(got[0]) if got else None
+
+
+def _traffic_reading(api_key, link_id, service='TrafficInfo'):
+    """(speed km/h, travel time s) on one TOPIS road link, or None. With
+    service='LinkInfo', the link's own row as a dict instead (traffic_facts'
+    source check).
 
     TrafficInfo is keyed by a single 표준링크 id and returns prcs_spd +
     prcs_trv_time for it; there is no citywide listing, which is why the links
@@ -3470,7 +3637,7 @@ def _traffic_speed(api_key, link_id):
     28 Jul 2026: xml/TrafficInfo/1/1/1220003800 -> prcs_spd 26. The service
     rejected json under the shared sample key, so ask for xml and parse with ET
     (both already used elsewhere in this file)."""
-    url = f'http://openapi.seoul.go.kr:8088/{api_key}/xml/TrafficInfo/1/1/{link_id}'
+    url = f'http://openapi.seoul.go.kr:8088/{api_key}/xml/{service}/1/1/{link_id}'
     for _ in range(3):
         r = subprocess.run(['curl', '-s', '--max-time', '30', url],
                            capture_output=True, text=True, errors='replace')
@@ -3481,13 +3648,37 @@ def _traffic_speed(api_key, link_id):
                 continue
             if (root.findtext('.//CODE') or '') != 'INFO-000':
                 return None
+            if service != 'TrafficInfo':
+                row = root.find('.//row')
+                return {c.tag: (c.text or '').strip() for c in row} if row is not None else None
             # A decimal speed (49.3) is a speed: until 7 October 2026 only a
             # whole number passed, which dropped 4 of 11 roads that morning.
             try:
-                return round(float((root.findtext('.//row/prcs_spd') or '').strip()))
+                spd = float((root.findtext('.//row/prcs_spd') or '').strip())
             except ValueError:
                 return None
+            try:
+                trv = float((root.findtext('.//row/prcs_trv_time') or '').strip())
+            except ValueError:
+                trv = None      # the check below then refuses; the speed stands
+            return spd, trv
     return None
+
+
+@source_check
+def check_traffic_link(api_key, lid, name_ko, spd, trv):
+    """Source check (PROVENANCE['traffic']): the link is still on the road
+    the card names, and its speed agrees with the link's own length over the
+    travel time the same reading gives. Within 0.51 km/h on all 11 links over
+    three rounds on 7 October 2026 (1.1 earlier the same day)."""
+    info = _traffic_reading(api_key, lid, 'LinkInfo')
+    require(info is not None, f'traffic: no LinkInfo for {lid}')
+    require(info.get('road_name') == name_ko,
+            f'traffic: link {lid} is on {info.get("road_name")}, not {name_ko}')
+    require(trv and trv > 0, f'traffic: link {lid} travel time {trv}')
+    calc = float(info['map_dist']) / trv * 3.6
+    require(abs(calc - spd) <= 1.5,
+            f'traffic: {name_ko} reads {spd} km/h, but its length over its travel time is {calc:.1f}')
 
 
 def traffic_facts(api_key):
@@ -3512,9 +3703,11 @@ def traffic_facts(api_key):
         name_en = entry.get('name_en') or ''
         if not lid or not name_en or name_en.startswith('_'):
             continue   # placeholder / unharvested row
-        spd = _traffic_speed(api_key, lid)
-        if spd is None:
+        got = _traffic_reading(api_key, lid)
+        if got is None:
             continue
+        check_traffic_link(api_key, lid, entry.get('name_ko') or '', *got)
+        spd = round(got[0])
         # Bare road names, like the OECD 'world' lines: the opener must name the
         # metric ("How fast Seoul is driving right now"), so pin the label to keep
         # the road name and let the selector supply that framing.
@@ -3822,6 +4015,16 @@ def level_facts(hrfco_key):
     tiers = _hrfco_tiers(hrfco_key)
     if not tiers:
         return []
+    # Source checks (PROVENANCE['level']), on the rare run that gets this far:
+    # the reading is the last hour's (06:50 read at 07:5x on 7 October 2026),
+    # the tiers rise in order, and the first is the gate this vein wakes at.
+    age = datetime.now(SEOUL_TZ).replace(tzinfo=None) - when
+    require(age <= timedelta(minutes=60), f'level: newest reading is {age} old')
+    vals = [v for v, _, _ in tiers]
+    require(vals == sorted(vals) and len(set(vals)) == len(vals),
+            f'level: tiers out of order {vals}')
+    require(abs(vals[0] - JAMSU_GATE_M) < 0.005,
+            f'level: first tier {vals[0]} is not the gate {JAMSU_GATE_M}')
 
     # Dated and capitalised on the same rule as the river card's hour, and for
     # a sharper reason: this scope entry is the card's only datable period, so
@@ -3977,6 +4180,32 @@ def price_window(state):
     return [PRICE_ITEMS[(i + k * PRICE_STRIDE) % n] for k in range(n)]
 
 
+PRICE_COUNTERS = ('포기', '통', '개', '마리', '손', '포', '망', '병', '캔', '봉')
+
+
+def price_product_consistent(a_name, rows):
+    """SHAPE (PROVENANCE['price']): the feed's own fields agree on what the
+    product is. Two disagreed on 7 October 2026 and are skipped, not compared:
+    the variety of 소고기(국산) is "한우, 1등급, 1+등급 등심", two grades, so the
+    cheapest and dearest shops can be selling different meat; and the product
+    name and the quantity field name different units, 고등어(염장) 1손 (a pair)
+    against QY 1마리 (one fish), and 맥주 1캔 (a can) against QY 1병 (a bottle).
+    Every other product agreed."""
+    rows = list(rows)
+    spc = {(r.get('SPCIES') or '').strip() for r in rows}
+    if any(',' in x for x in spc):
+        print(f'price: {a_name} skipped, its variety lists alternatives ({", ".join(spc)})')
+        return False
+    named = [c for c in PRICE_COUNTERS if re.search(rf'\d{c}', a_name)]
+    for r in rows:
+        qy = (r.get('QY') or '').strip()
+        m = re.fullmatch(r'\d+(\D+)', qy)
+        if m and named and m.group(1) not in named:
+            print(f'price: {a_name} skipped, the quantity field reads {qy}')
+            return False
+    return True
+
+
 def price_facts(api_key, state):
     """One product, priced at markets across Seoul in the newest survey round:
     the cheapest shop, the dearest, and two between."""
@@ -4007,6 +4236,8 @@ def price_facts(api_key, state):
         # every product listed, on 7 October 2026; a product that grows a
         # second is skipped, not compared.
         if len({(r.get('SPCIES') or '').strip() for r in latest.values()}) > 1:
+            continue
+        if not price_product_consistent(a_name, latest.values()):
             continue
         shops = []
         for r in latest.values():
@@ -4089,6 +4320,39 @@ WATER_SITES = {'암사': 'Amsa', '강북': 'Gangbuk', '뚝도': 'Ttukdo',
 WATER_PERIOD = {'en': None, 'ko': None}
 
 
+# 광암, the sixth purification center, is the smallest (182,100 m³ on
+# 5 October 2026) and has no English name in WATER_SITES, so it never makes a
+# line. Listed here so the check below can tell it from a center that is new.
+WATER_SITES_LEFT_OUT = {'광암'}
+
+
+@source_check
+def check_water_rows(rows, newest):
+    """Source checks (PROVENANCE['water']). No other publisher reports these
+    centers, so the feed checks itself: rows arrive newest first (row 1 the
+    newest day, the last row the oldest), the newest day is whole (22 rows:
+    6 intake, 6 transmission, 10 supply, on every complete day measured), it
+    is no more than three days old (two on 7 October 2026), every center is
+    one this vein knows, and the six centers' transmission over their intake
+    sits where it always has (0.9776 to 0.9955 over 13 days), which would
+    catch the two measures swapping."""
+    require(rows[0].get('YMD') == newest and rows[-1].get('YMD') <= newest,
+            'water: rows are no longer newest first')
+    day = [r for r in rows if r.get('YMD') == newest]
+    kinds = collections.Counter(r.get('ROF_SE_NM') for r in day)
+    require(len(day) == 22 and kinds.get('취수') == 6 and kinds.get('송수') == 6,
+            f'water: {newest} has {len(day)} rows ({dict(kinds)}), not 22')
+    age = datetime.now(SEOUL_TZ).date() - datetime.strptime(newest, '%Y%m%d').date()
+    require(age.days <= 3, f'water: newest day {newest} is {age.days} days old')
+    centers = {r.get('BUSNP_NM') for r in day if r.get('ROF_SE_NM') == '취수'}
+    unknown = centers - set(WATER_SITES) - WATER_SITES_LEFT_OUT
+    require(not unknown, f'water: unknown purification centers {sorted(unknown)}')
+    intake = sum(float(r['MSRMT_VL']) for r in day if r.get('ROF_SE_NM') == '취수')
+    sent = sum(float(r['MSRMT_VL']) for r in day if r.get('ROF_SE_NM') == '송수')
+    require(0.96 <= sent / intake <= 1.01,
+            f'water: transmission over intake is {sent / intake:.4f}')
+
+
 def water_facts(api_key):
     """Water drawn at each of Seoul's purification centers, on one day."""
     try:
@@ -4103,6 +4367,7 @@ def water_facts(api_key):
     if not rows:
         return []
     newest = max(r.get('YMD') or '' for r in rows)
+    check_water_rows(rows, newest)
     facts = []
     for r in rows:
         if r.get('YMD') != newest or r.get('ROF_SE_NM') != '취수':
@@ -4159,6 +4424,34 @@ DAYNIGHT_MIN_LINES = 3
 DAYNIGHT_PERIOD = {'en': None, 'ko': None}
 
 
+@source_check
+def check_daynight_day(day, newest):
+    """Source checks (PROVENANCE['daynight']) on one day of the table: 25
+    districts plus the 서울시 row; the districts' day, night and all-day
+    figures sum to the citywide row's (exact, every day 24 September to
+    3 October 2026); each row's day and night figures lie between its own
+    daily minimum and maximum; and each total is its Korean, long-stay and
+    short-stay parts (within one person). ⚠️ NOT night <= total <= day: a
+    residential district holds more people at night, which 104 rows over
+    those ten days did. The cross-check against Seoul's hourly series runs
+    in the monthly audit, since that series lags about two months."""
+    f = lambda r, k: float(r[k])
+    city = [r for r in day if r.get('SIGNGU_NM') == '서울시']
+    gus = [r for r in day if r.get('SIGNGU_NM') != '서울시']
+    require(len(city) == 1 and len(gus) == 25 and len({r['SIGNGU_NM'] for r in gus}) == 25,
+            f'daynight: {newest} has {len(gus)} districts and {len(city)} city rows')
+    for k in ('DAY_LVPOP_CO', 'NIGHT_LVPOP_CO', 'TOT_LVPOP_CO'):
+        reconcile(f'daynight: districts against the city, {k}',
+                  sum(f(r, k) for r in gus), f(city[0], k), 0.0001)
+    for r in day:
+        lo, hi = f(r, 'DAIL_MUMM_LVPOP_CO'), f(r, 'DAIL_MXMM_LVPOP_CO')
+        for k in ('DAY_LVPOP_CO', 'NIGHT_LVPOP_CO', 'TOT_LVPOP_CO'):
+            require(lo <= f(r, k) <= hi, f'daynight: {r["SIGNGU_NM"]} {k} outside its own min and max')
+        parts = f(r, 'LVPOP_CO') + f(r, 'LNGTR_STAY_FRGNR_CO') + f(r, 'SRTPD_STAY_FRGNR_CO')
+        require(abs(parts - f(r, 'TOT_LVPOP_CO')) <= 1,
+                f'daynight: {r["SIGNGU_NM"]} parts sum to {parts:,.0f}, total {f(r, "TOT_LVPOP_CO"):,.0f}')
+
+
 def daynight_facts(api_key, state):
     """How far a district's daytime population runs above its night-time one."""
     try:
@@ -4174,6 +4467,7 @@ def daynight_facts(api_key, state):
         return []
     newest = max(r.get('STDR_DE_ID') or '' for r in rows)
     day = [r for r in rows if r.get('STDR_DE_ID') == newest]
+    check_daynight_day(day, newest)
 
     def num(r, k):
         try:
@@ -4281,6 +4575,28 @@ def _infant_ages(kosis_key):
     return {y: a for y, a in out.items() if len(a) == len(INFANT_AGE_CODE)}
 
 
+@source_check
+def check_infant_years(kosis_key, by_year, years):
+    """RECONCILE (PROVENANCE['infant']): the single-year table's ages 0 to 4,
+    summed, must equal KOSIS's five-year-band table (DT_1B04005N, 0-4세) for
+    December of each card year. Exact for every year 2015 to 2025 on
+    7 October 2026; the two are the same register, published twice."""
+    from urllib.parse import quote
+    url = ('https://kosis.kr/openapi/Param/statisticsParameterData.do'
+           f'?method=getList&apiKey={quote(kosis_key, safe="")}&format=json'
+           f'&jsonVD=Y&orgId=101&tblId=DT_1B04005N&itmId=T2&objL1=11&objL2=5'
+           f'&prdSe=M&startPrdDe={min(years)}12&endPrdDe={max(years)}12')
+    try:
+        rows = http_get_json(url)
+    except (RuntimeError, OSError) as e:
+        raise SourceCheckFailed(f'infant: band table unreadable ({e})')
+    band = {int(r['PRD_DE'][:4]): int(float(r['DT'])) for r in rows
+            if r.get('PRD_DE', '').endswith('12') and r.get('C2_NM') == '0 - 4세'}
+    for y in years:
+        reconcile(f'infant: {y} ages 0-4 against the 0-4 band',
+                  sum(by_year[y][a] for a in range(5)), band.get(y), 0)
+
+
 def infant_facts(kosis_key, state):
     """Seoul's registered children in one age band: the newest year, five
     years before and ten. Bands rotate run to run."""
@@ -4293,6 +4609,7 @@ def infant_facts(kosis_key, state):
     years = [newest - 2 * INFANT_YEARS_APART, newest - INFANT_YEARS_APART, newest]
     if any(y not in by_year for y in years):
         return []
+    check_infant_years(kosis_key, by_year, years)
     i = int(state.get('infant_i', 0))
     state['infant_i'] = (i + 1) % len(INFANT_SERIES)
     ages, en_age, ko_age = INFANT_SERIES[i % len(INFANT_SERIES)]
@@ -4410,6 +4727,25 @@ def library_pop(kosis_key):
     return pop, f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
 
 
+@source_check
+def check_library_rows(body):
+    """Source checks (PROVENANCE['library']). No other publisher states this
+    library's membership, so: every row arrived (95 of 95, one page of 200,
+    on 7 October 2026), and the bands are KOREAN COUNTING AGE, ten birth
+    years each, which is what the card's bands assume: band "10" is people
+    born 2008 to 2017 in 2026, so this year + 1 - birth year falls within
+    the band for every row (95 of 95). A switch to 만 age, or a relabelled
+    band, fails here instead of quietly shifting every decade by a year."""
+    rows = body.get('row') or []
+    total = int(body.get('list_total_count') or 0)
+    require(len(rows) == total < 200, f'library: {len(rows)} rows of {total}')
+    this = datetime.now(SEOUL_TZ).year
+    for r in rows:
+        band, born = int(r['AGE_RANGE']), int(r['BRDT'])
+        require(band <= this + 1 - born <= band + 9,
+                f'library: born {born} sits in band {band}; not Korean counting age')
+
+
 def library_facts(api_key, kosis_key=None):
     """Who holds a card at Seoul Library, by decade of life."""
     try:
@@ -4420,6 +4756,7 @@ def library_facts(api_key, kosis_key=None):
     body = d.get(LIBRARY_SVC) or {}
     if ((body.get('RESULT') or {}).get('CODE') or '') != 'INFO-000':
         return []
+    check_library_rows(body)
     tally = {}
     for r in (body.get('row') or []):
         band = (r.get('AGE_RANGE') or '').strip()
@@ -4482,6 +4819,28 @@ COMPLAINT_SVC = 'SmartUncomfStatMonth'
 COMPLAINT_MIN_LINES = 3
 
 
+@source_check
+def check_complaint_years(api_key, years):
+    """RECONCILE (PROVENANCE['complaint']): the same service published by
+    field (SmartUncomfStatSector), its monthly totals summed by year, must
+    agree with the by-month table's yearly total. Exact for every year 2012
+    to 2026 but 2025 on 7 October 2026, which is 168 apart (902,959 against
+    903,127, 0.019 percent, all of it in July): tolerance 0.05 percent."""
+    try:
+        d = http_get_json(f'http://openapi.seoul.go.kr:8088/{api_key}/json/'
+                          'SmartUncomfStatSector/1/400/')
+        rows = d['SmartUncomfStatSector']['row']
+        total = int(d['SmartUncomfStatSector']['list_total_count'])
+    except (RuntimeError, KeyError, TypeError) as e:
+        raise SourceCheckFailed(f'complaint: by-field table unreadable ({e})')
+    require(len(rows) == total, f'complaint: by-field table {len(rows)} rows of {total}')
+    by_year = collections.Counter()
+    for r in rows:
+        by_year[str(r['YEAR'])] += float(r['RCPT_CNT_TOTAL'])
+    for yr, v in years:
+        reconcile(f'complaint: {yr} against the by-field table', v, by_year.get(yr), 0.0005)
+
+
 def complaint_facts(api_key):
     """Reports to Seoul's fault-reporting service, by complete year."""
     try:
@@ -4512,6 +4871,7 @@ def complaint_facts(api_key):
     if len(years) < COMPLAINT_MIN_LINES:
         return []
     years.sort(key=lambda t: t[0], reverse=True)
+    check_complaint_years(api_key, years[:5])
     facts = []
     for yr, total in years[:5]:
         facts.append(fact(f'complaint_{yr}', 'complaint', yr, grouped(total),
@@ -4959,6 +5319,13 @@ def _molit_items(service, lawd, ym, key):
         rows += list(root.iter('item'))
         total = int(root.findtext('.//totalCount') or 0)
         if len(rows) >= total:
+            # Source check (PROVENANCE['property']): exactly the rows the feed
+            # counts, and every one for the district and month asked for
+            # (9,627 of 9,627 on 7 October 2026).
+            require(len(rows) == total, f'property: {service} {lawd}/{ym} {len(rows)} rows of {total}')
+            for it in rows:
+                got = (it.findtext('sggCd'), f"{it.findtext('dealYear')}{int(it.findtext('dealMonth') or 0):02d}")
+                require(got == (lawd, ym), f'property: {service} {lawd}/{ym} returned a row for {got}')
             return rows
         page += 1
 
@@ -4979,7 +5346,9 @@ def _molit_harvest(key, ym):
     top_dep = None      # [amount, 구]
     for lawd, gu in SEOUL_LAWD.items():
         for it in _molit_items('RTMSDataSvcAptTrade', lawd, ym, key):
-            if (it.findtext('cdealType') or '').strip():
+            flag = (it.findtext('cdealType') or '').strip()
+            require(flag in ('', 'O'), f'property: unknown cancellation flag {flag!r}')
+            if flag:
                 continue    # cancelled sale, retracted but still in the feed
             amt = _manwon(it.findtext('dealAmount'))
             if amt is None:
@@ -5003,6 +5372,8 @@ def _molit_harvest(key, ym):
                     top_dep = [dep, gu]
     # A real month has thousands of each; zeros mean the feed (or a field
     # name) changed under us, and caching them would freeze the mistake.
+    require(len(by_gu) == len(SEOUL_LAWD),
+            f'property: sales in {len(by_gu)} of {len(SEOUL_LAWD)} districts for {ym}')
     if not trade_n or not (jeonse_n + wolse_n):
         raise RuntimeError(f'MOLIT harvest for {ym} looks empty '
                            f'(trade={trade_n}, leases={jeonse_n + wolse_n})')
@@ -5194,6 +5565,43 @@ def wx_day_emoji(row):
     return '☀️' if cloud <= 5 else '⛅' if cloud <= 8 else '☁️'
 
 
+WX_HOURLY = ('http://apis.data.go.kr/1360000/AsosHourlyInfoService/getWthrDataList'
+             '?serviceKey={key}&dataType=JSON&dataCd=ASOS&dateCd=HR&stnIds=108'
+             '&startDt={day}&startHh=00&endDt={day}&endHh=23&numOfRows=30&pageNo=1')
+
+
+@source_check
+def check_wxday(key, rows, yday):
+    """Source checks (PROVENANCE['wxday']): the daily row is station 108's
+    for yesterday and the only one, and it agrees with the same station's
+    HOURLY readings. Hours 00 to 23 only: the day's 24:00 is the next day's
+    00:00, which the service does not serve until the day after. Over the 41
+    days 1 August to 10 September 2026: sunshine equal to the hours summed;
+    the hours from 01:00 never more rain than the day's total, and none at
+    all on a day whose total is blank; the high 0 to 0.9 degrees above the
+    hourly maximum and the low 0 to 0.6 below the hourly minimum, the daily
+    extremes coming from minute data (tolerance 1.5)."""
+    r = rows[0]
+    require(len(rows) == 1 and r.get('stnId') == '108' and r.get('tm') == f'{yday:%Y-%m-%d}',
+            f'wxday: daily rows {[(x.get("stnId"), x.get("tm")) for x in rows]}')
+    try:
+        body = json.loads(_curl(WX_HOURLY.format(key=key, day=f'{yday:%Y%m%d}')))['response']['body']
+        hours = body['items']['item']
+    except (ValueError, KeyError, TypeError) as e:
+        raise SourceCheckFailed(f'wxday: hourly readings unreadable ({e})')
+    require(len(hours) == 24, f'wxday: {len(hours)} hourly readings, not 24')
+    ss, sumss = sum(_wx_num(h, 'ss') or 0 for h in hours), _wx_num(r, 'sumSsHr')
+    if sumss is not None:
+        require(abs(ss - sumss) <= 0.05, f'wxday: sunshine {sumss} h, hours sum to {ss:.1f}')
+    rn, sumrn = sum(_wx_num(h, 'rn') or 0 for h in hours[1:]), _wx_num(r, 'sumRn')
+    require(rn <= (sumrn or 0) + 0.05, f'wxday: rain {sumrn} mm, but the hours hold {rn:.1f}')
+    ta = [t for t in (_wx_num(h, 'ta') for h in hours) if t is not None]
+    require(len(ta) >= 20, f'wxday: only {len(ta)} hourly temperatures')
+    hi, lo = _wx_num(r, 'maxTa'), _wx_num(r, 'minTa')
+    require(max(ta) <= hi <= max(ta) + 1.5, f'wxday: high {hi}, hourly maximum {max(ta)}')
+    require(min(ta) - 1.5 <= lo <= min(ta), f'wxday: low {lo}, hourly minimum {min(ta)}')
+
+
 def wx_day_facts(key):
     """The wxday card: yesterday's published readings from station 108.
     Fills RANKED_CARD_INFO when built; prints why when withheld."""
@@ -5211,6 +5619,7 @@ def wx_day_facts(key):
     if hi is None or lo is None:
         print(f'Weather-day card withheld: high or low missing for {d}.')
         return []
+    check_wxday(key, rows, yday)
     wxday_note_en, wxday_note_ko = with_latest(
         f'Seoul’s reference station, observing since {WX_OBSERVING_SINCE}',
         f'서울 대표 관측소, {WX_OBSERVING_SINCE}년 관측 개시', d, d_ko, yday)
@@ -5246,6 +5655,24 @@ def wx_day_facts(key):
     return facts
 
 
+@source_check
+def _wx_span(key, start, end, rows=31):
+    """_wx_rows() for the weather vein, with its source check
+    (PROVENANCE['weather']): one row per day of the span, every one station
+    108's and inside the span. September 2026 and September 1976 each came
+    back 30 of 30 on 7 October 2026. A short span would let an extreme day
+    go missing and a count of hot days come out low."""
+    got = _wx_rows(key, start, end, rows)
+    d0, d1 = datetime.strptime(start, '%Y%m%d').date(), datetime.strptime(end, '%Y%m%d').date()
+    want = (d1 - d0).days + 1
+    require(len(got) == want, f'weather: {len(got)} daily rows for {start} to {end}, not {want}')
+    for r in got:
+        tm = r.get('tm') or ''
+        require(r.get('stnId') == '108' and f'{d0:%Y-%m-%d}' <= tm <= f'{d1:%Y-%m-%d}',
+                f'weather: row {r.get("stnId")} {tm} outside {start} to {end}')
+    return got
+
+
 def kma_facts(key):
     """Weather lines: the last full month set against the same month fifty
     years earlier, and in summer the season to date. Yesterday's readings
@@ -5272,8 +5699,8 @@ def kma_facts(key):
     then_y = m_start.year - WX_YEARS_BACK
     then_end = (date(then_y, mon, 28) + timedelta(days=4)).replace(day=1) \
         - timedelta(days=1)
-    now = _wx_extremes(_wx_rows(key, f'{m_start:%Y%m%d}', f'{m_end:%Y%m%d}'))
-    then = _wx_extremes(_wx_rows(key, f'{then_y}{mon:02d}01',
+    now = _wx_extremes(_wx_span(key, f'{m_start:%Y%m%d}', f'{m_end:%Y%m%d}'))
+    then = _wx_extremes(_wx_span(key, f'{then_y}{mon:02d}01',
                                  f'{then_end:%Y%m%d}'))
 
     for side, ex, y in (('now', now, m_start.year), ('then', then, then_y)):
@@ -5331,9 +5758,9 @@ def kma_facts(key):
         s_start = date(today.year, 6, 1)
         then_start = date(today.year - WX_YEARS_BACK, 6, 1)
         then_yday = date(yday.year - WX_YEARS_BACK, yday.month, yday.day)
-        s_now = _wx_extremes(_wx_rows(key, f'{s_start:%Y%m%d}',
+        s_now = _wx_extremes(_wx_span(key, f'{s_start:%Y%m%d}',
                                       f'{yday:%Y%m%d}', rows=200))
-        s_then = _wx_extremes(_wx_rows(key, f'{then_start:%Y%m%d}',
+        s_then = _wx_extremes(_wx_span(key, f'{then_start:%Y%m%d}',
                                        f'{then_yday:%Y%m%d}', rows=200))
         if s_now['swelter'] or s_then['swelter']:
             span_en = f'June 1–{en_date(yday)}'
@@ -5398,8 +5825,9 @@ KAC_BASE = ('http://apis.data.go.kr/B551178/airport-transport-stats/info'
 KAC_YEARS_BACK = 20
 
 
-def _kac_month(key, y, m, route=None):
-    """김포's row for one month as {'pax': int, 'flights': int}, or None."""
+def _kac_month(key, y, m, route=None, airport='김포'):
+    """One airport's row (김포 unless told otherwise) for one month as
+    {'pax': int, 'flights': int, 'arr': int, 'dep': int}, or None."""
     extra = f'&routeBe={route}' if route is not None else ''
     url = KAC_BASE.format(key=key, ym=f'{y}{m:02d}', extra=extra)
     stdout = _curl(url)
@@ -5415,7 +5843,7 @@ def _kac_month(key, y, m, route=None):
         require(len(items) >= int(total),
                 f'Gimpo {y}-{m:02d}: {len(items)} of {total} airport rows fetched')
     for it in items:
-        if (it.findtext('Airport') or '').strip() == '김포':
+        if (it.findtext('Airport') or '').strip() == airport:
             try:
                 row = {'pax': int(float(it.findtext('subpassenger'))),
                        'flights': int(float(it.findtext('Subflgt'))),
@@ -5426,13 +5854,26 @@ def _kac_month(key, y, m, route=None):
             # SHAPE: the total is both directions, never one (the Incheon
             # feed's fault). Exact in every month measured 7 October 2026.
             require(row['pax'] == row['arr'] + row['dep'],
-                    f'Gimpo {y}-{m:02d}: total {row["pax"]:,} is not arrivals '
+                    f'{airport} {y}-{m:02d}: total {row["pax"]:,} is not arrivals '
                     f'{row["arr"]:,} plus departures {row["dep"]:,}')
             return row
     return None
 
 
-def kac_facts(key):
+@source_check
+def check_airport_kosis(kosis_key, obj, name, ym, row):
+    """RECONCILE (PROVENANCE['airport']): Korea Airports Corporation's own
+    feed against its KOSIS table for the same airport and month, passengers
+    and flights both, exactly. Equal for Gimpo and Incheon on 48 of 48
+    airport-months (September 2025 to August 2026) and for August 2006."""
+    require(kosis_key, f'{name.lower()}: no KOSIS key to check against')
+    got = _icn_months(kosis_key, ym, ym, obj=obj).get(ym)
+    require(got is not None, f'{name.lower()}: KOSIS has no {ym}')
+    reconcile(f'{name.lower()}: {ym} passengers against KOSIS', row['pax'], got['pax'], 0)
+    reconcile(f'{name.lower()}: {ym} flights against KOSIS', row['flights'], got['flights'], 0)
+
+
+def kac_facts(key, kosis_key=None):
     """Gimpo's newest published month, its twenty-years-ago shadow, and the
     domestic/international split."""
     if not key:
@@ -5443,6 +5884,7 @@ def kac_facts(key):
     if not got:
         return []
     y, m, now = got
+    check_airport_kosis(kosis_key, 'A02', 'Gimpo', f'{y}{m:02d}', now)
     mon_en = MONTHS_EN[m - 1]
     # ⚠️ Every label here carries its own month AND the fact carries it again as
     # a period. Both are needed and neither is redundant: on the twenty-year
@@ -5465,6 +5907,7 @@ def kac_facts(key):
                   period_en=per_en, period_ko=per_ko)]
     then = _kac_month(key, y - KAC_YEARS_BACK, m)
     if then:
+        check_airport_kosis(kosis_key, 'A02', 'Gimpo', f'{y - KAC_YEARS_BACK}{m:02d}', then)
         then_en = f'{mon_en} {y - KAC_YEARS_BACK}'
         then_ko = f'{y - KAC_YEARS_BACK}년 {m}월'
         facts.append(fact('kac_pax_then', 'airport',
@@ -5549,7 +5992,7 @@ def _iiac_rows(key):
 # is: scheduled arrivals FROM that country.
 ICN_KOSIS = ('https://kosis.kr/openapi/Param/statisticsParameterData.do'
              '?method=getList&apiKey={key}&format=json&jsonVD=Y&orgId=381'
-             '&tblId=DT_920005_B001&itmId=T001+T002&objL1=A20&objL2=B01'
+             '&tblId=DT_920005_B001&itmId=T001+T002&objL1={obj}&objL2=B01'
              '&prdSe=M&startPrdDe={start}&endPrdDe={end}')
 ICN_YEARS_BACK = 1
 
@@ -5560,11 +6003,12 @@ def pct_change(now, then):
     return f'{"+" if pct >= 0 else "−"}{abs(pct):.1f}%'
 
 
-def _icn_months(kosis_key, start, end):
-    """{'YYYYMM': {'pax': int, 'flights': int}} for Incheon, both directions,
-    from KOSIS. Empty on any failure."""
+def _icn_months(kosis_key, start, end, obj='A20'):
+    """{'YYYYMM': {'pax': int, 'flights': int}} for Incheon (A20), or for
+    Gimpo (A02, the airport vein's source check), both directions, from
+    KOSIS. Empty on any failure."""
     from urllib.parse import quote
-    url = ICN_KOSIS.format(key=quote(kosis_key, safe=''), start=start, end=end)
+    url = ICN_KOSIS.format(key=quote(kosis_key, safe=''), start=start, end=end, obj=obj)
     try:
         d = http_get_json(url)
     except (RuntimeError, ValueError, OSError):
@@ -5578,6 +6022,19 @@ def _icn_months(kosis_key, start, end):
             except (KeyError, TypeError, ValueError):
                 continue
     return {ym: v for ym, v in out.items() if len(v) == 2}
+
+
+@source_check
+def check_incheon_kac(key, y, m, now):
+    """RECONCILE (PROVENANCE['incheon']): KOSIS's Incheon totals against the
+    same corporation's own feed (airport-transport-stats, the 인천 row), which
+    the airport vein reads for Gimpo. Exact on 24 of 24 months, September
+    2025 to August 2026, passengers and flights. Same publisher, so this
+    checks the fetch, the item codes and the month, not the source."""
+    icn = _kac_month(key, y, m, airport='인천') if key else None
+    require(icn is not None, f'incheon: no KAC row for {y}-{m:02d} to check against')
+    reconcile(f'incheon: {y}-{m:02d} passengers against KAC', now['pax'], icn['pax'], 0)
+    reconcile(f'incheon: {y}-{m:02d} flights against KAC', now['flights'], icn['flights'], 0)
 
 
 def iiac_facts(key, kosis_key=None):
@@ -5598,6 +6055,7 @@ def iiac_facts(key, kosis_key=None):
     if not then:
         return []
     now = months[ym]
+    check_incheon_kac(key, y, m, now)
     mon_en = MONTHS_EN[m - 1]
     per_en, per_ko = f'{mon_en} {y}', f'{y}년 {m}월'
     then_en, then_ko = f'{mon_en} {y - ICN_YEARS_BACK}', f'{y - ICN_YEARS_BACK}년 {m}월'
@@ -5620,6 +6078,13 @@ def iiac_facts(key, kosis_key=None):
     # Busiest origin country, from the IIAC feed, only for the same month.
     rows = _iiac_rows(key) if key else []
     if rows and str(rows[0].get('yearMonth') or '') == ym:
+        # SHAPE: one month, scheduled passenger arrivals only (411 of 411
+        # rows for August 2026). The label says "scheduled arrivals"; a
+        # departure or charter row would make it false.
+        require(all(str(it.get('yearMonth')) == ym and it.get('departuresOrArrivals') == '도착'
+                    and it.get('regularCode') == '정기' and it.get('paxCode', '여객') == '여객'
+                    for it in rows),
+                f'incheon: the IIAC rows are no longer all scheduled passenger arrivals for {ym}')
         by_country = {}
         for it in rows:
             # Every passenger on the flight: fare-paying (totalEff), non-fare
@@ -5719,6 +6184,37 @@ def _rescue_rows(key, a, b):
     return rows
 
 
+@source_check
+def check_rescue_rows(key, a, b, rows):
+    """Source checks (PROVENANCE['rescue']). SHAPE: every notice filed by a
+    Seoul district office, none twice, each rescued inside the window.
+    RECONCILE: the register asked WITHOUT the Seoul filter, the Seoul
+    offices' notices picked out by name, must be the same set of notices
+    exactly. 93 and 93, identical, for 28 September to 4 October 2026: the
+    filter is the district code, and this says it still means Seoul."""
+    ids = [r.get('desertionNo') for r in rows]
+    require(len(ids) == len(set(ids)), 'rescue: a notice appears twice')
+    require(all(str(r.get('orgNm') or '').startswith('서울특별시') for r in rows),
+            'rescue: a notice not filed by a Seoul district office')
+    require(all(a <= str(r.get('happenDt') or '') <= b for r in rows),
+            f'rescue: a notice rescued outside {a}-{b}')
+    base = RESCUE_BASE.replace('&upr_cd=' + RESCUE_SEOUL_CODE, '')
+    every, total = [], None
+    for page in range(1, 2 * RESCUE_MAX_PAGES + 1):
+        try:
+            body = json.loads(_curl(base.format(key=key, page=page, a=a, b=b)))['response']['body']
+            total = int(body['totalCount'])
+            every += body['items']['item'] if body.get('items') else []
+        except (ValueError, KeyError, TypeError) as e:
+            raise SourceCheckFailed(f'rescue: the unfiltered register is unreadable ({e})')
+        if len(every) >= total:
+            break
+    require(len(every) == total, f'rescue: unfiltered register {len(every)} of {total}')
+    seoul = {r.get('desertionNo') for r in every if str(r.get('orgNm') or '').startswith('서울특별시')}
+    require(seoul == set(ids),
+            f'rescue: the Seoul filter gave {len(ids)} notices, the offices by name {len(seoul)}')
+
+
 def rescue_facts(key):
     """The rescue card: one week of Seoul's rescue notices, the total and
     the split by species. Fills RANKED_CARD_INFO when built; prints why
@@ -5736,6 +6232,7 @@ def rescue_facts(key):
     if not rows:
         print(f'Rescue card withheld: zero rows for {a}-{b}, which reads as an outage.')
         return []
+    check_rescue_rows(key, a, b, rows)
     by_kind = {}
     for r in rows:
         k = (r.get('upKindNm') or '').strip()
@@ -5799,6 +6296,31 @@ KOPIS_NOTE_EN = ('Theater, musicals, classical, dance and more, from the nationa
 KOPIS_NOTE_KO = '연극·뮤지컬·클래식·무용 등, 공연예술통합전산망 집계, 티켓은 취소분 제외'
 
 
+KOPIS_GROUP_ROWS = {'경기/인천', '경상도', '전라도', '충청도', '합계'}
+
+
+@source_check
+def check_kopis_regions(root):
+    """Source checks (PROVENANCE['kopis']) on the whole prfstsArea answer:
+    the sixteen regions (the group rows and 합계 aside) sum exactly to 합계
+    on showings, box office, tickets, productions and openings, and on
+    every row tickets sold are tickets booked less cancellations, which is
+    what "net of cancellations" in the footnote rests on. All exact for
+    30 September to 6 October 2026. Productions and openings sum because
+    a production plays in one region; they are NOT additive across days."""
+    rows = {(x.findtext('area') or '').strip(): {c.tag: c.text for c in x}
+            for x in root.findall('prfst')}
+    require('합계' in rows and '서울' in rows and len(rows) == 21,
+            f'kopis: {len(rows)} area rows, not 21 with 합계 and 서울')
+    leaves = [v for k, v in rows.items() if k not in KOPIS_GROUP_ROWS]
+    for k in ('prfdtcnt', 'amount', 'totnmrs', 'prfcnt', 'prfprocnt'):
+        reconcile(f'kopis: regions against 합계, {k}',
+                  sum(int(v[k]) for v in leaves), int(rows['합계'][k]), 0)
+    for area, v in rows.items():
+        require(int(v['totnmrs']) == int(v['nmrs']) - int(v['nmrcancl']),
+                f'kopis: {area} tickets are not booked less cancelled')
+
+
 def _kopis_seoul(key, a, b):
     """The 서울 row of prfstsArea for a..b (YYYYMMDD), as {tag: int}, or
     None when the call failed, parsed to nothing, or carried no 서울 row."""
@@ -5808,6 +6330,7 @@ def _kopis_seoul(key, a, b):
         root = ET.fromstring(stdout)
     except ET.ParseError:
         return None
+    check_kopis_regions(root)
     for row in root.findall('prfst'):
         if (row.findtext('area') or '').strip() == '서울':
             out = {}
@@ -5982,7 +6505,10 @@ HK_HOUSEHOLDS_YEAR = 2025
 HK_HOUSEHOLDS = 2_778_100
 HK_TOTAL_YEAR = 2025
 HK_TOTAL_KWH = 164_433 * 1e6 / 3.6
-HK_TOTAL_POP = 7_510_800
+# Revised to 7,508,700 by 7 October 2026: C&SD table 110-01001 (end-2025,
+# sex and age total) now gives 7,508.7 thousand against the press release's
+# provisional 7,510.8. check_hk_constants() reads that table every build.
+HK_TOTAL_POP = 7_508_700
 # Credited on the kepcohk card's source reply as plain text, NOT in
 # LINK_DOMAINS: every linked domain must also be in the pinned thread's
 # SOURCE_LINE (test_credits_match_the_daily_posts), and that line is 279 of
@@ -6024,6 +6550,25 @@ def gwh(kwh):
     return f'{g:,.0f} GWh' if g >= 100 else f'{g:,.1f} GWh'
 
 
+@source_check
+def check_kepco_month(rows, y, m, contract_types):
+    """SHAPE (PROVENANCE['kepco'] and its siblings): every row Seoul's, for
+    the month asked, across all 25 districts, and (contractType.do) each
+    district carrying the residential and general tariffs the card's lines
+    name. 173 rows in every month of 2025 and 2026 and 175 in July 2006,
+    25 districts each, on 7 October 2026."""
+    require(all(r.get('metro') == '서울특별시' for r in rows), f'kepco: {y}-{m:02d} has rows outside Seoul')
+    require(all(str(r.get('year')) == str(y) and int(r.get('month')) == m for r in rows),
+            f'kepco: {y}-{m:02d} has rows for another month')
+    by = collections.defaultdict(set)
+    for r in rows:
+        by[r.get('city')].add((r.get('cntr') or '').replace(' ', ''))
+    require(len(by) == 25, f'kepco: {y}-{m:02d} covers {len(by)} districts')
+    if contract_types:
+        short = [c for c, v in by.items() if not set(contract_types) <= v]
+        require(not short, f'kepco: {y}-{m:02d} {", ".join(short)} lack a tariff the card names')
+
+
 def _kepco_rows(key, y, m):
     """The month's Seoul rows, or None: a failed call, an unpublished month
     (404 with errCd), or fewer rows than a whole month has."""
@@ -6040,6 +6585,7 @@ def _kepco_rows(key, y, m):
     if not isinstance(rows, list) or len(rows) < KEPCO_MIN_ROWS:
         _KEPCO_CACHE[(y, m)] = None
         return None
+    check_kepco_month(rows, y, m, ('주택용', '일반용'))
     _KEPCO_CACHE[(y, m)] = rows
     return rows
 
@@ -6214,6 +6760,33 @@ def kepco_facts(key, kosis_key=None):
                  pin=True, label_ko='전기 요금', num=t['bill'], unit='won')]
 
 
+CSD_API = 'https://www.censtatd.gov.hk/api/get.php?id={id}&lang=en&full_series=1'
+
+
+@source_check
+def check_hk_constants():
+    """RECONCILE (PROVENANCE['kepcohk']): the Hong Kong side is typed in by
+    hand, so its two Census and Statistics Department figures are read back
+    from the department's own tables: households (130-06102, DH) and
+    year-end population (110-01001), within 0.1 percent. Households matched
+    exactly on 7 October 2026; the population had been revised from the
+    press release's 7,510,800 to 7,508,700, which is how this check came to
+    exist. The energy figures (C&SD table 4.1, CLP, HK Electric) are annual
+    reports with no API and are re-read in the monthly audit."""
+    def table(id_):
+        try:
+            return json.loads(_curl(CSD_API.format(id=id_), follow=True))['dataSet']
+        except (ValueError, KeyError, TypeError) as e:
+            raise SourceCheckFailed(f'kepcohk: C&SD {id_} unreadable ({e})')
+    hh = next((r['figure'] for r in table('130-06102') if r.get('freq') == 'Y'
+               and r.get('sv') == 'DH' and r.get('period') == str(HK_HOUSEHOLDS_YEAR)), None)
+    pop = next((r['figure'] for r in table('110-01001') if r.get('sv') == 'POP'
+                and r.get('svDesc', '').startswith('Number') and r.get('SEX') == ''
+                and r.get('AGE') == '' and r.get('period') == f'{HK_TOTAL_YEAR}12'), None)
+    reconcile('kepcohk: Hong Kong households', HK_HOUSEHOLDS, hh and hh * 1000, 0.001)
+    reconcile('kepcohk: Hong Kong population', HK_TOTAL_POP, pop and pop * 1000, 0.001)
+
+
 def kepco_hk_facts(key, kosis_key=None):
     """The kepcohk card: Seoul against Hong Kong, per person and per
     household, four lines in a fixed order, every one of them a YEAR:
@@ -6243,6 +6816,7 @@ def kepco_hk_facts(key, kosis_key=None):
     if not seoul_pop:
         print('Seoul and Hong Kong electricity card withheld: no Seoul population from KOSIS.')
         return []
+    check_hk_constants()
     per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
     hk_years = sorted({HK_TOTAL_YEAR, HK_ANNUAL_YEAR, HK_HOUSEHOLDS_YEAR})
     hk_en = ' and '.join(str(v) for v in hk_years)
@@ -6332,6 +6906,9 @@ def _kepco_house_rows(key, y, m):
         rows = None
     if not isinstance(rows, list) or len(rows) < KEPCO_HOUSE_MIN_ROWS:
         rows = None
+    if rows:
+        check_kepco_month(rows, y, m, None)
+        require(len(rows) == 25, f'kepco: {y}-{m:02d} household table has {len(rows)} rows, not 25')
     _KEPCO_HOUSE_CACHE[(y, m)] = rows
     return rows
 
@@ -6348,6 +6925,24 @@ def kwh_avg(v):
     return f'{v:,.0f} kWh'
 
 
+@source_check
+def check_kepco_house_ratio(key, y, m, rows):
+    """RECONCILE (PROVENANCE['kepcohouse']): KEPCO's per-household averages,
+    weighted back up by their household counts, against the same month's
+    residential (주택용) sales in the contract-type table. Not equal: the
+    averages sit 0.905 to 0.932 of the sales over all 31 months January 2024
+    to July 2026 (0.920 in July), unexplained (see _kepco_seoul_house_annual),
+    so the tolerance is that band widened a little, 0.89 to 0.945. It
+    catches the averages losing their weights or moving to another unit."""
+    month = _kepco_rows(key, y, m)
+    require(month, f'kepcohouse: no contract-type table for {y}-{m:02d} to check against')
+    t = _kepco_totals(month)
+    weighted = sum(float(r['houseCnt']) * float(r['powerUsage']) for r in rows)
+    ratio = weighted / t['house_kwh']
+    require(0.89 <= ratio <= 0.945,
+            f'kepcohouse: {y}-{m:02d} averages weigh up to {ratio:.3f} of residential sales')
+
+
 def kepco_house_facts(key):
     """The kepcohouse card: the newest published month's household
     averages by district, four lines in a fixed order, the two ends of use
@@ -6362,6 +6957,7 @@ def kepco_house_facts(key):
         print('Household electricity card withheld: no month could be read from KEPCO.')
         return []
     y, m, rows = got
+    check_kepco_house_ratio(key, y, m, rows)
     parsed = []
     for r in rows:
         try:
@@ -6607,6 +7203,25 @@ SEOULSTATION_MAX_PRIOR = 8
 SEOULSTATION_COOLDOWN_DAYS = 7
 
 
+KORAIL_DAY_MIN_STATIONS = 250
+
+
+@source_check
+def check_korail_day(fetched, day):
+    """SHAPE (PROVENANCE['railstations'], ['seoulstation']): the card's day
+    is a whole day of the feed. Every complete day from 24 March to
+    4 October 2026 held 251 to 258 stations and all eight of Seoul's; the
+    one exception was a day cut at the fetch's page boundary, which is
+    always the OLDEST fetched day, never the newest."""
+    require(len(fetched) > 1 and day != min(fetched),
+            f'korail: {day} is the oldest fetched day, the one a page boundary cuts')
+    stations = fetched[day]
+    require(len(stations) >= KORAIL_DAY_MIN_STATIONS,
+            f'korail: {day} has {len(stations)} stations, not a whole day')
+    missing = [n for n in KORAIL_SEOUL_STATIONS if n not in stations]
+    require(not missing, f'korail: {day} lacks {", ".join(missing)}')
+
+
 def seoul_station_facts(key):
     """The seoulstation card: boarded, got off, passengers, and a typical
     same weekday, for the newest fetched day, the baseline from the history
@@ -6618,6 +7233,7 @@ def seoul_station_facts(key):
     if not fetched:
         return []
     day = max(fetched)
+    check_korail_day(fetched, day)
     if SEOULSTATION_NAME not in fetched[day]:
         print(f'Seoul Station card withheld: no {SEOULSTATION_NAME} row for {day}.')
         return []
@@ -6631,6 +7247,12 @@ def seoul_station_facts(key):
         print(f'Seoul Station card withheld for {d}: only {len(prior)} prior '
               f'{WEEKDAY_NAMES_EN[wd]}s in the feed, need {SEOULSTATION_MIN_PRIOR}.')
         return []
+    # SHAPE (PROVENANCE['seoulstation']): every day in the baseline is a
+    # whole day of the feed. 27 stored days held 162 of about 258 stations
+    # until 7 October 2026, cut at a page boundary; Seoul Station survived
+    # them by the accident of its station code, so the card could not see it.
+    short = [k for k in prior if len(history[k]) < KORAIL_DAY_MIN_STATIONS]
+    require(not short, f'seoulstation: baseline days {short} are not whole days')
     typical = round(statistics.median(series[k][0] + series[k][1] for k in prior))
     wd_en, wd_ko = WEEKDAY_NAMES_EN[wd], WEEKDAY_NAMES_KO[wd]
     n = len(prior)
@@ -6711,6 +7333,7 @@ def rail_stations_facts(key):
     if not fetched:
         return []
     day = max(fetched)
+    check_korail_day(fetched, day)
     seoul = [(name, v[0]) for name, v in fetched[day].items() if name in KORAIL_SEOUL_STATIONS]
     seoul.sort(key=lambda t: (-t[1], t[0]))
     top = seoul[:4]
@@ -6780,6 +7403,46 @@ RAILCOMMUTER_RULE = 2
 RAILCOMMUTER_OTHER_CITY = re.compile(r'\((부산|대구|인천|대전|광주|울산)\)\s*$')
 
 
+# Stations ONLY Korail's commuter lines serve, with the line Seoul's card
+# data files them under: at these the two publishers count the same taps.
+RAILCOMMUTER_CHECK = {'용산': '경부선', '영등포': '경부선', '회기': '중앙선',
+                      '개봉': '경인선', '압구정로데오': '분당선', '구로': '경부선'}
+
+
+@source_check
+def check_railcommuter_taps(api_key, ym, seoul):
+    """RECONCILE (PROVENANCE['railcommuter']): Korail's monthly boardings
+    against Seoul's card-tap table (CardSubwayTime, exact duplicates dropped)
+    at the six stations only Korail serves. Korail's figure is 0.990 to
+    0.997 of the taps, March to August 2026 (August: 0.994 to 0.997):
+    tolerance 0.98 to 1.00. ⚠️ Not checkable at a station other operators
+    share, where Korail's figure runs 1.5 to 4.4 times the Korail-line taps
+    for a reason not yet established; 서울 is one (912,406 against 354,116 in
+    August), and it is often on this card."""
+    base = f'http://openapi.seoul.go.kr:8088/{api_key}/json/CardSubwayTime'
+    try:
+        total = int(http_get_json(f'{base}/1/1/{ym}')['CardSubwayTime']['list_total_count'])
+        rows = []
+        for start in range(1, total + 1, 1000):
+            rows += http_get_json(f'{base}/{start}/{min(start + 999, total)}/{ym}')['CardSubwayTime']['row']
+    except (RuntimeError, KeyError, TypeError) as e:
+        raise SourceCheckFailed(f'railcommuter: CardSubwayTime {ym} unreadable ({e})')
+    require(len(rows) == total, f'railcommuter: CardSubwayTime {len(rows)} rows of {total}')
+    seen, taps = set(), collections.Counter()
+    for r in rows:
+        sig = tuple(sorted((k, str(v)) for k, v in r.items()))
+        if sig in seen:
+            continue
+        seen.add(sig)
+        if RAILCOMMUTER_CHECK.get(r.get('STTN')) == r.get('SBWY_ROUT_LN_NM'):
+            taps[r['STTN']] += sum(int(float(r.get(f'HR_{h}_GET_ON_NOPE') or 0)) for h in range(24))
+    for st in RAILCOMMUTER_CHECK:
+        require(st in seoul and taps.get(st), f'railcommuter: {st} missing from one side for {ym}')
+        ratio = seoul[st] / taps[st]
+        require(0.98 <= ratio <= 1.0,
+                f'railcommuter: {st} {seoul[st]:,} against {taps[st]:,} card taps ({ratio:.3f})')
+
+
 def rail_commuter_month(gov_key, api_key):
     """({'rides': {folded station: boardings}, 'coords': {station: [lon, lat]},
     'stops': N} for stations inside Seoul, 'YYYYMM') for the newest month of
@@ -6825,6 +7488,7 @@ def rail_commuter_month(gov_key, api_key):
     if len(seoul) < RAILCOMMUTER_MIN_STATIONS:
         print(f'Commuter rail card withheld: only {len(seoul)} stations joined for {ym}.')
         return None, None
+    check_railcommuter_taps(api_key, ym, seoul)
     month = {'rule': RAILCOMMUTER_RULE, 'rides': seoul,
              'coords': {n: [coords[n][0], coords[n][1]] for n in seoul if n in coords},
              'stops': len(stop_map)}
@@ -6935,6 +7599,34 @@ HEALTH_CONDS = [   # (3-char KCD, EN gloss, KO gloss)
 HEALTH_Y = {'y': None}
 
 
+@source_check
+def check_hira_patients(key, year, got):
+    """RECONCILE (PROVENANCE['health']): HIRA's own file of the same claims
+    (odcloud 15089587, 3단상병별 시도별) must give each condition's Seoul
+    patients within 3 percent. 0.9995 to 1.0207 over 16 code-years (2024
+    and 2025) on 7 October 2026: the two are cut on slightly different
+    dates, so they are close, not equal."""
+    uddi = HIRA_COST_UDDI.get(year)
+    require(uddi, f'health: no file of {year} claims to check against')
+    for code, _en, _ko, n in got:
+        row = _hira_file_row(key, uddi, code)
+        reconcile(f'health: {code} {year} patients against the claims file', n, row['환자수'], 0.03)
+
+
+def _hira_file_row(key, uddi, code):
+    """Seoul's row for one condition from one year's HIRA claims file."""
+    params = {'page': '1', 'perPage': '1', 'cond[시도구분::EQ]': '서울',
+              'cond[주상병코드::EQ]': code, 'serviceKey': key, 'returnType': 'JSON'}
+    stdout = _curl(HIRA_COST_BASE.format(uddi=uddi) + '?' + urllib.parse.urlencode(params))
+    try:
+        body = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError) as e:
+        raise SourceCheckFailed(f'HIRA claims file unreadable for {code} ({e})')
+    require(body.get('matchCount') == 1, f'HIRA claims file matched {body.get("matchCount")} rows for {code}')
+    row = body['data'][0]
+    return {'환자수': int(row['환자수']), 'cost': int(row['요양급여비용총액(선별포함)'])}
+
+
 def hira_facts(key):
     """Patient counts at Seoul institutions, one condition per line."""
     if not key:
@@ -6948,7 +7640,14 @@ def hira_facts(key):
             root = ET.fromstring(stdout)
         except ET.ParseError:
             continue
-        for it in root.iter('item'):
+        items = list(root.iter('item'))
+        # SHAPE (PROVENANCE['health']): one row per region, all for the code
+        # asked for, exactly one of them Seoul's (17 regions on 7 October 2026).
+        require(len(items) == int(root.findtext('.//totalCount') or -1)
+                and sum((it.findtext('lcName') or '').strip() == '서울' for it in items) == 1
+                and all((it.findtext('sickCd') or '').strip() == code for it in items),
+                f'health: {code} {year} answered {len(items)} rows of an unexpected shape')
+        for it in items:
             if (it.findtext('lcName') or '').strip() == '서울':
                 try:
                     got.append((code, en, ko, int(it.findtext('ptntCnt'))))
@@ -6957,6 +7656,7 @@ def hira_facts(key):
                 break
     if len(got) < 3:
         return []
+    check_hira_patients(key, year, got)
     HEALTH_Y['y'] = year
     facts = [fact(f'sick_{code}', 'health', en, grouped(n), grouped(n),
                   label_ko=ko)
@@ -7044,6 +7744,25 @@ HEALTH_COST_CONDS = [   # (3-char KCD, EN gloss, KO gloss)
 HEALTH_COST_Y = {'y': None}
 
 
+@source_check
+def check_hira_cost(key, year, got):
+    """RECONCILE (PROVENANCE['healthcost']): HIRA's disease statistics
+    service (diseaseInfoService1) for the same year, code and region must
+    agree within 5 percent on cost (rvdRpeTamtAmt, thousands of won) and on
+    patients. 0.9657 to 1.0099 on cost and 0.9613 to 1.0095 on patients
+    over 20 code-years on 7 October 2026."""
+    for code, _en, _ko, cost, patients in got:
+        stdout = _curl(HIRA_BASE.format(key=key, year=year, code=code))
+        try:
+            root = ET.fromstring(stdout)
+        except ET.ParseError as e:
+            raise SourceCheckFailed(f'healthcost: statistics service unreadable for {code} ({e})')
+        it = next((x for x in root.iter('item') if (x.findtext('lcName') or '').strip() == '서울'), None)
+        require(it is not None, f'healthcost: no Seoul row for {code} {year}')
+        reconcile(f'healthcost: {code} {year} cost', cost, int(it.findtext('rvdRpeTamtAmt')) * 1000, 0.05)
+        reconcile(f'healthcost: {code} {year} patients', patients, int(it.findtext('ptntCnt')), 0.05)
+
+
 def hira_cost_facts(key):
     """Two framings of Seoul treatment cost, one condition per line: the raw
     total, and the average per patient (총액 ÷ 환자수 — HIRA's own 환자수 is
@@ -7067,16 +7786,22 @@ def hira_cost_facts(key):
         full = url + '?' + urllib.parse.urlencode(params)
         stdout = _curl(full)
         try:
-            row = json.loads(stdout)['data'][0]
+            body = json.loads(stdout)
+            row = body['data'][0]
             cost = int(row['요양급여비용총액(선별포함)'])
             patients = int(row['환자수'])
         except (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError):
             continue
+        # SHAPE (PROVENANCE['healthcost']): the filters matched one row,
+        # Seoul's, for this code (20 of 20 queries on 7 October 2026).
+        require(body.get('matchCount') == 1 and row.get('시도구분') == '서울',
+                f'healthcost: {code} matched {body.get("matchCount")} rows')
         if not patients:
             continue
         got.append((code, en, ko, cost, patients))
     if len(got) < 3:
         return []
+    check_hira_cost(key, year, got)
     HEALTH_COST_Y['y'] = year
 
     def frame(values, id_prefix, pair_name):
@@ -7163,7 +7888,38 @@ def _culture_top(rows, name_field):
     return (best.get(name_field) or '').strip(), int(best['fyerVwngNope'])
 
 
-def culture_facts(key):
+@source_check
+def check_culture(kosis_key, museums, galleries):
+    """Source checks (PROVENANCE['culture']). SHAPE: every Seoul row (by
+    district code) also has a Seoul address, all from one reference year,
+    and no facility twice (136 museums and 50 galleries, 2023, on 7 October
+    2026). RECONCILE: the visitor field against an independent count of one
+    museum, the National Palace Museum, which KOSIS publishes from the
+    Cultural Heritage Administration's own records (DT_150002_A052), exactly:
+    883,599 for 2023, and equal for 2021 and 2022 as well. ⚠️ The museum
+    COUNT has no exact check: KOSIS's facility table says 124 for 2023
+    against this survey's 136, and which edition matches which year is not
+    settled."""
+    rows = museums + galleries
+    require(all(str(x.get('instAddr') or '').startswith('서울') for x in rows),
+            'culture: a facility with a Seoul district code has an address outside Seoul')
+    years = {str(x.get('crtrYr')) for x in rows}
+    require(len(years) == 1, f'culture: rows from {sorted(years)}')
+    for kind in (museums, galleries):
+        ids = [x.get('instId') for x in kind]
+        require(len(ids) == len(set(ids)), 'culture: a facility appears twice')
+    palace = [x for x in museums if (x.get('msmNm') or '').strip() == '국립고궁박물관']
+    require(len(palace) == 1, 'culture: the National Palace Museum is not in the survey')
+    require(kosis_key, 'culture: no KOSIS key to check against')
+    year = next(iter(years))
+    kos = _kosis_rows(urllib.parse.quote(kosis_key, safe=''), 'DT_150002_A052',
+                      f'itmId=ALL&objL1=A001&prdSe=Y&startPrdDe={year}&endPrdDe={year}', org='150')
+    want = next((int(float(r['DT'])) for r in kos if r.get('PRD_DE') == year), None)
+    reconcile(f'culture: National Palace Museum visitors {year}',
+              int(palace[0].get('fyerVwngNope') or 0), want, 0)
+
+
+def culture_facts(key, kosis_key=None):
     """Seoul's museums and galleries: the counts, and the busiest houses."""
     if not key:
         return []
@@ -7176,6 +7932,7 @@ def culture_facts(key):
     if not museums:
         return []
     galleries = _culture_rows(key, 'clifArglv1', yr)
+    check_culture(kosis_key, museums, galleries)
     crtr = str(museums[0].get('crtrYr') or yr - 1)
     CULTURE_Y['y'] = crtr
     facts = [fact('culture_msm_n', 'culture', 'Museums in Seoul',
@@ -7287,6 +8044,25 @@ TOUR_WIKI = {
 TOUR_M = {'en': None, 'ko': None, 'month_en': None, 'month_ko': None}
 
 
+@source_check
+def check_tour_month(key, first, items):
+    """SHAPE (PROVENANCE['tourism']): the newest month with ANY rows is not
+    necessarily a whole month. Every 2025 month carried 15 rows; from April
+    2026 the newest months carried 3, Lotte's alone, the palaces not yet
+    reported (7 October 2026). So every listed attraction reported a year
+    earlier must be reported now, or the card would rank a partial month."""
+    prev = first.replace(year=first.year - 1)
+    stdout = _curl(TOUR_BASE.format(key=key, ym=f'{prev:%Y%m}'))
+    try:
+        then = list(ET.fromstring(stdout).iter('item'))
+    except ET.ParseError as e:
+        raise SourceCheckFailed(f'tourism: {prev:%Y-%m} unreadable ({e})')
+    names = lambda rows: {(it.findtext('resNm') or '').strip() for it in rows} & set(TOUR_EN)
+    missing = names(then) - names(items)
+    require(not missing, f'tourism: {first:%Y-%m} lacks {", ".join(sorted(missing))}, '
+                         f'all reported for {prev:%Y-%m}; the month is not complete')
+
+
 def tour_facts(key):
     """One month through Seoul's turnstiles: total visitors per attraction,
     and the foreigner counts as their own frame."""
@@ -7307,6 +8083,7 @@ def tour_facts(key):
             break
     if not items:
         return []
+    check_tour_month(key, first, items)
     TOUR_M['en'] = f'{MONTHS_EN[first.month - 1]} {first.year}'
     TOUR_M['ko'] = f'{first.year}년 {first.month}월'
     TOUR_M['month_en'] = MONTHS_EN[first.month - 1]
@@ -7448,6 +8225,37 @@ def _kobis_title_en(key, movie_cd):
         return ''
 
 
+@source_check
+def check_boxoffice(kobis_key, day, rows):
+    """Source checks (PROVENANCE['boxoffice']). SHAPE: the fixed top 10, in
+    order of admissions. RECONCILE, both exact for every film-day from
+    28 September to 6 October 2026 (72 of 72): a film's Seoul admissions for
+    the day are its Seoul running total less the day before's; and every
+    film's Seoul figure is below its national one, which is what fails if
+    the Seoul filter (wideAreaCd) is ever dropped and the card silently
+    posts the country."""
+    require(len(rows) == 10, f'boxoffice: {len(rows)} rows, not the top 10')
+    audi = [int(r['audiCnt']) for r in rows]
+    require(audi == sorted(audi, reverse=True), 'boxoffice: rows are not in order of admissions')
+
+    def day_list(d, area=True):
+        url = (f'{KOBIS_BASE}/boxoffice/searchDailyBoxOfficeList.json?key={kobis_key}'
+               f'&targetDt={d:%Y%m%d}' + (f'&wideAreaCd={KOBIS_SEOUL}' if area else ''))
+        try:
+            return {r['movieCd']: r for r in http_get_json(url)['boxOfficeResult']['dailyBoxOfficeList']}
+        except (RuntimeError, KeyError, TypeError) as e:
+            raise SourceCheckFailed(f'boxoffice: {d} list unreadable ({e})')
+    before, nation = day_list(day - timedelta(days=1)), day_list(day, area=False)
+    for r in rows:
+        cd = r['movieCd']
+        if cd in before:
+            require(int(r['audiAcc']) - int(before[cd]['audiAcc']) == int(r['audiCnt']),
+                    f'boxoffice: {r["movieNm"]} running total moved by more than the day')
+        if cd in nation:
+            require(int(r['audiCnt']) < int(nation[cd]['audiCnt']),
+                    f'boxoffice: {r["movieNm"]} Seoul figure is not below the national one')
+
+
 def boxoffice_facts(kobis_key):
     """What Seoul watched yesterday: admissions per film, on Seoul screens."""
     if not kobis_key:
@@ -7470,6 +8278,7 @@ def boxoffice_facts(kobis_key):
             break
     if not rows:
         return []
+    check_boxoffice(kobis_key, day, rows)
 
     films, dropped = [], []
     for r in rows[:BOXOFFICE_N]:
@@ -7563,6 +8372,14 @@ def screens_facts(kobis_key, day, today_row):
         except (RuntimeError, KeyError, TypeError):
             continue
         if got:
+            # SHAPE (PROVENANCE['boxhist']): the first row is the day's most
+            # watched film, so "the number-one film" is true of it.
+            try:
+                top = max(int(x['audiCnt']) for x in got)
+                first = int(got[0]['audiCnt'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            require(first == top, f'boxhist: {d} first row is not the most watched')
             rows.append((d, got[0]))
 
     facts = []
@@ -7611,6 +8428,50 @@ def _kosis_row(key_enc, tbl, itm, obj, prd_se='Y'):
     raise RuntimeError(f'KOSIS returned no data for {tbl} objL1={obj}: {d!r:.120}')
 
 
+def _kosis_rows(key_enc, tbl, query, org='101'):
+    """Every row of one KOSIS query, or SourceCheckFailed: for source checks."""
+    url = ('https://kosis.kr/openapi/Param/statisticsParameterData.do?method=getList'
+           f'&apiKey={key_enc}&format=json&jsonVD=Y&orgId={org}&tblId={tbl}&{query}')
+    try:
+        d = http_get_json(url)
+    except (RuntimeError, OSError) as e:
+        raise SourceCheckFailed(f'{tbl} unreadable ({e})')
+    require(isinstance(d, list) and d, f'{tbl} returned no rows: {d!r:.120}')
+    return d
+
+
+@source_check
+def check_national_pop(enc, year, n_kr, n_se):
+    """RECONCILE (PROVENANCE['national']): the register total for the year
+    (DT_1B040A3) must equal the monthly register's December total
+    (DT_1B04005N, 계), for Korea and for Seoul. Exact for 2023, 2024 and 2025
+    on 7 October 2026: one register, published twice, so this proves the
+    year and the item, not the scope (both leave out registered foreigners)."""
+    rows = _kosis_rows(enc, 'DT_1B04005N',
+                       f'itmId=T2&objL1=00+11&objL2=0&prdSe=M&startPrdDe={year}12&endPrdDe={year}12')
+    dec = {r['C1']: int(float(r['DT'])) for r in rows}
+    reconcile('national: Korea against December', n_kr, dec.get('00'), 0)
+    reconcile('national: Seoul against December', n_se, dec.get('11'), 0)
+
+
+@source_check
+def check_national_fertility(enc, year, v_kr, v_se):
+    """RECONCILE (PROVENANCE['national']): a total fertility rate is five
+    times the sum of the seven five-year age-specific rates, per thousand.
+    Within 0.0065 for Korea and Seoul over 2022 to 2025 (0.797 against 0.799
+    and 0.629 against 0.632 for 2025, the rates being rounded): tolerance
+    0.01. Catches the wrong item or the wrong year coming back."""
+    rows = _kosis_rows(enc, 'DT_1B81A21',
+                       f'itmId=T2+T3+T4+T5+T6+T7+T8&objL1=00+11&prdSe=Y'
+                       f'&startPrdDe={year}&endPrdDe={year}')
+    for code, v in (('00', v_kr), ('11', v_se)):
+        asfr = [float(r['DT']) for r in rows if r['C1'] == code]
+        require(len(asfr) == 7, f'national: {len(asfr)} age-specific rates for {code}')
+        calc = 5 * sum(asfr) / 1000
+        require(abs(calc - v) <= 0.01,
+                f'national: fertility {v} for {code}, but its age rates give {calc:.3f}')
+
+
 def kosis_facts(kosis_key):
     """National-vs-Seoul figures from KOSIS: Seoul's share of the country's
     population, and the total-fertility-rate gap (Seoul is the lowest in Korea).
@@ -7625,6 +8486,7 @@ def kosis_facts(kosis_key):
         pop_se = _kosis_row(enc, 'DT_1B040A3', 'T20', '11')
         n_kr, n_se = int(pop_kr['DT']), int(pop_se['DT'])
         py = pop_se.get('PRD_DE') or None
+        check_national_pop(enc, py, n_kr, n_se)
         facts.append(fact('pop_seoul', 'national', 'People who live in Seoul',
                           grouped(n_se), grouped(n_se), pair='share_gap', year=py,
                           num=n_se, unit='people'))
@@ -7647,6 +8509,7 @@ def kosis_facts(kosis_key):
         fert_se = _kosis_row(enc, 'DT_1B81A21', 'T1', '11')
         v_kr, v_se = str(fert_kr['DT']), str(fert_se['DT'])
         fy = fert_kr.get('PRD_DE') or None
+        check_national_fertility(enc, fy, float(v_kr), float(v_se))
         facts.append(fact('fert_korea', 'national',
                           'Births the average South Korean woman will have',
                           v_kr, v_kr, pair='fertility_gap', year=fy))
@@ -7764,6 +8627,27 @@ def _world_latest_common_year(rows, filt, names):
     return None, {}
 
 
+WORLD_UNITS = {'green': 'M2_PS', 'transit': 'PT_POP', 'heat': 'C', 'density': 'PS_KM2'}
+
+
+@source_check
+def check_world_rows(key, rows, filt, codes):
+    """SHAPE (PROVENANCE['world']): after the measure's filter, one row per
+    city and year, in the unit the card prints, for a functional urban
+    area. All four held on 7 October 2026 (0 duplicates; M2_PS, PT_POP, C,
+    PS_KM2; FUA). An empty answer is the OECD's rate limit, not a measure
+    with no data, and is left to world_facts() to skip as before."""
+    m = [r for r in rows if all(r.get(k) == v for k, v in filt.items())
+         and r.get('REF_AREA') in codes]
+    seen = collections.Counter((r['REF_AREA'], r['TIME_PERIOD']) for r in m)
+    dup = [k for k, n in seen.items() if n > 1]
+    require(not dup, f'world: {key} has {len(dup)} city-years with more than one row')
+    units = {r.get('UNIT_MEASURE') for r in m}
+    require(units <= {WORLD_UNITS[key]}, f'world: {key} unit is now {sorted(units)}')
+    require({r.get('TERRITORIAL_LEVEL') for r in m} <= {'FUA'},
+            f'world: {key} rows are not all functional urban areas')
+
+
 def world_facts():
     """Seoul against peer metro areas, one OECD measure at a time.
 
@@ -7776,6 +8660,7 @@ def world_facts():
     for key, flow, ndots, filt, _labels, fmt in WORLD_MEASURES:
         try:
             rows = _sdmx_csv(flow, ndots, codes, 2015)
+            check_world_rows(key, rows, filt, codes)
             year, vals = _world_latest_common_year(rows, filt, names)
             if not year:
                 continue
@@ -7908,6 +8793,29 @@ def _kosis_series(key_enc, tbl, itm, obj, n=10):
     return out
 
 
+KOREA_LAND_KM2 = 97_600   # the World Bank's land area for Korea (AG.LND.TOTL.K2)
+
+
+@source_check
+def check_nation_basis(enc, m, year, wb_kor):
+    """RECONCILE (PROVENANCE['nation']): Seoul's figure comes from KOSIS and
+    the countries' from the World Bank, so Korea, which both publish, must
+    agree. Fertility: the World Bank's Korea rate equals KOSIS's national
+    rate exactly (2022 to 2024 on 7 October 2026). Density: KOSIS's national
+    register over the World Bank's land area against the World Bank's own
+    density, within 1.5 percent (0.9925 to 1.0038, 2018 to 2023). That is
+    the check that the two bases, registered nationals and total population,
+    are close enough to share a column."""
+    require(wb_kor is not None, f'nation: no World Bank figure for Korea in {year}')
+    kr = _kosis_series(enc, m['seoul_tbl'], m['seoul_itm'], '00')
+    require(year in kr, f'nation: KOSIS has no national {m["key"]} for {year}')
+    if m['key'] == 'fertility':
+        require(abs(kr[year] - wb_kor) < 0.0005,
+                f'nation: Korea fertility {year}, World Bank {wb_kor} against KOSIS {kr[year]}')
+    else:
+        reconcile(f'nation: Korea density {year}', kr[year] / KOREA_LAND_KM2, wb_kor, 0.015)
+
+
 def worldbank_facts(state, kosis_key):
     """Seoul against whole countries, one metric at a time — the World Bank for
     the countries, KOSIS for Seoul.
@@ -7951,6 +8859,7 @@ def worldbank_facts(state, kosis_key):
                          if len(wb_by_year[yr]) >= WB_MIN_PEERS + 1), None)
             if not year:
                 continue
+            check_nation_basis(enc, m, year, wb_by_year[year].get('KOR'))
             fmt = m['fmt']
             sv = fmt(seoul_by_year[year])
             out.append(fact(f"nation_{m['key']}_SEOUL", 'nation', 'Seoul',
@@ -7984,21 +8893,31 @@ def worldbank_facts(state, kosis_key):
 # log so a check that keeps failing is seen. ⚠️ Never a plausibility range on
 # the figure itself: every wrong figure found that day was stable and
 # plausible. What each vein checks, and what its figures count, is written
-# down in PROVENANCE below.
+# down in PROVENANCE (seoul_index_provenance.py), which the monthly
+# index-source-audit task reads and test_seoul_index_provenance.py keeps whole.
 
 
 class SourceCheckFailed(Exception):
     """A vein's figure or feed failed its own source check: withhold it."""
 
 
+# The test suites' synthetic feeds are not real feeds and fail the checks by
+# design, so the suites that test what a harvester does with its rows turn
+# this off, and test_seoul_index_source_checks.py turns it on to test the
+# checks themselves. ⚠️ Nothing in a real run may ever set it False.
+SOURCE_CHECKS = True
+
+
 def require(cond, msg):
     """Raise SourceCheckFailed(msg) unless cond holds."""
-    if not cond:
+    if SOURCE_CHECKS and not cond:
         raise SourceCheckFailed(msg)
 
 
 def reconcile(name, ours, theirs, rel_tol):
     """Require ours to be within rel_tol of theirs (0 means exactly equal)."""
+    if not SOURCE_CHECKS:
+        return
     require(theirs not in (None, 0), f'{name}: no independent figure to check against')
     diff = abs(ours - theirs) / abs(theirs)
     require(diff <= rel_tol,
@@ -8014,11 +8933,19 @@ def guarded(fn, *args):
     try:
         return fn(*args)
     except SourceCheckFailed as e:
-        msg = f'{fn.__name__}: {e}'
-        print(f'Source check failed, vein withheld: {msg}')
-        SOURCE_CHECK_FAILURES.append(msg)
-        _observe_source_check(fn.__name__, str(e))
+        check_failed(fn.__name__, str(e))
         return []
+
+
+def check_failed(name, text):
+    """Record a failed source check: printed, kept for the run, filed with
+    the observation log. guarded() calls it for a whole harvester; a
+    harvester that builds several cards calls it directly to withhold ONE
+    card (returning no facts for it) without taking its siblings down."""
+    msg = f'{name}: {text}'
+    print(f'Source check failed, withheld: {msg}')
+    SOURCE_CHECK_FAILURES.append(msg)
+    _observe_source_check(name, text)
 
 
 def _observe_source_check(name, text):
@@ -8077,7 +9004,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += guarded(molit_facts, gov_key)
     pool += guarded(kma_facts, gov_key)
     pool += guarded(wx_day_facts, gov_key)
-    pool += guarded(kac_facts, gov_key)
+    pool += guarded(kac_facts, gov_key, kosis_key)
     pool += guarded(iiac_facts, gov_key, kosis_key)
     # rail (Korea's busiest intercity route and commuter line, and a
     # national commuter total) retired 7 October 2026, his call: posted under
@@ -8088,7 +9015,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += guarded(seoul_station_facts, gov_key)
     pool += guarded(hira_facts, gov_key)
     pool += guarded(hira_cost_facts, gov_key)
-    pool += guarded(culture_facts, gov_key)
+    pool += guarded(culture_facts, gov_key, kosis_key)
     pool += guarded(tour_facts, gov_key)
     pool += guarded(rescue_facts, gov_key)
     # KOPIS issues its own key too, on application; the performances card is
@@ -11652,7 +12579,9 @@ def main():
     if want_spotlight:
         i = int(state.get('spotlight_i', 0))
         spot = CROWD_SPOTS[i % len(CROWD_SPOTS)]
-        facts = spotlight_facts(api_key, spot)
+        # guarded(): a failed source check falls back to the normal index
+        # rather than stopping the run.
+        facts = guarded(spotlight_facts, api_key, spot)
         if facts:
             state['spotlight_i'] = (i + 1) % len(CROWD_SPOTS)
             print(f'Spotlight post #{post_n}: {spot["en"]} ({len(facts)} lines, '

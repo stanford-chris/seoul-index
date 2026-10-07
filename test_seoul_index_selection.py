@@ -7,6 +7,9 @@ from datetime import datetime, timedelta, timezone
 sys.argv = ['test']
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import seoul_index_post as S
+# These fixtures are synthetic feeds, which fail the source checks by design;
+# the checks themselves are tested in test_seoul_index_source_checks.py.
+S.SOURCE_CHECKS = False
 import unittest.mock
 import seoul_index_card as C
 

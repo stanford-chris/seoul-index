@@ -7,6 +7,9 @@ import os, stat, tempfile, unittest, pathlib, sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import seoul_index_post as S
+# These fixtures are synthetic feeds, which fail the source checks by design;
+# the checks themselves are tested in test_seoul_index_source_checks.py.
+S.SOURCE_CHECKS = False
 
 
 class TruncatedMultibyte(unittest.TestCase):

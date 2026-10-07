@@ -16,6 +16,9 @@ from pathlib import Path
 sys.argv = ['test']
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import seoul_index_post as S
+# These fixtures are synthetic feeds, which fail the source checks by design;
+# the checks themselves are tested in test_seoul_index_source_checks.py.
+S.SOURCE_CHECKS = False
 import unittest.mock
 import tempfile as _tempfile
 from pathlib import Path as _Path
@@ -396,6 +399,7 @@ class PriceSpreadGuard(unittest.TestCase):
         rows[-1]['ADD_COL'] = '농식품부 할인지원'
         self.assertNotIn('₩1,000', {f['value_en'] for f in self.facts(rows, {'price_i': 1})})
 
+    @unittest.mock.patch.object(S, 'SOURCE_CHECKS', True)
     def test_a_round_reaching_too_few_districts_fails_its_check(self):
         rows = [prow(CABBAGE, 2992, '노원구', '대형마트'), prow(CABBAGE, 3500, '광진구'),
                 prow(CABBAGE, 6900, '동작구'), old_row()]
@@ -4653,9 +4657,10 @@ class KepcoCards(unittest.TestCase):
         # The whole-territory total (C&SD, Table 4.1) and population
         # (year-end 2025 press release) behind the per-capita pair.
         self.assertEqual(S.HK_TOTAL_YEAR, 2025)
-        self.assertEqual(S.HK_TOTAL_POP, 7_510_800)
+        # Revised by C&SD from the press release's 7,510,800 (7 October 2026).
+        self.assertEqual(S.HK_TOTAL_POP, 7_508_700)
         self.assertAlmostEqual(S.HK_TOTAL_KWH, 164_433 * 1e6 / 3.6, delta=1.0)
-        self.assertAlmostEqual(S.HK_TOTAL_KWH / S.HK_TOTAL_POP, 6_081.0, delta=1.0)
+        self.assertAlmostEqual(S.HK_TOTAL_KWH / S.HK_TOTAL_POP, 6_083.0, delta=1.0)
 
     def test_gwh_formatting(self):
         self.assertEqual(S.gwh(4_155_959_477), '4,156 GWh')
@@ -5178,6 +5183,7 @@ class TitleWordsAreNotRepeated(unittest.TestCase):
                          ('Total subway boardings', '전체 지하철 승차 인원'))
 
 
+@unittest.mock.patch.object(S, 'SOURCE_CHECKS', True)
 class SourceChecks(unittest.TestCase):
     """The source-check framework, 7 October 2026: a failed check withholds
     its own vein for the run, says why, and touches nothing else."""
@@ -5214,6 +5220,7 @@ class SourceChecks(unittest.TestCase):
 
 
 class GimpoSourceChecks(AirportMonthRidesTheMasthead):
+    @unittest.mock.patch.object(S, 'SOURCE_CHECKS', True)
     def test_a_one_direction_total_fails(self):
         import subprocess as real_subprocess
 

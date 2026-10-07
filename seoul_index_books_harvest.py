@@ -290,6 +290,17 @@ def main():
     if len(parsed) < 2:
         sys.exit(f'Only {len(parsed)} record(s) parsed from {len(rows)} row(s) — '
                  f'refusing to write a set too small to post.')
+    # Source checks (seoul_index_provenance.PROVENANCE['books']): every row
+    # arrived and parsed (3,000 of 3,000 on 7 October 2026), and the
+    # publisher's cut still falls at 2 loans or more. The feed is the 3,000
+    # most-borrowed records, not every loan; if its floor drops to 1, it has
+    # become something else and the footnote's "most-borrowed" changes.
+    if len(rows) != total or len(parsed) != len(rows):
+        sys.exit(f'Refusing to write: {len(parsed)} parsed of {len(rows)} read of '
+                 f'{total} published.')
+    if min(c for _, c, _ in parsed) < 2:
+        sys.exit('Refusing to write: the feed now includes records with one loan; '
+                 'it is no longer the most-borrowed cut the card describes.')
 
     try:
         subjects, unclassified = tally(parsed)

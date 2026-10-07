@@ -62,6 +62,44 @@ def http_get_json(url):
     raise RuntimeError(f'Request failed after retries: {url}')
 
 
+DISTRICT_SERVICE = 'VwsmSignguSelngW'
+DISTRICT_TOL = 1e-6
+
+
+def check_against_districts(api_key, quarter, citywide):
+    """RECONCILE (seoul_index_provenance.PROVENANCE['spending']): the same
+    estimates published by district (VwsmSignguSelngW, 25 districts) must
+    sum, industry by industry, to the citywide row for the newest quarter,
+    sales and transaction counts both. Equal to one part in a million for
+    1,383 of 1,386 industry-quarters on 7 October 2026, every industry in
+    the four newest quarters among them; the three misses were 고시원 in
+    2021-22. The district table has no quarter filter, so it is read whole,
+    about 34 pages, which is why this runs here, monthly, and not per post."""
+    base = f'http://openapi.seoul.go.kr:8088/{api_key}/json/{DISTRICT_SERVICE}'
+    total = int(http_get_json(f'{base}/1/1/')[DISTRICT_SERVICE]['list_total_count'])
+    sums, n = defaultdict(lambda: [0.0, 0.0]), 0
+    for start in range(1, total + 1, PAGE):
+        end = min(start + PAGE - 1, total)
+        for x in http_get_json(f'{base}/{start}/{end}/').get(DISTRICT_SERVICE, {}).get('row', []):
+            n += 1
+            if x.get('STDR_YYQU_CD') == quarter:
+                s = sums[x.get('SVC_INDUTY_CD_NM', '?')]
+                s[0] += float(x.get('THSMON_SELNG_AMT') or 0)
+                s[1] += float(x.get('THSMON_SELNG_CO') or 0)
+    if n != total:
+        sys.exit(f'Refusing to write: district table read {n:,} of {total:,} rows.')
+    bad = []
+    for ind, v in citywide.items():
+        amt, co = sums.get(ind, (0.0, 0.0))
+        for ours, theirs in ((v['amt'], amt), (v['co'], co)):
+            if theirs == 0 or abs(ours - theirs) / abs(theirs) > DISTRICT_TOL:
+                bad.append(f'{ind} {ours:,.0f} against {theirs:,.0f}')
+    if bad:
+        sys.exit(f'Refusing to write: {quarter} citywide disagrees with its districts: '
+                 + '; '.join(bad[:5]))
+    print(f'{quarter}: all {len(citywide)} industries equal their districts summed.')
+
+
 def main():
     # Monthly, on the 3rd: a skipped run waits a month, so give the network a
     # generous half hour.
@@ -74,9 +112,11 @@ def main():
 
     quarters = defaultdict(int)
     by_q = defaultdict(dict)
+    rows_read = 0
     for start in range(1, total + 1, PAGE):
         end = min(start + PAGE - 1, total)
         for x in http_get_json(f'{base}/{start}/{end}/').get(SERVICE, {}).get('row', []):
+            rows_read += 1
             qc = x.get('STDR_YYQU_CD')
             if not qc or str(x.get('MEGA_CD')) != SEOUL_MEGA_CD:
                 continue
@@ -89,6 +129,9 @@ def main():
     if not latest or quarters[latest] < MIN_INDUSTRIES:
         sys.exit(f'Refusing to write: latest quarter {latest} has '
                  f'{quarters.get(latest, 0)} industries (minimum {MIN_INDUSTRIES}).')
+    if rows_read != total:
+        sys.exit(f'Refusing to write: read {rows_read:,} of {total:,} rows.')
+    check_against_districts(api_key, latest, by_q[latest])
     out = {
         'generated_at': datetime.now(timezone.utc).isoformat(),
         'source': SERVICE,
