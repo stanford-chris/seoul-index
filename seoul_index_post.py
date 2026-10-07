@@ -548,7 +548,9 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # logger's run hour, about an hour off the reading; busmovers treats a public
 # holiday on a weekend (3 October) as an ordinary day; nightbus's "Boardings
 # on Friday" is mostly Thursday night's riders.
-HELD_CATS = {'infra', 'air', 'tourism', 'daynight', 'spotlight', 'busmovers', 'nightbus'}
+# busmovers and nightbus released 7 October 2026: weekend holidays counted,
+# the night-bus dateline says early hours.
+HELD_CATS = {'infra', 'air', 'tourism', 'daynight', 'spotlight'}
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -2141,7 +2143,7 @@ def kr_holidays(h, year):
     shaped figures)."""
     cache = h.setdefault('holidays', {})
     if str(year) in cache:
-        return set(cache[str(year)])
+        return _with_weekend_holidays(set(cache[str(year)]), year, h)
     try:
         rows = http_get_json(HOLIDAYS_URL.format(year=year))
         dates = sorted({r['date'].replace('-', '') for r in rows if r.get('date')})
@@ -2150,7 +2152,30 @@ def kr_holidays(h, year):
     if not dates:
         return None
     cache[str(year)] = dates
-    return set(dates)
+    return _with_weekend_holidays(set(dates), year, h)
+
+
+# ⚠️ nager.at lists the DAY OFF, so a holiday falling on a weekend appears
+# only as its substitute Monday: 2026 had 3·1절 as 2 March, 광복절 as 17
+# August, 개천절 as 5 October and 부처님 오신 날 as 25 May, and the days
+# themselves (Sunday 1 March, Saturday 15 August, Saturday 3 October, Sunday
+# 24 May) were compared as ordinary weekend days (found 7 October 2026). The
+# solar holidays are added by date. Buddha's Birthday moves with the lunar
+# calendar, so a Monday listing of it means the day itself fell on the
+# weekend: both weekend days are kept out of comparisons, which costs a
+# baseline one sample and never names an ordinary day as a holiday.
+KR_FIXED_HOLIDAYS = ('0101', '0301', '0505', '0606', '0815', '1003', '1009', '1225')
+KR_MOVABLE_SUBSTITUTED = ('부처님',)
+
+
+def _with_weekend_holidays(dates, year, h):
+    out = set(dates) | {f'{year}{md}' for md in KR_FIXED_HOLIDAYS}
+    names = kr_holiday_names(h, year) or {}
+    for d, (local, _en) in names.items():
+        dt = _day_dt(d)
+        if dt.weekday() == 0 and any(k in (local or '') for k in KR_MOVABLE_SUBSTITUTED):
+            out |= {(dt - timedelta(days=n)).strftime('%Y%m%d') for n in (1, 2)}
+    return out
 
 
 def kr_holiday_names(h, year):
@@ -2483,11 +2508,13 @@ def history_bus_facts(h, day, d, d_ko):
             'dateline_ko': f'{ko_date_dow(d_ko, mv_dow_dt)} 승차',
             'note_en': ' · '.join(x for x in (
                 f'Against each route’s median of its previous {n} {wd_en}s',
-                'trunk and branch routes over 1,000 boardings',
+                # The floor is on the route's usual (median) figure, not the
+                # day's, so it says "usually" (7 October 2026).
+                'trunk and branch routes usually over 1,000 boardings',
                 mv_latest_en) if x),
             'note_ko': ' · '.join(x for x in (
                 f'각 노선의 이전 {wd_ko} {n}일 중앙값 대비',
-                '승차 1,000명 이상 간선·지선',
+                '평소 승차 1,000명 이상 간선·지선',
                 mv_latest_ko) if x),
             'map_day': day, 'map_caption': caption,
             # Legend matches the rows ("Up the most"), his call, 11 September
@@ -2523,16 +2550,20 @@ def history_bus_facts(h, day, d, d_ko):
             # 2026: "Boardings on 7 September" rather than a bare date. day_en
             # stays the bare date, since the map's title and alt read it.
             # Day of week added 14 September 2026.
-            'dateline_en': f'Boardings on {en_date_dow(nb_dow_dt)}',
-            'dateline_ko': f'{ko_date_dow(d_ko, nb_dow_dt)} 승차',
+            # ⚠️ "In the early hours", since 7 October 2026: a calendar day's
+            # night-bus boardings are 98.6 percent between midnight and 6 a.m.
+            # (CardBusTimeNew, September 2026), so "Boardings on Friday" was
+            # mostly Thursday night's riders and read as Friday night.
+            'dateline_en': f'Boardings in the early hours of {en_date_dow(nb_dow_dt)}',
+            'dateline_ko': f'{ko_date_dow(d_ko, nb_dow_dt)} 새벽 승차',
             # On a card this vein SHARES (a crowd cross pair), the worded
             # dateline would claim every line is boardings, so the group
             # subhead over its own line is the bare day with its weekday,
             # his call, 22 September 2026 ("Second line should be just
             # Friday, September 18"). compose() reads these only when
             # cats != {'nightbus'}.
-            'cross_dateline_en': en_date_dow(nb_dow_dt),
-            'cross_dateline_ko': ko_date_dow(d_ko, nb_dow_dt),
+            'cross_dateline_en': f'Early hours of {en_date_dow(nb_dow_dt)}',
+            'cross_dateline_ko': f'{ko_date_dow(d_ko, nb_dow_dt)} 새벽',
             # And its line takes a bus glyph there, to sit level with the
             # emoji the selector puts on the crowd lines (same call). On
             # the own-vein card the lines stay bare and the opener carries

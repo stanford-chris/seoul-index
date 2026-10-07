@@ -2442,8 +2442,8 @@ class BusHistoryCards(unittest.TestCase):
         self.assertEqual(info['nightbus']['note_ko'], '심야 노선만. 9월 7일은 데이터가 공개된 가장 최근 날짜.')
         # His wording, 11 September 2026: the dateline says what the figures
         # are, while day_en stays the bare date the map title and alt read.
-        self.assertEqual(info['nightbus']['dateline_en'], 'Boardings on Monday, September 7')
-        self.assertEqual(info['nightbus']['dateline_ko'], '9월 7일 (월요일) 승차')
+        self.assertEqual(info['nightbus']['dateline_en'], 'Boardings in the early hours of Monday, September 7')
+        self.assertEqual(info['nightbus']['dateline_ko'], '9월 7일 (월요일) 새벽 승차')
         self.assertEqual(info['nightbus']['day_en'], '7 September')
 
     def test_the_cards_compose_like_busroutes(self):
@@ -2495,9 +2495,9 @@ class BusHistoryCards(unittest.TestCase):
         c = self._crowd_plus_nightbus()
         self.assertTrue(c['grouped'])
         heads = [it.get('subhead') for it in c['items_en'] if 'subhead' in it]
-        self.assertEqual(heads, ['Monday, September 7', 'Right now'])
+        self.assertEqual(heads, ['Early hours of Monday, September 7', 'Right now'])
         self.assertEqual([it.get('subhead') for it in c['items_ko'] if 'subhead' in it],
-                         ['9월 7일 (월요일)', '지금'])
+                         ['9월 7일 (월요일) 새벽', '지금'])
         self.assertNotIn('Boardings', c['en_body'])
         # The night-bus line is the one under the date; the crowd lines follow.
         self.assertEqual(c['items_en'][1]['label'], 'Total night-bus boardings')
@@ -2539,7 +2539,7 @@ class BusHistoryCards(unittest.TestCase):
                'opener_emoji': '🏙', 'picks': [{'id': 'busnight_total'}]}
         c = S.compose(sel, pool)
         self.assertFalse(c['grouped'])
-        self.assertEqual(c['dateline_en'], 'Boardings on Monday, September 7')
+        self.assertEqual(c['dateline_en'], 'Boardings in the early hours of Monday, September 7')
         self.assertTrue(all(l['emoji'] == '' for l in c['lines']))
         self.assertEqual(c['opener']['emoji'], '🚌')
         self.assertTrue(c['note_en'].startswith('Night routes only.'))
@@ -2955,8 +2955,7 @@ class HeldVeins(unittest.TestCase):
         # price released 7 October 2026.
         # spending and avgbill released 7 October 2026.
         # daynight, spotlight, busmovers, nightbus held 7 October 2026 (provenance pass).
-        self.assertEqual(self._held, {'infra', 'air', 'tourism', 'daynight', 'spotlight',
-                                      'busmovers', 'nightbus'})
+        self.assertEqual(self._held, {'infra', 'air', 'tourism', 'daynight', 'spotlight'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
@@ -5277,6 +5276,16 @@ class RushAndTrafficOctober7(unittest.TestCase):
             self.assertEqual(state['rush_cache']['month'], newest)
         finally:
             S._rush_month, S.en_lookup = real, real_lookup
+
+class WeekendHolidays(unittest.TestCase):
+    def test_a_holiday_on_a_weekend_is_still_a_holiday(self):
+        h = {'holidays': {'2026': ['20260302', '20260525', '20260817', '20261005']},
+             'holiday_names': {'2026': {'20260525': ['부처님 오신 날', "Buddha's Birthday"],
+                                        '20261005': ['개천절', 'National Foundation Day']}}}
+        got = S.kr_holidays(h, 2026)
+        for d in ('20260301', '20260815', '20261003', '20260524', '20260523'):
+            self.assertIn(d, got)
+        self.assertNotIn('20261004', got)    # a substitute on a solar date adds no weekend
 
 
 if __name__ == '__main__':
