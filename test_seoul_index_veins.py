@@ -5251,6 +5251,33 @@ class SourceFixesOctober7(unittest.TestCase):
         master = ({('경부선', '석수'): (126.89, 37.43)}, {'석수': [(126.89, 37.43)]})
         self.assertEqual(S.station_rows_in_seoul(rows, master, stops)[0], [])
 
+class RushAndTrafficOctober7(unittest.TestCase):
+    def test_a_decimal_speed_is_a_speed(self):
+        import subprocess as real
+        xml = ('<TrafficInfo><RESULT><CODE>INFO-000</CODE></RESULT>'
+               '<row><prcs_spd>49.3</prcs_spd></row></TrafficInfo>')
+        S.subprocess.run = lambda *a, **k: types.SimpleNamespace(stdout=xml, returncode=0)
+        try:
+            self.assertEqual(S._traffic_speed('K', '1'), 49)
+        finally:
+            S.subprocess.run = real.run
+
+    def test_the_rush_cache_gives_way_to_a_newer_month(self):
+        real = S._rush_month
+        newest = f"{S.datetime.now(S.SEOUL_TZ).date().replace(day=1):%Y%m}"
+        agg = {f'역{i}': [0] * 24 for i in range(20)}
+        for i, h in enumerate(agg.values()):
+            h[S.RUSH_AM], h[S.RUSH_PM] = 300_000 + i * 5_000, 100_000
+        S._rush_month = lambda key, m: agg if m == newest else {}
+        real_lookup = S.en_lookup
+        S.en_lookup = lambda name, table: name
+        try:
+            state = {'rush_cache': {'month': '202607', 'picks': [['old', 1, 1]]}}
+            S.rush_facts('K', state)
+            self.assertEqual(state['rush_cache']['month'], newest)
+        finally:
+            S._rush_month, S.en_lookup = real, real_lookup
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=1)

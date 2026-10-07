@@ -3237,14 +3237,22 @@ def rush_facts(api_key, state):
     now = datetime.now(SEOUL_TZ).date().replace(day=1)
     cache = state.get('rush_cache') or {}
     month, picks = cache.get('month'), cache.get('picks')
+    # ⚠️ Walk back from this month EVERY run, and keep the cache only while
+    # its month is still the newest published. Until 7 October 2026 the cache
+    # was filled once and never replaced, so the card said July 2026 with
+    # August and September out. An unpublished month answers at once with
+    # nothing, so the walk is cheap.
+    agg = {}
+    for _ in range(6):
+        probe = f'{now:%Y%m}'
+        if picks and probe == month:
+            break                                # the cached month is newest
+        agg = _rush_month(api_key, probe)
+        if agg:
+            month, picks = probe, None
+            break
+        now = (now - timedelta(days=1)).replace(day=1)
     if not picks:
-        agg = {}
-        for _ in range(6):
-            month = f'{now:%Y%m}'
-            agg = _rush_month(api_key, month)
-            if agg:
-                break
-            now = (now - timedelta(days=1)).replace(day=1)
         if not agg:
             return []
         scored, unnamed = [], []
@@ -3440,9 +3448,12 @@ def _traffic_speed(api_key, link_id):
                 continue
             if (root.findtext('.//CODE') or '') != 'INFO-000':
                 return None
-            spd = root.findtext('.//row/prcs_spd')
-            if spd and spd.strip().isdigit():
-                return int(spd)
+            # A decimal speed (49.3) is a speed: until 7 October 2026 only a
+            # whole number passed, which dropped 4 of 11 roads that morning.
+            try:
+                return round(float((root.findtext('.//row/prcs_spd') or '').strip()))
+            except ValueError:
+                return None
     return None
 
 
@@ -10430,6 +10441,12 @@ def compose(sel, pool):
         # round-tripped through Naver by the user before landing.
         scope_en.append(('QR-lock bikes can be parked past a full rack', None))
         scope_ko.append(('QR 잠금 자전거는 거치대가 가득 차도 인근 주차 가능', None))
+    if 'traffic' in cats:
+        # Each road's figure is ONE 표준링크, one direction, 0.3 to 3 km long
+        # (Gangnam-daero is the Hannam Bridge stretch), found 7 October 2026;
+        # the bare road name on the row cannot say so.
+        scope_en.append(('One stretch of each road, one direction', None))
+        scope_ko.append(('도로마다 한 구간, 한 방향', None))
     if 'rush' in cats and RUSH_M['en']:
         # ⚠️ Without this the card says "City Hall, 6 p.m.: 347,582" under a
         # month dateline, which reads as one evening and is out by about
