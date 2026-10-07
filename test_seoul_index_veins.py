@@ -5287,6 +5287,14 @@ class WeekendHolidays(unittest.TestCase):
             self.assertIn(d, got)
         self.assertNotIn('20261004', got)    # a substitute on a solar date adds no weekend
 
+class SpotlightBaselineKeyedOnReading(unittest.TestCase):
+    def test_the_reading_time_not_the_logger_time_sets_the_slot(self):
+        import seoul_index_crowd_log as L
+        rows = [{'at': f'2026-09-{d:02d} 21:05', 'weekday': 'Wed', 'hour': 21, 'area': 'X',
+                 'mid': 100, 'ppltn_time': f'2026-09-{d:02d} 20:35'} for d in (2, 9, 16)]
+        self.assertEqual(L.baseline('X', 'Wed', 20, rows), (100, 3))
+        self.assertIsNone(L.baseline('X', 'Wed', 21, rows))
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=1)

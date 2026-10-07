@@ -250,6 +250,19 @@ def load_history():
     return out
 
 
+def _reading_slot(r):
+    """(date, weekday, hour) of a logged reading, from its own ppltn_time,
+    or from the logger's fields for a row written before that was kept."""
+    t = r.get('ppltn_time') or ''
+    try:
+        d = datetime.strptime(t[:16], '%Y-%m-%d %H:%M')
+        return t[:10], d.strftime('%a'), d.hour
+    except ValueError:
+        if r.get('at') and r.get('weekday') and r.get('hour') is not None:
+            return r['at'][:10], r['weekday'], r['hour']
+        return None
+
+
 def baseline(area, weekday, hour, rows=None, min_samples=3):
     """Typical observed crowd at `area` on a given weekday and hour, or None if
     too little has accrued to say. Returns (mean, number_of_days).
@@ -265,9 +278,15 @@ def baseline(area, weekday, hour, rows=None, min_samples=3):
     rows = load_history() if rows is None else rows
     per_day = defaultdict(list)
     for r in rows:
-        if (r.get('area') == area and r.get('weekday') == weekday
-                and r.get('hour') == hour and r.get('at')):
-            per_day[r['at'][:10]].append(r['mid'])
+        if r.get('area') != area:
+            continue
+        # ⚠️ Keyed on the READING's own time (ppltn_time), since 7 October
+        # 2026. The stored weekday and hour are the logger's run time, about
+        # 30 minutes after the reading (every row checked), so "usual at
+        # 6 a.m." was readings from about 5:35, set against a live 6:25.
+        slot = _reading_slot(r)
+        if slot and slot[1] == weekday and slot[2] == hour:
+            per_day[slot[0]].append(r['mid'])
     if len(per_day) < min_samples:
         return None
     day_means = [sum(v) / len(v) for v in per_day.values()]

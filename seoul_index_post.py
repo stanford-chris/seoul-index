@@ -1073,10 +1073,12 @@ def spotlight_facts(api_key, spot):
 
     stamp = r.get('PPLTN_TIME') or ''
     try:                                   # the reading's own clock, not ours
-        now_h = int(stamp[11:13])
-    except (ValueError, IndexError):
-        now_h = datetime.now(SEOUL_TZ).hour
-    wd = datetime.now(SEOUL_TZ).strftime('%a')
+        when = datetime.strptime(stamp[:16], '%Y-%m-%d %H:%M')
+    except ValueError:
+        when = datetime.now(SEOUL_TZ)
+    # Weekday AND hour from the reading (7 October 2026): the weekday came
+    # from the clock, so a 23:35 reading posted after midnight split across days.
+    now_h, wd = when.hour, when.strftime('%a')
 
     facts = [fact(f'spot_now_{en}', 'spotlight',
                   f'Estimated crowd right now ({_ampm_en(now_h)})',
