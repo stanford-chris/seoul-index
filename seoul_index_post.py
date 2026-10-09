@@ -82,6 +82,11 @@ LABEL_LOG = HERE / 'label_checks.jsonl'
 # checker's own tests — unittest discover imports every test module into one
 # process, so a stubbed function stays stubbed for the whole run.
 CHECK_LABELS = True
+# Whether compose() refuses a card whose Korean side carries a line with no
+# Hangul (see check_korean). Only ever False in tests, for the same reason as
+# CHECK_LABELS: the composition suites build cards from fixtures that leave
+# the Korean to a selector that is never called, so their Korean is English.
+REFUSE_UNTRANSLATED = True
 # The estate's shared notebook, read by a weekly review. Optional: this
 # repository is public and the bot runs without it.
 OBSERVE = Path.home() / 'Scripts' / 'observe.py'
@@ -10301,6 +10306,11 @@ def _label_check_prompt(rows, opener_en, opener_ko):
         f'"problem": "<one short sentence>"}}]}}')
 
 
+class CardRefused(RuntimeError):
+    """A finished card that must not post. main() catches it and exits 1
+    without posting or stamping state, so the next slot builds afresh."""
+
+
 # Any Hangul syllable. NOT the CJK ideographs: 90 days of every feed held not
 # one Hanja, so widening this would be guessing at a case that has never
 # happened, and every character added can hide a real fault. Same reasoning as
@@ -10318,17 +10328,19 @@ def check_korean(lines, opener_ko, opener_en, log=print):
     question and a regex owns it outright, so this runs unconditionally rather
     than behind CHECK_LABELS, needs no network, and cannot itself fail.
 
-    ⚠️ IT REPORTS AND REPAIRS NOTHING, deliberately. There is no Korean to fall
-    back to: for the veins the selector translates, its answer is the only
+    ⚠️ IT REPAIRS NOTHING, deliberately, and compose() REFUSES the card when
+    it finds anything (his call, 9 October 2026, after post 3mxfmn6b27m2g
+    put "Estimated crowd at the Gangseo riverbank the same minute" on the
+    Korean card). There is no Korean to fall back to: for the veins the selector translates, its answer is the only
     Korean that exists, and the pool's own label is the English this is
     complaining about. The veins that DO own their Korean (crowd, spotlight,
     rush set label_ko) never reach the selector for it and so can no longer fail
     this way at all — the 24 August card could not recur today.
 
-    ⚠️ And it never blocks a post. The measured rate is one card in ninety-nine,
-    and a card with English labels is a bad card while a card that never posts
-    is a dead bot. That also means a false positive costs one log line, which is
-    why there is no exemption list: a Latin-only Korean label is conceivable (a
+    ⚠️ Until 9 October 2026 it never blocked a post ("a card that never posts
+    is a dead bot"). Reversed by him: an English line on the Korean card is
+    not posted. A false positive now costs a slot, not a log line, and there
+    is still no exemption list: a Latin-only Korean label is conceivable (a
     film title on a boxoffice card) and has never once occurred — 0 of 99 Korean
     cards in the feed on 26 August 2026, the three above being the only Latin
     labels in the whole history. An exemption for a case that has never happened
@@ -10467,10 +10479,10 @@ def check_labels(lines, rows, opener_en, opener_ko, log=print):
     its number is. That fallback already existed for a label that injected a
     digit (see clean_label); this widens what can send a label back to it.
 
-    ⚠️ A Korean flag falls back to the ENGLISH source label, which is what the
-    card already does when the selector returns no Korean at all. A line of
-    English on a Korean card reads oddly; a Korean line saying the figures were
-    concluded when the source says they were filed is wrong, and wrong is worse.
+    ⚠️ A Korean flag REFUSES the card (raises CardRefused) rather than
+    repairing it. There is no Korean source label to fall back to, and until
+    9 October 2026 the fallback was the ENGLISH one, which put English on the
+    Korean card (post 3mxfmn6b27m2g); his call, refuse instead.
 
     ⚠️ A check that cannot run is NOT a failure. The card goes out unchecked,
     exactly as every card did before this existed, and the fallback is recorded
@@ -10489,6 +10501,7 @@ def check_labels(lines, rows, opener_en, opener_ko, log=print):
     problems = [q for q in (out.get('problems') or [])
                 if isinstance(q, dict) and isinstance(q.get('i'), int)
                 and 0 <= q['i'] < len(rows)]
+    refuse = []
     for q in problems:
         i, lang = q['i'], ('ko' if q.get('lang') == 'ko' else 'en')
         row, line = rows[i], lines[i]
@@ -10498,9 +10511,15 @@ def check_labels(lines, rows, opener_en, opener_ko, log=print):
             # is the checker misreading the card, not a label to repair.
             log('     (pinned label — left alone)')
             continue
+        if lang == 'ko':
+            refuse.append(i)
+            log('     -> no Korean to fall back to: the card is refused')
+            continue
         line[f'label_{lang}'] = row['pool_en']
         log(f'     -> falling back to: {row["pool_en"]}')
     _log_labels(rows, opener_en, problems)
+    if refuse:
+        raise CardRefused(f'Korean label(s) {refuse} failed the label check')
 
 
 def _log_labels(rows, opener, problems, error=''):
@@ -11122,7 +11141,8 @@ def compose(sel, pool):
 
     # Is the Korean card actually in Korean? Deterministic, so it runs whether
     # or not the model checker below does. See check_korean.
-    check_korean(lines, opener_ko, opener_en)
+    if check_korean(lines, opener_ko, opener_en) and REFUSE_UNTRANSLATED:
+        raise CardRefused('the Korean card carries a line with no Korean in it')
 
     # Check the written labels against the pool's own, LAST: after the trim,
     # after _strip_live_frame and after the river and transport openers are
@@ -12693,7 +12713,10 @@ def main():
                 and all(by_cat.get(p.get('id')) == rc for p in sel['picks'])):
             sel['opener_en'], sel['opener_ko'] = info['opener_en'], info['opener_ko']
 
-    c = compose(sel, pool)
+    try:
+        c = compose(sel, pool)
+    except CardRefused as e:
+        sys.exit(f'Card refused, nothing posted: {e}.')
     used, primary = c['used'], c['primary']
 
     # Each card posts as an image with NO caption, so the card sits at the very

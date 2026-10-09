@@ -67,14 +67,20 @@ class Repairs(unittest.TestCase):
         self.assertEqual(out[0]['label_en'],
                          'A month’s visitors to the Seodaemun Prison History Hall')
 
-    def test_korean_drift_falls_back_to_the_english_source_label(self):
-        # Odd on a Korean card, and still better than a Korean line claiming
-        # the leases were concluded when the source says they were filed.
+    def test_korean_drift_refuses_the_card(self):
+        # Until 9 October 2026 this fell back to the ENGLISH source label,
+        # which put English on the Korean card (post 3mxfmn6b27m2g). His call:
+        # there is no Korean to fall back to, so the card is refused.
         r = row(cat='property', pool='Jeonse leases filed',
                 en='Jeonse leases filed', ko='체결된 전세 계약')
-        out = self.check([r], [{'i': 0, 'lang': 'ko', 'problem': '체결 ≠ 신고'}])
-        self.assertEqual(out[0]['label_ko'], 'Jeonse leases filed')
-        self.assertEqual(out[0]['label_en'], 'Jeonse leases filed')
+        with self.assertRaises(S.CardRefused):
+            self.check([r], [{'i': 0, 'lang': 'ko', 'problem': '체결 ≠ 신고'}])
+        self.assertTrue(self.logged)        # the verdict is still recorded
+
+    def test_a_pinned_korean_flag_does_not_refuse(self):
+        out = self.check([row(pin=True)],
+                         [{'i': 0, 'lang': 'ko', 'problem': 'x'}])
+        self.assertEqual(out[0]['label_en'], 'Seodaemun Prison History Hall')
 
     def test_a_pinned_label_is_never_repaired(self):
         # A pin declares the wording load-bearing and it was never the model's

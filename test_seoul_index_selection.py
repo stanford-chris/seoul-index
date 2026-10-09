@@ -19,6 +19,7 @@ import seoul_index_card as C
 # live checker would make them slow, non-deterministic and quota-hungry. The
 # checker's own behavior is tested in test_seoul_index_labels.py.
 S.CHECK_LABELS = False
+S.REFUSE_UNTRANSLATED = False   # fixtures leave Korean to the selector
 
 
 def f(fid, cat):
@@ -1635,9 +1636,11 @@ class TheKoreanCardMustBeInKorean(unittest.TestCase):
         i_gate = src.index('if CHECK_LABELS:')
         self.assertLess(i_check, i_gate)
 
-    def test_it_never_blocks_the_card(self):
-        """A card with English labels is a bad card; a card that never posts is
-        a dead bot. One in ninety-nine does not buy the right to refuse."""
+    @unittest.mock.patch.object(S, 'REFUSE_UNTRANSLATED', True)
+    def test_it_refuses_the_card(self):
+        """Reversed 9 October 2026, his call: it used to let the card post
+        ("a card that never posts is a dead bot"). English on the Korean card
+        now refuses it."""
         pool = [S.fact(f'crowd_{i}', 'crowd', f'Estimated crowd, Place {i}',
                        f'{i},000', f'{i},000', pin=True,
                        label_ko=f'Estimated crowd, Place {i}')
@@ -1646,9 +1649,15 @@ class TheKoreanCardMustBeInKorean(unittest.TestCase):
                'opener_emoji': '',
                'picks': [{'id': f['id'], 'label_en': '', 'label_ko': '',
                           'emoji': ''} for f in pool]}
-        c = S.compose(sel, pool)
-        self.assertEqual(len(c['lines']), 3)
-        self.assertTrue(c['ko_body'])
+        with self.assertRaises(S.CardRefused):
+            S.compose(sel, pool)
+
+    def test_main_exits_without_posting_on_a_refusal(self):
+        import inspect
+        src = inspect.getsource(S.main)
+        self.assertIn('except CardRefused', src)
+        # Caught before the login and every send, so nothing reaches Bluesky.
+        self.assertLess(src.index('except CardRefused'), src.index('bsky.login'))
 
     def test_a_dry_run_writes_nothing_to_the_estate_log(self):
         """A test filing itself with the Sunday review is a fault invented by

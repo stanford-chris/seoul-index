@@ -35,6 +35,7 @@ S.SOURCE_CHECKS = False
 # live checker would make them slow, non-deterministic and quota-hungry. The
 # checker's own behavior is tested in test_seoul_index_labels.py.
 S.CHECK_LABELS = False
+S.REFUSE_UNTRANSLATED = False   # fixtures leave Korean to the selector
 import seoul_index_books_harvest as H
 
 

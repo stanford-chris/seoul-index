@@ -31,6 +31,7 @@ S.SOURCE_CHECKS = False
 import unittest.mock
 
 S.CHECK_LABELS = False
+S.REFUSE_UNTRANSLATED = False   # fixtures leave Korean to the selector
 
 
 def picks_for(facts):
