@@ -7424,9 +7424,13 @@ def check_railcommuter_taps(api_key, ym, seoul):
     at the six stations only Korail serves. Korail's figure is 0.990 to
     0.997 of the taps, March to August 2026 (August: 0.994 to 0.997):
     tolerance 0.98 to 1.00. ⚠️ Not checkable at a station other operators
-    share, where Korail's figure runs 1.5 to 4.4 times the Korail-line taps
-    for a reason not yet established; 서울 is one (912,406 against 354,116 in
-    August), and it is often on this card."""
+    share, where Korail's figure runs 1.5 to 4.4 times the Korail-line taps;
+    서울 is one (912,406 against 354,116 in August), and it is often on this
+    card. Likely cause, unconfirmed (9 October 2026): the city's table
+    credits a tap to the gate's operator, Korail counts everyone who rides
+    its trains. Korail's figure is always below the station's taps on all
+    lines together, and matches again where its line has its own gates
+    (청량리 0.991, 왕십리 1.000). See PROVENANCE['railcommuter']."""
     base = f'http://openapi.seoul.go.kr:8088/{api_key}/json/CardSubwayTime'
     try:
         total = int(http_get_json(f'{base}/1/1/{ym}')['CardSubwayTime']['list_total_count'])

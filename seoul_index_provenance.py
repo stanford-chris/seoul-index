@@ -390,7 +390,7 @@ PROVENANCE = {
     'railcommuter': {
         'source': '한국철도공사 wideRailloadStationPer (monthly), Seoul membership as stations; cached in railcommuter_cache.json',
         'counts': 'Monthly boardings at Korail commuter-line stations inside Seoul (석수 excluded since 7 October 2026, 디엠시 aliased to 디지털미디어시티). August 2026: 용산 1,620,814, 영등포 1,317,429, 서울 997,783.',
-        'checked_against': 'Seoul’s card taps (CardSubwayTime) on the Korail line at stations only Korail serves: 0.990 to 0.997, March to August 2026. At shared stations Korail’s figure is 1.5 to 4.4 times the taps, reason not established: 서울 912,406 against 354,116.',
+        'checked_against': 'Seoul’s card taps (CardSubwayTime) on the Korail line at stations only Korail serves: 0.990 to 0.997, March to August 2026. At stations shared with another operator Korail’s figure is 1.5 to 4.4 times the Korail-line taps (서울 912,406 against 354,116) but always below the station’s taps on all lines together (서울 3.68 million), and where the Korail line has gates of its own (청량리, 왕십리) it matches again (0.991, 1.000). Likely cause, not confirmed: the city’s table credits a tap to the gate’s operator while Korail counts everyone who rides its trains, including passengers entering through another operator’s gates. Confirming it needs another operator’s own station figures. Measured on August 2026, 9 October 2026.',
         'complete_fetch': 'One call of 5,000 against 3,696 rows.',
         'labels': 'OPEN: what Korail’s figure at 서울 counts is unresolved, and 서울 is often the third line. “All Seoul stations” means Korail commuter stations in Seoul.',
         'verified': V,
