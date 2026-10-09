@@ -1311,6 +1311,54 @@ class CrowdLabelIsOneShape(unittest.TestCase):
         self.assertIn('label_ko=f\'{g["ko"]} 추정 인파\'', head)
 
 
+class CrowdContrastPairIsThePlacesOwnFacts(unittest.TestCase):
+    """⚠️ Post 3mxfmn6b27m2g, 9 October 2026: the fullest/quietest pair was
+    two extra UNPINNED facts, so its rows read "Estimated crowd, Gangnam
+    Station" and "Estimated crowd at the Gangseo riverbank the same minute"
+    beside "The crowd in Jamsil" / "In Yeonnam-dong", neither place bolded,
+    and the second shipped in English on the Korean card. The pair now lives
+    on the places' own pinned facts, which crowd_rows() words and bolds."""
+
+    def facts(self):
+        spots = [{'area': a, 'en': e, 'ko': k} for a, e, k in (
+            ('강남역', 'Gangnam Station', '강남역'),
+            ('잠실 관광특구', 'Jamsil', '잠실'),
+            ('강서한강공원', 'the Gangseo riverbank', '강서한강공원'))]
+        mids = {'강남역': 29000, '잠실 관광특구': 23000, '강서한강공원': 50}
+
+        def get(url):
+            area = next(a for a in mids if S._url(a) in url)
+            return {'SeoulRtd.citydata_ppltn': [{
+                'AREA_PPLTN_MIN': mids[area], 'AREA_PPLTN_MAX': mids[area],
+                'NON_RESNT_PPLTN_RATE': '30', 'FEMALE_PPLTN_RATE': '50',
+                'PPLTN_RATE_20': '20'}]}
+        with unittest.mock.patch.object(S, 'http_get_json', get), \
+                unittest.mock.patch.object(S, 'check_crowd_row',
+                                           lambda r, a: None):
+            return S.crowd_facts('K', spots)
+
+    def test_no_crowd_count_fact_is_unpinned(self):
+        for f in self.facts():
+            if f['id'].startswith('crowd'):
+                self.assertTrue(f['pin'], f['id'])
+                self.assertTrue(f['label_ko'], f['id'])
+
+    def test_the_pair_marks_the_fullest_and_quietest_places(self):
+        gap = sorted(f['id'] for f in self.facts() if f['pair'] == 'crowd_gap')
+        self.assertEqual(gap, ['crowd_Gangnam Station',
+                               'crowd_the Gangseo riverbank'])
+
+    def test_all_shapes_word_as_one_bolded_run(self):
+        lines = [{'crowd_count': True, 'place_en': f['place_en'],
+                  'place_ko': f['place_ko']}
+                 for f in self.facts() if f['id'].startswith('crowd_')]
+        S.crowd_rows(lines)
+        self.assertEqual([l['label_en'] for l in lines],
+                         ['The crowd at Gangnam Station', 'In Jamsil',
+                          'At the Gangseo riverbank'])
+        self.assertEqual(lines[2]['emph_en'], 'the Gangseo riverbank')
+
+
 class EmphRendersAsOneBoldRun(unittest.TestCase):
     def test_the_run_bolds_and_the_rest_does_not(self):
         html = C._row_html({'emoji': '', 'label': 'Estimated crowd, Seoul Station',

@@ -1037,18 +1037,21 @@ def crowd_facts(api_key, spots=None):
                           f'{g["female"]}%', f'{g["female"]}%', estimated=True,
                           place_en=g['en'].removeprefix('the '),
                           place_ko=g['ko']))
-    # Contrast pair: fullest vs quietest sampled spot.
+    # Contrast pair: fullest vs quietest sampled spot. The pair is marked on
+    # those two places' own pinned count facts, never as two extra facts.
+    # Until 9 October 2026 it was two unpinned facts ("Estimated crowd packed
+    # into Gangnam Station now", "... at the Gangseo riverbank the same
+    # minute"): crowd_rows() could not see them, so they neither joined the
+    # run's wording nor bolded their place, and the quiet one's failed reword
+    # fell back to its English label ON THE KOREAN CARD (post 3mxfmn6b27m2g).
+    # They also duplicated a place the per-place fact already offered.
     if len(got) >= 2:
         full = max(got, key=lambda g: g['mid'])
         quiet = min(got, key=lambda g: g['mid'])
-        facts.append(fact('crowd_fullest', 'crowd',
-                          f'Estimated crowd packed into {full["en"]} now',
-                          grouped(full['mid']), grouped(full['mid']),
-                          estimated=True, pair='crowd_gap'))
-        facts.append(fact('crowd_quietest', 'crowd',
-                          f'Estimated crowd at {quiet["en"]} the same minute',
-                          grouped(quiet['mid']), grouped(quiet['mid']),
-                          estimated=True, pair='crowd_gap'))
+        if full is not quiet:
+            for f in facts:
+                if f['id'] in (f'crowd_{full["en"]}', f'crowd_{quiet["en"]}'):
+                    f['pair'] = 'crowd_gap'
     # Age contrast: youngest vs oldest sampled crowd, by share in their twenties.
     def _tw(g):
         try:
