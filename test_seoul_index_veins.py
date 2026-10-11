@@ -3707,7 +3707,7 @@ class RailStationsCard(unittest.TestCase):
         self.assertIn('railstations', S.COOLDOWNS)  # cooled AND stamped through the one table
         self.assertIn('railstations', S.COOLDOWNS)
         self.assertIn('- "railstations" lines are', src)
-        self.assertIn("uses_korail = bool({'rail', 'railstations', 'seoulstation', 'railcommuter'} & cats)", src)
+        self.assertIn("uses_korail = bool({'railstations', 'seoulstation', 'railcommuter'} & cats)", src)
 
 
 def korail_run(fn, rows, calls=None):

@@ -9080,7 +9080,7 @@ Rules:
 - "kepcohk" lines set Seoul against Hong Kong on electricity over a YEAR: Seoul per capita, Hong Kong per capita, Seoul household, Hong Kong household — own post, never mixed with any other category, including "kepco". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Electricity in Seoul and Hong Kong"), so whatever opener you write is replaced; the dateline carries both periods. Never say which city uses more, never explain the gap, and never call either figure high or low.
 - "kepcohist" lines set ONE MONTH of Seoul's electricity against the SAME month TWENTY YEARS earlier: electricity used, the bill and customers, each as a pair (each label already carries its month and year — do not reword those labels) — own post, never mixed with any other category, including "kepco". Use ALL SIX lines, every pair with BOTH its sides. Its opener is FIXED and written by Python, so whatever you write is replaced. The arrangement carries the twenty years — never point out that the bill rose faster than the use, or that anything rose or fell at all.
 - "kepcohouse" lines are ONE MONTH's household electricity by Seoul district from Korea Electric Power Corporation: the district with the most used per household, the least, the highest average bill and the lowest — own post, never mixed with any other category, including "kepco". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Household electricity in Seoul"), so whatever opener you write is replaced; the dateline carries the month. Never call a district rich or poor, hot or cold, and never explain the gap.
-- "railcommuter" lines are ONE MONTH's boardings at Korail's commuter-rail stations inside Seoul from the Korea Railroad Corporation: the busiest, second and third stations and the total for all Seoul stations — own post, never mixed with any other category, including "rail", "railstations" and "stations". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Seoul's commuter rail"), so whatever opener you write is replaced; the dateline carries the month and the footnote says which lines these are. The lines carry BARE STATION NAMES; never call a station busy or quiet.
+- "railcommuter" lines are ONE MONTH's boardings at Korail's commuter-rail stations inside Seoul from the Korea Railroad Corporation: the busiest, second and third stations and the total for all Seoul stations — own post, never mixed with any other category, including "railstations" and "stations". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Seoul's commuter rail"), so whatever opener you write is replaced; the dateline carries the month and the footnote says which lines these are. The lines carry BARE STATION NAMES; never call a station busy or quiet.
 - "tourism" lines are one month's visitor counts at named paid-admission Seoul attractions (the palaces, Lotte World, Seoul Sky…). Own post; ONE frame per post — total visitors OR foreign visitors, never both; the month rides on the card automatically. The pairs are the point: a dead heat or the widest gap between two named attractions.
 - "river" lines are readings taken at ONE hour: the water temperature in the Han (at Seonyu) and in three tributaries, plus the AIR temperature over central Seoul at that same hour. Build them into their own post, never mixed with any other category, and ALWAYS INCLUDE "The air" line — it is the whole point. Four river temperatures alone sit within about a degree of each other and say nothing; the contrast is the water disagreeing with the sky. Labels are BARE NAMES ("The Han at Seonyu", "The air"), so the opener MUST carry the metric and nothing more, e.g. "Water and air in Seoul" (ℹ️ whatever you write here is REPLACED in compose(): the opener names air or water first to match whichever the sort puts on the top line, which is a fact about the readings rather than a choice of words) — the same case as the world, traffic and books lines. ⚠️ Do NOT put the hour, the time or the words "one hour" in the opener: the reading hour rides on the card automatically as its dateline, and an opener repeating it spends the line saying nothing. Do NOT write "right now" either: that hour can be several hours old. Never point out that the water is warmer or cooler than the air; let the arrangement do it.
 - "level" lines appear ONLY when the Han is running high, and they are one gauge (잠수교) set against its own published flood-warning tiers: the level right now, then the 관심/주의/경계/심각 levels. Build them into their own post, never mixed with any other category, and include the current level plus at least two tiers — the arrangement IS the story, which is how far the river is from each tier. The opener must name the river and the gauge, e.g. "The Han at Jamsu Bridge". ⚠️ NEVER write or imply that the bridge is closed, submerged, flooded or about to be: these are flood-WARNING tiers set by 한강홍수통제소, not the level at which the walkway goes under, and the two are different things. Do not add alarm, urgency or commentary of any kind — state the levels and stop. Never call the situation dangerous.
@@ -9097,8 +9097,8 @@ Rules:
 - "busroutes" lines are that day's busiest, second-busiest and quietest Seoul bus routes by plain route number ("Busiest: 143"), plus the day's total bus boardings — own post, never mixed with any other category, including "transport" above (that vein's own bus/subway totals are a different card). All FOUR lines are compulsory and must be used together, in that order: this is a complete small ranking, not a selection from it, the same rule "boxoffice" uses for its top four films. The dateline carries the date, so do NOT put a date anywhere in the opener and do NOT write a second one of your own — the opener MUST name buses or bus routes, because the lines carry BARE ROUTE NUMBERS with no "Route" word ("Busiest: 143"); like "busstops" its opener is FIXED and written by Python ("On the buses") and whatever opener you write for this card is replaced, and it must never say "today", since the day shown is several days behind. Never call a route busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines: the numbers say it. If the footnote already names a route's winning streak, do not repeat or rephrase that fact in the opener — it would say the same thing twice on one card.
 - "stations" lines are that day's busiest, second-busiest and quietest Seoul SUBWAY stations by official English name ("Busiest: Seoul Station"), plus the day's total subway boardings — own post, never mixed with any other category, including "transport" and "busroutes" above. Exactly the same rules as "busroutes": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the opener MUST name the subway or its stations, because the lines carry BARE STATION NAMES with no "station" word ("Busiest: Seoul Station", "Quietest: Dorimcheon"); like "busstops" its opener is FIXED and written by Python ("On the subway") and whatever opener you write for this card is replaced, and it must never say "today", since the day shown is several days behind; and it MUST NOT settle on one wording; never call a station busy, quiet, packed or empty, and never remark on the gap between the busiest and quietest lines.
 - "busstops" lines are that day's busiest, second-busiest and third-busiest Seoul BUS STOPS ("Busiest: Hongik University Station", one stop per name, the busier side of the road), plus how many stops took at least one boarding that day — own post, never mixed with any other category, including "transport", "busroutes" and "stations" above. Exactly the same rules as "stations": all FOUR lines are compulsory, used together, in that order; the dateline carries the date, so do NOT put a date in the opener; the lines carry BARE STOP NAMES with no "stop" word, and a stop named after a station reads as the station unless the title says these are bus stops, so like "busmovers" its opener is FIXED and written by Python ("Seoul's bus stops") and whatever opener you write for this card is replaced; never call a stop busy, quiet, packed or empty, and never remark on the gap between the lines. There is no quietest line on this card, by design.
-- "railstations" lines are the four busiest of Seoul's Korail stations by boardings on one day ("Seoul Station", "Yongsan"), from the Korea Railroad Corporation — own post, never mixed with any other category, including "rail" and "stations" above (the subway card is a different thing). All FOUR lines are compulsory, used together, in that order; the dateline carries the date and the footnote the operator note, so do NOT put either in the opener. The lines are BARE STATION NAMES, so like "busmovers" its opener is FIXED and written by Python ("Seoul's railway stations") and whatever opener you write for this card is replaced. Never call a station busy or quiet, and never remark on the gap between the lines.
-- "seoulstation" lines are ONE station, Seoul Station, on one day: how many boarded Korail trains there, how many got off, the two together ("Passengers"), and "A typical Tuesday", the median of the previous same weekdays — own post, never mixed with any other category, including "rail", "railstations" and "stations". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Seoul Station"), so whatever opener you write for this card is replaced; the dateline carries the date and the footnote says what typical means. Never guess WHY the day differs from a typical one, and never call the station busy or quiet.
+- "railstations" lines are the four busiest of Seoul's Korail stations by boardings on one day ("Seoul Station", "Yongsan"), from the Korea Railroad Corporation — own post, never mixed with any other category, including "stations" above (the subway card is a different thing). All FOUR lines are compulsory, used together, in that order; the dateline carries the date and the footnote the operator note, so do NOT put either in the opener. The lines are BARE STATION NAMES, so like "busmovers" its opener is FIXED and written by Python ("Seoul's railway stations") and whatever opener you write for this card is replaced. Never call a station busy or quiet, and never remark on the gap between the lines.
+- "seoulstation" lines are ONE station, Seoul Station, on one day: how many boarded Korail trains there, how many got off, the two together ("Passengers"), and "A typical Tuesday", the median of the previous same weekdays — own post, never mixed with any other category, including "railstations" and "stations". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Seoul Station"), so whatever opener you write for this card is replaced; the dateline carries the date and the footnote says what typical means. Never guess WHY the day differs from a typical one, and never call the station busy or quiet.
 - "stationgap" lines are ONE Seoul subway station on one day, the station with the widest gap between people getting off and getting on: "Got off at Yeouinaru" and "Got on at Yeouinaru", the larger first — own post, never mixed with any other category. BOTH lines are compulsory, in the order given: a two-line card by design, like "rush". Its opener is FIXED and written by Python ("Seoul's subway, one station"), so whatever opener you write for this card is replaced; the dateline carries the date and the footnote says how the station was chosen. Never state or hint at the difference between the two figures, never guess WHY they differ, and never call the station busy or quiet.
 - "busmovers" lines are the day's biggest RISE and biggest FALL in bus boardings, route by route, each against that route's own typical figure for the same weekday ("Up the most: 5511, 16,571 boardings" with a value of "+40%"). Own post, never mixed with any other category. BOTH lines are compulsory, in that order (up, then down): this is a two-line card by design, like "rush". Like "rush", its opener is FIXED and written by Python ("Seoul's bus routes, against their usual Monday"), so whatever opener you write for this card is replaced; the dateline carries the date and the footnote the comparison. Never guess WHY a route rose or fell.
 - "nightbus" lines are the day's busiest, second-busiest and quietest NIGHT bus routes (Seoul's N routes, which run through the small hours) plus the night total — own post, exactly the "busroutes" rules: all FOUR lines, in order, no date in the opener, the opener MUST name night buses, since the lines carry BARE ROUTE NUMBERS; like "busstops" its opener is FIXED and written by Python ("On the night buses") and whatever opener you write for this card is replaced, and it must never say "today" or "tonight", since the day shown is several days behind; never "busy" or "quiet" as adjectives.
@@ -10139,7 +10139,7 @@ LIVE_CATS = {'crowd', 'air', 'bike', 'traffic'}
 # months and lifts nothing — so membership here means "may set a dateline", and
 # grouped is confirmed later against whether one actually did.
 DATED_PERIOD_CATS = {'tourism', 'property', 'spending', 'avgbill', 'boxoffice',
-                     'rush', 'airport', 'incheon', 'rail'}
+                     'rush', 'airport', 'incheon'}
 # Veins whose lines are BARE LABELS ("60s", "2019") explained by a DESCRIPTOR
 # rather than by a date. On an own post the opener carries that meaning, so this
 # is only a reminder in the footnote — but a cross pair OVERRIDES "own post,
@@ -10890,9 +10890,9 @@ def compose(sel, pool):
     # handle). `period_group_entries` is the registry any such pair, current
     # or future, reads from.
     #
-    # airport, incheon and rail are DATED_PERIOD_CATS members left OUT of the
+    # airport and incheon are DATED_PERIOD_CATS members left OUT of the
     # registry, and that is not an oversight: their period is read off each
-    # LINE once `lines` is built (kac_period/iiac_period/korail_period,
+    # LINE once `lines` is built (kac_period/iiac_period,
     # further down in this function), because their harvesters stamp a
     # period per FACT rather than into one shared module-level global the
     # way tour_facts()/boxoffice_facts()/molit_facts()/sales_facts()/
@@ -11175,7 +11175,7 @@ def compose(sel, pool):
     # from Seoul's own portal (SeoulLibraryBookRentNumInfo), not data4library.
     non_seoul = {'national', 'world', 'nation', 'property', 'weather', 'airport',
                  'health', 'healthcost', 'culture', 'tourism', 'level', 'boxoffice',
-                 'boxhist', 'incheon', 'rail', 'railstations', 'seoulstation', 'wxday',
+                 'boxhist', 'incheon', 'railstations', 'seoulstation', 'wxday',
                  'rescue', 'kopis', 'kepco', 'kepcohk', 'kepcohist', 'kepcohouse',
                  'railcommuter', 'infant'}
     uses_seoul = any(c not in non_seoul for c in cats)
@@ -11198,7 +11198,7 @@ def compose(sel, pool):
     # country line is the Incheon feed's. See iiac_facts().
     uses_icn = any(l['cat'] == 'incheon' and l.get('id', '').startswith('icn_') for l in lines)
     uses_iiac = any(l['cat'] == 'incheon' and l.get('id') == 'iiac_top_country' for l in lines)
-    uses_korail = bool({'rail', 'railstations', 'seoulstation', 'railcommuter'} & cats)
+    uses_korail = bool({'railstations', 'seoulstation', 'railcommuter'} & cats)
     uses_hira = 'health' in cats
     # A different HIRA dataset from uses_hira above (cost, not patient
     # counts — see hira_cost_facts()), but the same providing agency, so it
@@ -11268,7 +11268,6 @@ def compose(sel, pool):
     # (neither has a then/now pair), so this is empty only when the card
     # carries no line of that category at all.
     iiac_period = ('', '')
-    korail_period = ('', '')
     transport_period = transport_masthead = ('', '')
     # Captured per category so period_grouped (below) can strip exactly the
     # entries it promotes to a subhead, without reconstructing the same
@@ -11523,12 +11522,6 @@ def compose(sel, pool):
     if uses_korail:
         src_en += ' · Korea Railroad Corporation'
         src_ko += ' · 한국철도공사'
-        korail_months = {(l['period_en'], l['period_ko']) for l in lines
-                         if l['cat'] == 'rail'}
-        if len(korail_months) == 1 and all(next(iter(korail_months))):
-            korail_period = korail_months.pop()
-            scope_en.append((None, korail_period[0]))
-            scope_ko.append((None, korail_period[1]))
     if cats == {'transport'}:
         # The day rides the second line and leaves the rows, his call on
         # 24 September 2026 (3mw6a3puoio2v flew no dateline and said
@@ -11914,11 +11907,6 @@ def compose(sel, pool):
                 l['label_en'] = l['label_en'].removesuffix(f', {iiac_period[0]}')
                 l['label_ko'] = l['label_ko'].removesuffix(f', {iiac_period[1]}')
     strip_title_words(lines, opener_en, opener_ko)
-    if korail_period[0] and (group_en or dateline_en) == korail_period[0]:
-        for l in lines:
-            if l['cat'] == 'rail':
-                l['label_en'] = l['label_en'].removesuffix(f', {korail_period[0]}')
-                l['label_ko'] = l['label_ko'].removesuffix(f', {korail_period[1]}')
     if transport_period[0] and (group_en or dateline_en) == transport_masthead[0]:
         d_en, d_ko = transport_period
         for l in lines:
