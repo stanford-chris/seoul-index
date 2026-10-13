@@ -618,5 +618,15 @@ class AlreadyPosted(unittest.TestCase):
             self.assertTrue(W.already_posted('20260904'))
 
 
+class ArticleBeforeAFigure(unittest.TestCase):
+    """“an 89% chance”, never “a 89%”: his correction, 13 October 2026."""
+    def test_figures_spoken_with_a_vowel_take_an(self):
+        for n in (8, 11, 18, 80, 85, 89):
+            self.assertEqual(W.a_or_an(n), 'an', n)
+
+    def test_every_other_figure_takes_a(self):
+        for n in (0, 1, 7, 10, 12, 19, 40, 79, 90, 100):
+            self.assertEqual(W.a_or_an(n), 'a', n)
+
 if __name__ == '__main__':
     unittest.main()

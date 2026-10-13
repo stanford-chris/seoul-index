@@ -348,6 +348,14 @@ def today_summary(items, target_date):
             'humidity': humidity}
 
 
+
+def a_or_an(n):
+    """The article for a number as spoken: "an 89%", "an 8%", "an 11%",
+    "an 18%", but "a 100%" and "a 40%". Only the figures a percentage can
+    take are handled: those starting with "8" and the two teens that open on
+    a vowel sound."""
+    return 'an' if str(n).startswith('8') or n in (11, 18) else 'a'
+
 def build_card_lines(summary):
     """(opener, lines, footnote) for each language, from today_summary()'s
     dict. Card text only — dateline and posting are the caller's job."""
@@ -370,7 +378,7 @@ def build_card_lines(summary):
     rain_noun_en = pty_en.lower() if pty_en else 'rain'
     if sky_en and pop is not None:
         lines_en.append({'emoji': cond_emoji, 'label': 'Conditions',
-                         'value': f'{sky_en} with a {pop}% chance of {rain_noun_en}'})
+                         'value': f'{sky_en} with {a_or_an(pop)} {pop}% chance of {rain_noun_en}'})
         lines_ko.append({'emoji': cond_emoji, 'label': '날씨',
                          'value': f'{sky_ko}, 강수확률 {pop}%'})
     elif sky_en and pty_en:
@@ -383,7 +391,7 @@ def build_card_lines(summary):
         lines_ko.append({'emoji': cond_emoji, 'label': '날씨', 'value': sky_ko})
     elif pop is not None:
         lines_en.append({'emoji': cond_emoji or '☔', 'label': 'Conditions',
-                         'value': f'A {pop}% chance of {rain_noun_en}'})
+                         'value': f'{a_or_an(pop).capitalize()} {pop}% chance of {rain_noun_en}'})
         lines_ko.append({'emoji': cond_emoji or '☔', 'label': '날씨',
                          'value': f'강수확률 {pop}%'})
     elif pty_en:
