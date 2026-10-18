@@ -3029,8 +3029,15 @@ def transport_facts(api_key, state):
         # (0.953): the bus figures are Seoul-licensed buses wherever they stop.
         require(bus_rows_read == btot_rows,
                 f'transport: bus {bus_rows_read} rows of {btot_rows}')
-        require(set(stop_prefix) <= {'1', '2', '9'},
-                f'transport: unknown stop id prefixes {sorted(set(stop_prefix) - {"1", "2", "9"})}')
+        # "~" is the feed's own placeholder for a stop it could not place (its
+        # ARS number is "~" too and its name ends "(00999)"): two rows, two
+        # boardings, route 761, on 12 October 2026. Withholding the vein for
+        # it withheld it on most days from 8 October, so it is allowed while
+        # it stays a rounding error; a real block of unplaced boardings fails.
+        require(set(stop_prefix) <= {'1', '2', '9', '~'},
+                f'transport: unknown stop id prefixes {sorted(set(stop_prefix) - {"1", "2", "9", "~"})}')
+        require(stop_prefix.get('~', 0) <= 0.001 * bus_total,
+                f'transport: {stop_prefix.get("~", 0)} boardings at unplaced ("~") stops')
         require(stop_prefix.get('1', 0) >= 0.9 * bus_total,
                 f'transport: only {stop_prefix.get("1", 0) / max(bus_total, 1):.1%} of bus boardings at Seoul stops')
         # Every route's total goes into the history file (idempotent), for the
