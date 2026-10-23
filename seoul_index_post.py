@@ -598,7 +598,7 @@ OPENERS = [
     ('Green space per person', '1인당 녹지 면적'),
     ('Within a five-minute walk of transit', '도보 5분 내 대중교통'),
     ('Summer nights, hotter than the countryside', '여름밤, 도시가 더 더운 만큼'),
-    ('People per square kilometre', '1제곱킬로미터당 인구'),
+    ('People per square kilometer', '1제곱킬로미터당 인구'),
     ('Births per woman', '여성 1명당 출생아 수'),
 ]
 
@@ -8589,7 +8589,7 @@ WORLD_MEASURES = [
      lambda v: (to_f_delta(v), f'{v:.1f}°C')),
     ('density', 'DSD_FUA_TERR@DF_DENSITY', 4,
      {'MEASURE': 'POP_DEN'},
-     ('People per square kilometre', '1제곱킬로미터당 인구'),
+     ('People per square kilometer', '1제곱킬로미터당 인구'),
      lambda v: f'{v:,.0f}/km²'),
 ]
 
@@ -8754,7 +8754,7 @@ WB_MEASURES = [
     {'key': 'density', 'wb': 'EN.POP.DNST',
      'seoul_tbl': 'DT_1B040A3', 'seoul_itm': 'T20', 'seoul_obj': '11',
      'seoul': lambda pop: pop / SEOUL_AREA_KM2,
-     'label': ('People per square kilometre', '1제곱킬로미터당 인구'),
+     'label': ('People per square kilometer', '1제곱킬로미터당 인구'),
      'fmt': lambda v: f'{v:,.0f}/km²'},
     {'key': 'fertility', 'wb': 'SP.DYN.TFRT.IN',
      'seoul_tbl': 'DT_1B81A21', 'seoul_itm': 'T1', 'seoul_obj': '11',
@@ -9015,7 +9015,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     # Re-anchored 30 Jul 2026 to LEAD with Seoul (World Bank for the countries,
     # KOSIS for Seoul), then held off pending a look at the card. Card previewed
     # and approved by the user 17 Aug 2026, so LIVE from this point:
-    #     People per square kilometre
+    #     People per square kilometer
     #     Seoul 15,509/km² · South Korea 530/km² · United States 37/km²
     # The metric used to be repeated on the source reply as well as the opener;
     # see unsaid_metrics(), fixed in the same pass.
@@ -9077,7 +9077,7 @@ Rules:
 - Do not mix unrelated live "right now" lines with quarterly spending lines in a way that breaks a single frame, unless the contrast itself is the point.
 - "national" lines (Seoul set against the whole country: its share of the population, the fertility-rate gap) are annual figures from a different source. Build them into their own "Seoul and the nation" post — never mix a national line with a live "right now" line or a spending line. The fertility pair is only two lines, so pair it with the population-share line to make a set of three.
 - "world" lines set Seoul's metro area against other cities' metro areas, from the OECD. Their labels are BARE CITY NAMES, so the opener MUST say what is being measured (e.g. "Green space per person", "Within a five-minute walk of transit") — this is the one case where the opener names the metric. Build them into their own post: every world line in a post must come from the SAME pair (all city_green, or all city_transit, never a mix), and a world line NEVER appears alongside a Seoul-only line of any other category. Always include the Seoul line.
-- "nation" lines set SEOUL against whole countries, on one metric, from the World Bank (countries) and KOSIS (Seoul). Seoul leads the card; the peers are whole nations (Korea, Japan, the US…), which is the point — e.g. Seoul is denser than entire countries. Labels are BARE PLACE NAMES (Seoul, then countries), so the opener MUST name the metric (e.g. "People per square kilometre", "Births per woman") — the same rule as the world lines. Do NOT reach for the generic "Seoul and the nation" / "서울과 전국" opener here: that framing belongs to the Seoul-vs-Korea "national" lines, and on a nation card it names no metric, leaving the countries measuring nothing — make the metric itself the opener. Build them into their own post: every nation line must come from the SAME pair (all nation_density, or all nation_fertility, never a mix), ALWAYS include the Seoul line, and a nation line NEVER appears alongside a Seoul-only line of any other category or a world (city) line. The pair is the point: Seoul against the country that most sharpens it (the widest gap, or a near dead heat).
+- "nation" lines set SEOUL against whole countries, on one metric, from the World Bank (countries) and KOSIS (Seoul). Seoul leads the card; the peers are whole nations (Korea, Japan, the US…), which is the point — e.g. Seoul is denser than entire countries. Labels are BARE PLACE NAMES (Seoul, then countries), so the opener MUST name the metric (e.g. "People per square kilometer", "Births per woman") — the same rule as the world lines. Do NOT reach for the generic "Seoul and the nation" / "서울과 전국" opener here: that framing belongs to the Seoul-vs-Korea "national" lines, and on a nation card it names no metric, leaving the countries measuring nothing — make the metric itself the opener. Build them into their own post: every nation line must come from the SAME pair (all nation_density, or all nation_fertility, never a mix), ALWAYS include the Seoul line, and a nation line NEVER appears alongside a Seoul-only line of any other category or a world (city) line. The pair is the point: Seoul against the country that most sharpens it (the widest gap, or a near dead heat).
 - "property" lines are one month's apartment-market filings from the national land ministry: actual sale prices (the dearest and cheapest single sales), a record jeonse deposit, and counts of filings. Build them into their own post — never alongside a live "right now" line, a spending line, a national line or a world line. The pairs are the point: the price gap (dearest vs cheapest sale) or the jeonse/monthly-rent split. Never put a month or date in a property label — the filing month rides on the card automatically.
 - "weather" lines are published readings from Seoul's official weather station: the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the then-and-now monthly set OR the season-to-date set (never blend the two). A season-to-date post is built around the swelter tally ("Days of 33°C or more, June 1–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, and the arrangement carries the half-century — never point it out. ℹ️ Python owns the LAYOUT of these cards: it groups the lines by metric, draws each metric once as a subhead, and puts the newer year first in every group, so you do not have to order them and cannot get the two pairs out of step. Choose a coherent set of complete pairs and leave the rest alone. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
 - "wxday" lines are YESTERDAY's published readings at Seoul's reference weather station: the high, the low and the rain (a rain value of "None" means none was recorded, and it is a reading, not a gap) — own post, never mixed with any other category, including "weather". All the lines offered are compulsory, in that order. Its opener is FIXED and written by Python ("Seoul's weather yesterday"), so whatever opener you write for this card is replaced; the dateline carries the date. Never call the day hot, cold, wet or dry, and never compare it with anything.
@@ -10217,8 +10217,8 @@ def unsaid_metrics(opener, metrics):
     before SELECT_PROMPT required those openers to name the metric themselves,
     and once both did it, the same phrase went out twice one post apart:
 
-        card    ## People per square kilometre
-        reply   Source: data.worldbank.org · World Bank · People per square kilometre
+        card    ## People per square kilometer
+        reply   Source: data.worldbank.org · World Bank · People per square kilometer
 
     which is precisely the duplication the KT-estimate caveat was moved off the
     source reply to avoid (whatever the card says, the reply must not repeat).
