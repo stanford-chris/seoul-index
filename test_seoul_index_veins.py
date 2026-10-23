@@ -2960,8 +2960,8 @@ class HeldVeins(unittest.TestCase):
         # price released 7 October 2026.
         # spending and avgbill released 7 October 2026.
         # daynight, spotlight, busmovers, nightbus held 7 October 2026 (provenance pass).
-        # seasonal held for its mock-up, 23 October 2026.
-        self.assertEqual(self._held, {'infra', 'air', 'tourism', 'daynight', 'spotlight', 'seasonal'})
+        # seasonal held for its mock-up and released 23 October 2026.
+        self.assertEqual(self._held, {'infra', 'air', 'tourism', 'daynight', 'spotlight'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the

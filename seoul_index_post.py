@@ -556,7 +556,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # on Friday" is mostly Thursday night's riders.
 # busmovers and nightbus released 7 October 2026: weekend holidays counted,
 # the night-bus dateline says early hours.
-HELD_CATS = {'infra', 'air', 'tourism', 'daynight', 'spotlight', 'seasonal'}  # seasonal held for its mock-up, 23 Oct 2026
+HELD_CATS = {'infra', 'air', 'tourism', 'daynight', 'spotlight'}  # seasonal held for its mock-up and released 23 Oct 2026
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.

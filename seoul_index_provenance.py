@@ -352,7 +352,7 @@ PROVENANCE = {
         'counts': 'One seasonal observation at station 108 (a first bloom, leaves turning, first or last frost, first ice or snow), dated by KMA; the same observation the season before (YY minus one, YY being the season-year); KMA’s published 1991–2020 normal date.',
         'checked_against': 'KMA’s all-stations operation for the same element: station 108’s 2026 ginkgo row (15 October) equal in both, 23 October 2026.',
         'complete_fetch': 'Every row for station 108 over two calendar years and this one; one normal row per element and stage.',
-        'labels': 'HELD (HELD_CATS) for its mock-up, 23 October 2026. Event names are KMA’s code tables in English; river freeze, mountain colour and the insects are left out until their names are verified.',
+        'labels': 'Released 23 October 2026 after his look at the mock-up. Event names are KMA’s code tables in English; river freeze, mountain colour and the insects are left out until their names are verified.',
         'verified': '2026-10-23',
         'checks': [c(S, B, 'Every observation row is station 108 with a real date; the normal is one row, 1991–2020, station 108.'),
                    c(R, B, 'The event’s row equal in the all-stations operation, same station, codes and date.')],
