@@ -2963,6 +2963,37 @@ class HeldVeins(unittest.TestCase):
         # seasonal held for its mock-up and released 23 October 2026.
         self.assertEqual(self._held, {'infra', 'air', 'tourism', 'daynight', 'spotlight'})
 
+class SpotlightHold(unittest.TestCase):
+    """A held spotlight must not post: the draw sits outside the pool that
+    apply_holds() filters, so HELD_CATS never reached it (14 spotlight
+    posts while held, 7 to 23 October 2026)."""
+
+    def setUp(self):
+        self._held, self._force, self._only = set(S.HELD_CATS), S.FORCE_SPOTLIGHT, S.ONLY_CAT
+        S.FORCE_SPOTLIGHT, S.ONLY_CAT = False, None
+
+    def tearDown(self):
+        S.HELD_CATS.clear(); S.HELD_CATS.update(self._held)
+        S.FORCE_SPOTLIGHT, S.ONLY_CAT = self._force, self._only
+
+    def test_held_never_posts_however_the_draw_falls(self):
+        S.HELD_CATS.add('spotlight')
+        self.assertFalse(S.spotlight_due({}, 0.0))
+
+    def test_released_posts_on_a_winning_draw_only(self):
+        S.HELD_CATS.discard('spotlight')
+        self.assertTrue(S.spotlight_due({}, 0.0))
+        self.assertFalse(S.spotlight_due({}, 0.99))
+        self.assertFalse(S.spotlight_due({'last_cat': 'spotlight'}, 0.0))
+
+    def test_only_suppresses_and_force_previews_even_while_held(self):
+        S.HELD_CATS.discard('spotlight')
+        S.ONLY_CAT = 'kopis'
+        self.assertFalse(S.spotlight_due({}, 0.0))
+        S.HELD_CATS.add('spotlight'); S.ONLY_CAT = None; S.FORCE_SPOTLIGHT = True
+        self.assertTrue(S.spotlight_due({}, 0.99))
+
+
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
     vein posts about once a month (his call, 11 Sep 2026). Pins the span and

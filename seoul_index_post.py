@@ -9501,6 +9501,22 @@ COOLDOWNS = {
 LEADER_CATS = ('busroutes', 'busstops', 'stations')
 
 
+def spotlight_due(state, draw):
+    """Whether this run is a spotlight post: --spotlight forces one;
+    otherwise never under --only, never twice running, and NEVER WHILE
+    'spotlight' IS IN HELD_CATS, then a 1-in-(SPOTLIGHT_EVERY - 1) draw.
+    ⚠️ The hold check is here because the spotlight path never touches the
+    pool apply_holds() filters: held on 7 October 2026, it went on posting
+    (14 times to 23 October, "usual" baseline still an hour off) until
+    this check, his call, 24 October 2026. --spotlight still previews it."""
+    if FORCE_SPOTLIGHT:
+        return True
+    return (ONLY_CAT is None
+            and 'spotlight' not in HELD_CATS
+            and state.get('last_cat') != 'spotlight'
+            and draw < 1 / (SPOTLIGHT_EVERY - 1))
+
+
 def stamp_key(cat):
     """The state key holding when `cat` last posted."""
     return f'last_{cat}_at'
@@ -12761,10 +12777,7 @@ def main():
     # office with a spotlight card instead: the flag looked broken rather than
     # overruled, which is how it read the first time a new vein was previewed.
     # An explicit --spotlight still wins, being the more specific instruction.
-    want_spotlight = FORCE_SPOTLIGHT or (
-        ONLY_CAT is None
-        and state.get('last_cat') != 'spotlight'
-        and random.random() < 1 / (SPOTLIGHT_EVERY - 1))
+    want_spotlight = spotlight_due(state, random.random())
     if want_spotlight:
         i = int(state.get('spotlight_i', 0))
         spot = CROWD_SPOTS[i % len(CROWD_SPOTS)]
