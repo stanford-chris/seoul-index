@@ -4349,14 +4349,19 @@ class SeasonalCard(unittest.TestCase):
         y = self.recent.year
         facts, calls = self.run_with(self.obs((y - 1, f'{y - 1}-11-04', 301, 301),
                                               (y, f'{self.recent:%Y-%m-%d}', 301, 301)))
+        r = self.recent
         self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
-                         [('Last year', f'November 4, {y - 1}'), ('Normal, 1991–2020', 'October 26')])
+                         [('This year', f'{S.en_date(r)}, {r.year}'),
+                          ('Last year', f'November 4, {y - 1}'), ('Normal, 1991–2020', 'October 26')])
         self.assertEqual([(f['label_ko'], f['value_ko']) for f in facts],
-                         [('작년', f'{y - 1}년 11월 4일'), ('평년(1991~2020년)', '10월 26일')])
+                         [('올해', f'{r.year}년 {r.month}월 {r.day}일'),
+                          ('작년', f'{y - 1}년 11월 4일'), ('평년(1991~2020년)', '10월 26일')])
         self.assertTrue(all(f['pin'] and f['cat'] == 'seasonal' for f in facts))
         info = S.RANKED_CARD_INFO['seasonal']
         self.assertEqual(info['opener_en'], 'Ginkgo leaves began turning in Seoul')
-        self.assertEqual(info['dateline_en'], S.en_date_dow(self.recent))
+        # No red line: this season's date is the first row, his call.
+        self.assertNotIn('dateline_en', info)
+        self.assertNotIn('day_en', info)
         self.assertEqual(info['event_key'], f'{y}-301-301')
         self.assertIn('ssn=301', [c for c in calls if 'sfc_ssn_norm' in c][0])
 
@@ -4368,8 +4373,8 @@ class SeasonalCard(unittest.TestCase):
         y = self.recent.year
         facts, _ = self.run_with(self.obs((y - 2, f'{y - 2}-11-28', 403, 401),
                                           (y - 1, f'{self.recent:%Y-%m-%d}', 403, 401)))
-        self.assertEqual(facts[0]['value_en'], f'November 28, {y - 2}')
-        self.assertEqual(facts[1]['value_en'], 'November 20')
+        self.assertEqual(facts[1]['value_en'], f'November 28, {y - 2}')
+        self.assertEqual(facts[2]['value_en'], 'November 20')
 
     def test_the_newest_of_two_fresh_observations_leads(self):
         y = self.recent.year
@@ -4407,7 +4412,7 @@ class SeasonalCard(unittest.TestCase):
     def test_the_vein_is_wired_everywhere_the_other_ranked_cards_are(self):
         self.assertIn('seasonal', S.RANKED_CATS)
         self.assertIn('seasonal', S.ORDERED_CATS)
-        self.assertIn('seasonal', S.TWO_LINE_CATS)
+        self.assertNotIn('seasonal', S.TWO_LINE_CATS)
         self.assertIn('seasonal', S.COOLDOWNS)
         src = open(S.__file__, encoding='utf-8').read()
         self.assertIn('- "seasonal" lines are', src)

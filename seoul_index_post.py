@@ -2337,9 +2337,7 @@ RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend', '
 # busweekend (one holds up best, one falls most). Every other vein needs
 # three facts to be a card, and the starvation floor and --only both read
 # this set rather than naming rush alone.
-# seasonal (23 October 2026): last season's date and KMA's normal; the
-# observation's own date is the masthead, so a third line would repeat it.
-TWO_LINE_CATS = frozenset({'rush', 'busmovers', 'busweekend', 'stationgap', 'seasonal'})
+TWO_LINE_CATS = frozenset({'rush', 'busmovers', 'busweekend', 'stationgap'})
 MAP_COLOURS = ('#d70000', '#e08a1e', '#000000', '#7a7a7a')
 
 
@@ -5682,9 +5680,11 @@ def wx_day_facts(key):
 # (SSN_ID.pdf, SSN_MD.pdf on the API page). The record runs from 1906.
 # The card is an EVENT, not a period: it is offered only while a whitelisted
 # observation is fresh (SEASONAL_FRESH_DAYS) and has not been posted before
-# (state['seasonal_posted']). Its two lines are both KMA's own rows: the same
-# observation last season, and KMA's published 1991-2020 normal from the
-# normals operation (sfc_ssn_norm.php, tmst=2021). No average of ours.
+# (state['seasonal_posted']). Its three lines are all KMA's own rows: this
+# season's date, the same observation last season, and KMA's published
+# 1991-2020 normal from the normals operation (sfc_ssn_norm.php,
+# tmst=2021). No average of ours, and no red dateline: this season's date
+# is the first line, his call, 23 October 2026.
 # ⚠️ YY is the SEASON-year, not the calendar year: the 2020 season's last
 # frost is dated 2021-04-19 and still carries YY 2020. "Last year" is the
 # row with YY one less, never the row from the previous calendar year.
@@ -5808,18 +5808,21 @@ def seasonal_facts(key, state):
     last = datetime.strptime(prior[0][2], '%Y-%m-%d').date()
     nm, nd = int(norm[0][2]), int(norm[0][3])
     op_en, op_ko, emoji = SEASONAL_EVENTS[(sid, smd)]
-    d, d_ko = en_date(when), f'{when.month}월 {when.day}일'
+    # No day_en or dateline: this season's date is a row of its own, beside
+    # last season's and the normal, his call, 23 October 2026 ("Make This
+    # year a line, rather than as a red line under the title").
     RANKED_CARD_INFO['seasonal'] = {
-        'day_en': d, 'day_ko': d_ko,
         'opener_en': op_en, 'opener_ko': op_ko,
-        'dateline_en': en_date_dow(when), 'dateline_ko': ko_date_dow(d_ko, when),
         'note_en': ('Observed at Seoul’s reference station; the normal is the '
                     'Korea Meteorological Administration’s 1991–2020 average'),
         'note_ko': '서울 대표 관측소 관측, 평년값은 기상청 1991~2020년 평균',
-        'line_emoji': {'Last year': '📅', SEASONAL_NORMAL_EN: '📊'},
+        'line_emoji': {'This year': '📍', 'Last year': '📅', SEASONAL_NORMAL_EN: '📊'},
         'emoji': emoji,
         'event_key': f'{yy}-{sid}-{smd}'}
-    return [fact('seasonal_last', 'seasonal', 'Last year',
+    return [fact('seasonal_this', 'seasonal', 'This year',
+                 f'{en_date(when)}, {when.year}', f'{when.year}년 {when.month}월 {when.day}일',
+                 pin=True, label_ko='올해'),
+            fact('seasonal_last', 'seasonal', 'Last year',
                  f'{en_date(last)}, {last.year}', f'{last.year}년 {last.month}월 {last.day}일',
                  pin=True, label_ko='작년'),
             fact('seasonal_normal', 'seasonal', SEASONAL_NORMAL_EN,
@@ -9241,7 +9244,7 @@ Rules:
 - "weather" lines are published readings from Seoul's official weather station: the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the then-and-now monthly set OR the season-to-date set (never blend the two). A season-to-date post is built around the swelter tally ("Days of 33°C or more, June 1–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, and the arrangement carries the half-century — never point it out. ℹ️ Python owns the LAYOUT of these cards: it groups the lines by metric, draws each metric once as a subhead, and puts the newer year first in every group, so you do not have to order them and cannot get the two pairs out of step. Choose a coherent set of complete pairs and leave the rest alone. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
 - "wxday" lines are YESTERDAY's published readings at Seoul's reference weather station: the high, the low and the rain (a rain value of "None" means none was recorded, and it is a reading, not a gap) — own post, never mixed with any other category, including "weather". All the lines offered are compulsory, in that order. Its opener is FIXED and written by Python ("Seoul's weather yesterday"), so whatever opener you write for this card is replaced; the dateline carries the date. Never call the day hot, cold, wet or dry, and never compare it with anything.
 - "rescue" lines are ONE WEEK of rescue notices filed by Seoul's districts on the national animal protection register: every animal, then cats, dogs and other animals — own post, never mixed with any other category. All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Animals rescued in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote says who files the notices. Never call the week busy or quiet, never remark on the split between cats and dogs, and never mention shelters, adoption or what became of any animal.
-- "seasonal" lines are ONE seasonal observation at Seoul's reference weather station (a first bloom, leaves turning, the first frost or snow): the same observation LAST season and the weather agency's published 1991–2020 normal — own post, never mixed with any other category, including "weather" and "wxday". Both lines are compulsory, in that order. Its opener is FIXED and written by Python (it names the event), so whatever opener you write for this card is replaced; the dateline carries the date it was observed. Never call it early, late, unusual or a sign of anything, and never compare the dates yourself.
+- "seasonal" lines are ONE seasonal observation at Seoul's reference weather station (a first bloom, leaves turning, the first frost or snow): the date it was observed THIS season, the same observation LAST season and the weather agency's published 1991–2020 normal — own post, never mixed with any other category, including "weather" and "wxday". All THREE lines are compulsory, in that order. Its opener is FIXED and written by Python (it names the event), so whatever opener you write for this card is replaced. Never call it early, late, unusual or a sign of anything, and never compare the dates yourself.
 - "kopis" lines are ONE WEEK on Seoul's stages from the national box-office register: productions, productions that opened, performances given, tickets sold and box office — own post, never mixed with any other category, including "boxoffice" (that is cinema). All FIVE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("On stage in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote names the register. Never call the week busy or quiet, never name a show, and never compare the figures with anything.
 - "kepco" lines are ONE MONTH of electricity in Seoul from Korea Electric Power Corporation: customers, electricity used and the bill — own post, never mixed with any other category, including "kepcohk" and "kepcohist". All THREE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Electricity in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the month. Never call the month heavy or light, and never compare it with anything.
 - "kepcohk" lines set Seoul against Hong Kong on electricity over a YEAR: Seoul per capita, Hong Kong per capita, Seoul household, Hong Kong household — own post, never mixed with any other category, including "kepco". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Electricity in Seoul and Hong Kong"), so whatever opener you write is replaced; the dateline carries both periods. Never say which city uses more, never explain the gap, and never call either figure high or low.
