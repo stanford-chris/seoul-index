@@ -347,6 +347,16 @@ PROVENANCE = {
         'verified': V,
         'checks': [c(R, B, 'One row, station 108, yesterday; 24 hourly readings; sunshine equal; rain not exceeded; high and low within 1.5 of the hourly extremes.')],
     },
+    'seasonal': {
+        'source': 'KMA API허브 계절관측 (sfc_ssn.php, station 108) and its normals (sfc_ssn_norm.php, tmst=2021)',
+        'counts': 'One seasonal observation at station 108 (a first bloom, leaves turning, first or last frost, first ice or snow), dated by KMA; the same observation the season before (YY minus one, YY being the season-year); KMA’s published 1991–2020 normal date.',
+        'checked_against': 'KMA’s all-stations operation for the same element: station 108’s 2026 ginkgo row (15 October) equal in both, 23 October 2026.',
+        'complete_fetch': 'Every row for station 108 over two calendar years and this one; one normal row per element and stage.',
+        'labels': 'HELD (HELD_CATS) for its mock-up, 23 October 2026. Event names are KMA’s code tables in English; river freeze, mountain colour and the insects are left out until their names are verified.',
+        'verified': '2026-10-23',
+        'checks': [c(S, B, 'Every observation row is station 108 with a real date; the normal is one row, 1991–2020, station 108.'),
+                   c(R, B, 'The event’s row equal in the all-stations operation, same station, codes and date.')],
+    },
     'airport': {
         'source': 'Korea Airports Corporation, airport-transport-stats/info, 김포 row; KOSIS orgId 381 DT_920005_B001',
         'counts': 'Gimpo passengers (arrivals plus departures, every route) and flights in the month, the same month 20 years earlier, and the domestic/international split.',

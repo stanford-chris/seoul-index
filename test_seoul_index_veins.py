@@ -2960,7 +2960,8 @@ class HeldVeins(unittest.TestCase):
         # price released 7 October 2026.
         # spending and avgbill released 7 October 2026.
         # daynight, spotlight, busmovers, nightbus held 7 October 2026 (provenance pass).
-        self.assertEqual(self._held, {'infra', 'air', 'tourism', 'daynight', 'spotlight'})
+        # seasonal held for its mock-up, 23 October 2026.
+        self.assertEqual(self._held, {'infra', 'air', 'tourism', 'daynight', 'spotlight', 'seasonal'})
 
 class InfraCooldown(unittest.TestCase):
     """The infrastructure counts are registry sizes and barely move, so the
@@ -4196,7 +4197,7 @@ class WxDayCard(unittest.TestCase):
         self.assertIn('wxday', S.COOLDOWNS)  # cooled AND stamped through the one table
         self.assertIn('wxday', S.COOLDOWNS)
         self.assertIn('- "wxday" lines are', src)
-        self.assertIn("uses_kma = bool({'weather', 'river', 'wxday'} & cats)", src)
+        self.assertIn("uses_kma = bool({'weather', 'river', 'wxday', 'seasonal'} & cats)", src)
 
 
 class RescueCard(unittest.TestCase):
@@ -4297,6 +4298,121 @@ class RescueCard(unittest.TestCase):
         self.assertIn("uses_apqa = 'rescue' in cats", src)
         self.assertIn("('animal.go.kr', 'https://www.animal.go.kr')", src)
         self.assertIn("pool += guarded(rescue_facts, gov_key)", src)
+
+
+class SeasonalCard(unittest.TestCase):
+    """KMA's seasonal observations at station 108. What would ship it
+    wrong: last season read by calendar year rather than season-year, an
+    old or already-posted observation offered again, an event whose
+    English name nobody verified, a normal for the wrong stage, and a
+    failed fetch read as "nothing observed"."""
+
+    HEADER = '#####\n# YY STN TM SSN_ID SSN_MD\n'
+    NORM = ('#####\n# ST, STN, MM, DD, SSN_ID, SSN_MD,=\n'
+            ' 2021, 108,  10,  26,    301,    301,=\n'
+            ' 2021, 108,  11,   3,    301,    302,=\n'
+            ' 2021, 108,   3,  26,    401,    402,=\n'
+            ' 2021, 108,  11,  20,    403,    401,=\n'
+            ' 2021, 108,   1,  10,    405,    401,=\n')
+
+    def setUp(self):
+        self.today = S.datetime.now(S.SEOUL_TZ).date()
+        self.recent = self.today - S.timedelta(days=5)
+
+    def obs(self, *rows):
+        return self.HEADER + ''.join(f' {y}, 108,  {d},   {i},   {m},\n' for y, d, i, m in rows)
+
+    def run_with(self, obs, norm=None, state=None, every=None):
+        import subprocess as real_subprocess
+        calls = []
+
+        def run(cmd, **kw):
+            url = cmd[-1]
+            calls.append(url)
+            if 'sfc_ssn_norm' in url:
+                body = self.NORM if norm is None else norm
+            elif 'stn=0' in url:
+                body = obs if every is None else every
+            else:
+                body = obs
+            return types.SimpleNamespace(stdout=body, returncode=0)
+        S.subprocess.run = run
+        try:
+            return S.seasonal_facts('KEY', state or {}), calls
+        finally:
+            S.subprocess.run = real_subprocess.run
+
+    def tearDown(self):
+        S.RANKED_CARD_INFO.pop('seasonal', None)
+
+    def test_last_season_and_the_normal_beside_a_fresh_observation(self):
+        y = self.recent.year
+        facts, calls = self.run_with(self.obs((y - 1, f'{y - 1}-11-04', 301, 301),
+                                              (y, f'{self.recent:%Y-%m-%d}', 301, 301)))
+        self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
+                         [('Last year', f'November 4, {y - 1}'), ('Normal, 1991–2020', 'October 26')])
+        self.assertEqual([(f['label_ko'], f['value_ko']) for f in facts],
+                         [('작년', f'{y - 1}년 11월 4일'), ('평년(1991~2020년)', '10월 26일')])
+        self.assertTrue(all(f['pin'] and f['cat'] == 'seasonal' for f in facts))
+        info = S.RANKED_CARD_INFO['seasonal']
+        self.assertEqual(info['opener_en'], 'Ginkgo leaves began turning in Seoul')
+        self.assertEqual(info['dateline_en'], S.en_date_dow(self.recent))
+        self.assertEqual(info['event_key'], f'{y}-301-301')
+        self.assertIn('ssn=301', [c for c in calls if 'sfc_ssn_norm' in c][0])
+
+    def test_last_season_is_the_season_year_not_the_calendar_year(self):
+        # A season's first snow can fall either side of New Year, and both
+        # rows carry the season-year (YY). Here last season's fell in
+        # November two calendar years back and this season's in the new
+        # year, so a calendar-year lookup finds nothing, or the wrong row.
+        y = self.recent.year
+        facts, _ = self.run_with(self.obs((y - 2, f'{y - 2}-11-28', 403, 401),
+                                          (y - 1, f'{self.recent:%Y-%m-%d}', 403, 401)))
+        self.assertEqual(facts[0]['value_en'], f'November 28, {y - 2}')
+        self.assertEqual(facts[1]['value_en'], 'November 20')
+
+    def test_the_newest_of_two_fresh_observations_leads(self):
+        y = self.recent.year
+        older = self.recent - S.timedelta(days=3)
+        self.run_with(self.obs((y - 1, f'{y - 1}-11-04', 301, 301), (y - 1, f'{y - 1}-11-10', 301, 302),
+                               (y, f'{older:%Y-%m-%d}', 301, 301), (y, f'{self.recent:%Y-%m-%d}', 301, 302)))
+        self.assertEqual(S.RANKED_CARD_INFO['seasonal']['event_key'], f'{y}-301-302')
+
+    def test_old_posted_unknown_or_unreadable_withholds(self):
+        y, old = self.recent.year, self.today - S.timedelta(days=S.SEASONAL_FRESH_DAYS + 1)
+        prior = (y - 1, f'{y - 1}-11-04', 301, 301)
+        self.assertEqual(self.run_with(self.obs(prior, (y, f'{old:%Y-%m-%d}', 301, 301)))[0], [])
+        fresh = self.obs(prior, (y, f'{self.recent:%Y-%m-%d}', 301, 301))
+        self.assertEqual(self.run_with(fresh, state={'seasonal_posted': [f'{y}-301-301']})[0], [])
+        self.assertEqual(self.run_with(self.obs((y - 1, f'{y - 1}-11-04', 405, 401),
+                                                (y, f'{self.recent:%Y-%m-%d}', 405, 401)))[0], [])
+        self.assertEqual(self.run_with('{"result": {"status": 401}}')[0], [])
+        self.assertEqual(self.run_with(self.obs((y, f'{self.recent:%Y-%m-%d}', 301, 301)))[0], [])
+        self.assertEqual(self.run_with(fresh, norm=self.NORM.replace('301,    301', '301,    303'))[0], [])
+        self.assertNotIn('seasonal', S.RANKED_CARD_INFO)
+        self.assertEqual(S.seasonal_facts(None, {}), [])
+
+    def test_the_source_check_refuses_a_row_the_all_stations_answer_dates_differently(self):
+        y = self.recent.year
+        rows = self.obs((y - 1, f'{y - 1}-11-04', 301, 301), (y, f'{self.recent:%Y-%m-%d}', 301, 301))
+        other = self.obs((y, f'{self.today:%Y-%m-%d}', 301, 301))
+        S.SOURCE_CHECKS = True
+        try:
+            with self.assertRaises(S.SourceCheckFailed):
+                self.run_with(rows, every=other)
+            self.assertTrue(self.run_with(rows)[0])
+        finally:
+            S.SOURCE_CHECKS = False
+
+    def test_the_vein_is_wired_everywhere_the_other_ranked_cards_are(self):
+        self.assertIn('seasonal', S.RANKED_CATS)
+        self.assertIn('seasonal', S.ORDERED_CATS)
+        self.assertIn('seasonal', S.TWO_LINE_CATS)
+        self.assertIn('seasonal', S.COOLDOWNS)
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertIn('- "seasonal" lines are', src)
+        self.assertIn('pool += guarded(seasonal_facts, kma_hub_key, state)', src)
+        self.assertIn("state['seasonal_posted'] = ", src)
 
 
 class KopisCard(unittest.TestCase):

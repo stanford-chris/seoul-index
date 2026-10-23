@@ -317,7 +317,7 @@ SEVERE_STARVE_DAYS = STARVE_DAYS * 2
 ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist', 'busroutes', 'stations',
                 'busmovers', 'nightbus', 'busweekend', 'busstops', 'railstations', 'seoulstation',
                 'stationgap', 'wxday', 'rescue', 'kopis', 'kepco', 'kepcohk', 'kepcohouse',
-                'railcommuter'}
+                'railcommuter', 'seasonal'}
 
 # Every vein's lines are all-or-nothing on emoji, not just a chosen few: a
 # partial set reads as an oversight rather than a judgement, whatever the
@@ -556,7 +556,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # on Friday" is mostly Thursday night's riders.
 # busmovers and nightbus released 7 October 2026: weekend holidays counted,
 # the night-bus dateline says early hours.
-HELD_CATS = {'infra', 'air', 'tourism', 'daynight', 'spotlight'}
+HELD_CATS = {'infra', 'air', 'tourism', 'daynight', 'spotlight', 'seasonal'}  # seasonal held for its mock-up, 23 Oct 2026
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -2331,13 +2331,15 @@ BUSWEEKEND_COOLDOWN_DAYS = 7
 RANKED_CARD_INFO = {}
 RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend', 'busstops',
                'railstations', 'seoulstation', 'stationgap', 'wxday', 'rescue', 'kopis',
-               'kepco', 'kepcohk', 'kepcohist', 'kepcohouse', 'railcommuter')
+               'kepco', 'kepcohk', 'kepcohist', 'kepcohouse', 'railcommuter', 'seasonal')
 # The veins whose card is TWO lines by design: rush (one station at two
 # hours) and, since 11 September 2026, busmovers (one rise, one fall) and
 # busweekend (one holds up best, one falls most). Every other vein needs
 # three facts to be a card, and the starvation floor and --only both read
 # this set rather than naming rush alone.
-TWO_LINE_CATS = frozenset({'rush', 'busmovers', 'busweekend', 'stationgap'})
+# seasonal (23 October 2026): last season's date and KMA's normal; the
+# observation's own date is the masthead, so a third line would repeat it.
+TWO_LINE_CATS = frozenset({'rush', 'busmovers', 'busweekend', 'stationgap', 'seasonal'})
 MAP_COLOURS = ('#d70000', '#e08a1e', '#000000', '#7a7a7a')
 
 
@@ -5670,6 +5672,161 @@ def wx_day_facts(key):
     return facts
 
 
+# --- the seasons at the weather station (KMA 계절관측) ---------------------------
+# His ask, 23 October 2026 ("do 1"): KMA's seasonal observations at station
+# 108, Seoul's reference station, from the KMA API허브 (apihub.kma.go.kr,
+# its own account and authKey, kma_hub_key in the config; not data.go.kr).
+# Each row is one observation: the season-year (YY), the station, the date,
+# what was watched (SSN_ID: 205 cherry tree, 401 frost...) and the stage
+# (SSN_MD: 202 first bloom, 401 first...), decoded from KMA's two code tables
+# (SSN_ID.pdf, SSN_MD.pdf on the API page). The record runs from 1906.
+# The card is an EVENT, not a period: it is offered only while a whitelisted
+# observation is fresh (SEASONAL_FRESH_DAYS) and has not been posted before
+# (state['seasonal_posted']). Its two lines are both KMA's own rows: the same
+# observation last season, and KMA's published 1991-2020 normal from the
+# normals operation (sfc_ssn_norm.php, tmst=2021). No average of ours.
+# ⚠️ YY is the SEASON-year, not the calendar year: the 2020 season's last
+# frost is dated 2021-04-19 and still carries YY 2020. "Last year" is the
+# row with YY one less, never the row from the previous calendar year.
+# ⚠️ The API page says the data is produced yearly ("연 자료"); it is not:
+# on 23 October 2026 the feed already held 2026's ginkgo (15 October) and
+# mountain colour (14 October) rows. How soon a row appears is not measured.
+# ⚠️ The answer is a text table whose comment header is EUC-KR; only the
+# '#' lines carry Korean, so _curl's utf-8 decoding garbles nothing read.
+# Event names are restricted to SEASONAL_EVENTS. Not included, deliberately:
+# 405 강하천 (river freeze; which river station 108 watches is not verified),
+# 501 유명산 단풍 and 503 군락단지 (which mountain and which site are not
+# verified), and the insects, whose English names would be guesses.
+KMA_HUB = 'https://apihub.kma.go.kr/api/typ01/url/'
+SEASONAL_OBS = KMA_HUB + 'sfc_ssn.php?stn={stn}&tm1={a}&tm2={b}{ssn}&authKey={key}'
+SEASONAL_NORM = (KMA_HUB + 'sfc_ssn_norm.php?tmst=2021&stn=108&MM1=1&DD1=1&MM2=12&DD2=31'
+                 '&ssn={ssn}&authKey={key}')
+SEASONAL_FRESH_DAYS = 14
+SEASONAL_COOLDOWN_DAYS = 2
+SEASONAL_NORMAL_EN = 'Normal, 1991–2020'
+SEASONAL_NORMAL_KO = '평년(1991~2020년)'
+# (SSN_ID, SSN_MD): (English opener, Korean opener, emoji).
+SEASONAL_EVENTS = {
+    ('202', '202'): ('Plum trees bloomed in Seoul', '서울 매화 개화', '🌸'),
+    ('203', '202'): ('Forsythia bloomed in Seoul', '서울 개나리 개화', '🌼'),
+    ('204', '202'): ('Azaleas bloomed in Seoul', '서울 진달래 개화', '🌺'),
+    ('205', '202'): ('Cherry trees bloomed in Seoul', '서울 벚꽃 개화', '🌸'),
+    ('205', '203'): ('Cherry trees in full bloom in Seoul', '서울 벚꽃 만발', '🌸'),
+    ('301', '301'): ('Ginkgo leaves began turning in Seoul', '서울 은행나무 단풍 시작', '🍂'),
+    ('301', '302'): ('Ginkgo leaves at their peak in Seoul', '서울 은행나무 단풍 절정', '🍂'),
+    ('302', '301'): ('Maple leaves began turning in Seoul', '서울 단풍나무 단풍 시작', '🍁'),
+    ('302', '302'): ('Maple leaves at their peak in Seoul', '서울 단풍나무 단풍 절정', '🍁'),
+    ('401', '401'): ('Seoul’s first frost', '서울 첫서리', '❄️'),
+    ('401', '402'): ('Seoul’s last frost', '서울 마지막 서리', '❄️'),
+    ('402', '401'): ('Seoul’s first ice', '서울 첫얼음', '🧊'),
+    ('403', '401'): ('Seoul’s first snow', '서울 첫눈', '🌨'),
+}
+
+
+def _seasonal_rows(text, width):
+    """The data rows of a KMA text table as lists of stripped fields, or
+    None when the answer is not a table at all (a JSON error, an empty
+    body). ⚠️ An answer with a header and no rows is an empty list, which
+    is a reading, not a failure."""
+    if not text or '#' not in text:
+        return None
+    rows = []
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith('#'):
+            continue
+        parts = [p.strip() for p in line.replace('=', '').split(',')]
+        parts = [p for p in parts if p]
+        if len(parts) != width:
+            return None
+        rows.append(parts)
+    return rows
+
+
+@source_check
+def check_seasonal(key, obs, ev, norm):
+    """Source checks (PROVENANCE['seasonal']): every observation row is
+    station 108's with a real date; the event's row is in KMA's
+    all-stations operation for that element with the same date at 108;
+    and the normal is one row, 1991-2020, station 108, for the same codes.
+    Measured 23 October 2026: 108's 2026 ginkgo row (15 October) equal in
+    both operations."""
+    for r in obs:
+        require(r[1] == '108', f'seasonal: a row for station {r[1]}, asked for 108')
+        datetime.strptime(r[2], '%Y-%m-%d')
+    yy, _, tm, sid, smd = ev
+    every = _seasonal_rows(_curl(SEASONAL_OBS.format(
+        stn=0, a=f'{yy}0101', b=f'{int(yy) + 1}1231', ssn=f'&ssn={sid}', key=key)), 5)
+    require(every is not None, 'seasonal: the all-stations answer was not a table')
+    same = [r for r in every if r[0] == yy and r[1] == '108' and r[3] == sid and r[4] == smd]
+    require(len(same) == 1 and same[0][2] == tm,
+            f'seasonal: all-stations rows for 108 {sid}/{smd} {yy}: {same}')
+    require(len(norm) == 1 and norm[0][0] == '2021' and norm[0][1] == '108',
+            f'seasonal: normal rows {norm}')
+    datetime(2001, int(norm[0][2]), int(norm[0][3]))
+
+
+def seasonal_facts(key, state):
+    """The seasonal card: KMA's newest fresh, unposted observation at
+    station 108, beside the same observation last season and KMA's own
+    1991-2020 normal. Fills RANKED_CARD_INFO when built; prints why when
+    withheld."""
+    RANKED_CARD_INFO.pop('seasonal', None)
+    if not key:
+        return []
+    today = datetime.now(SEOUL_TZ).date()
+    obs = _seasonal_rows(_curl(SEASONAL_OBS.format(
+        stn=108, a=f'{today.year - 2}0101', b=f'{today:%Y%m%d}', ssn='', key=key)), 5)
+    if obs is None:
+        print('Seasonal card withheld: the observations could not be read.')
+        return []
+    posted = set(state.get('seasonal_posted') or [])
+    fresh = []
+    for r in obs:
+        if (r[3], r[4]) not in SEASONAL_EVENTS or f'{r[0]}-{r[3]}-{r[4]}' in posted:
+            continue
+        try:
+            when = datetime.strptime(r[2], '%Y-%m-%d').date()
+        except ValueError:
+            continue
+        if 0 <= (today - when).days <= SEASONAL_FRESH_DAYS:
+            fresh.append((when, r))
+    if not fresh:
+        print('Seasonal card withheld: no fresh, unposted observation at station 108.')
+        return []
+    when, ev = max(fresh)
+    yy, _, tm, sid, smd = ev
+    prior = [r for r in obs if r[0] == str(int(yy) - 1) and r[3] == sid and r[4] == smd]
+    if len(prior) != 1:
+        print(f'Seasonal card withheld: {len(prior)} rows for the {int(yy) - 1} season.')
+        return []
+    norm = _seasonal_rows(_curl(SEASONAL_NORM.format(ssn=sid, key=key)), 6)
+    norm = [r for r in (norm or []) if r[4] == sid and r[5] == smd]
+    check_seasonal(key, obs, ev, norm)
+    if len(norm) != 1:
+        print(f'Seasonal card withheld: {len(norm)} normal rows for {sid}/{smd}.')
+        return []
+    last = datetime.strptime(prior[0][2], '%Y-%m-%d').date()
+    nm, nd = int(norm[0][2]), int(norm[0][3])
+    op_en, op_ko, emoji = SEASONAL_EVENTS[(sid, smd)]
+    d, d_ko = en_date(when), f'{when.month}월 {when.day}일'
+    RANKED_CARD_INFO['seasonal'] = {
+        'day_en': d, 'day_ko': d_ko,
+        'opener_en': op_en, 'opener_ko': op_ko,
+        'dateline_en': en_date_dow(when), 'dateline_ko': ko_date_dow(d_ko, when),
+        'note_en': ('Observed at Seoul’s reference station; the normal is the '
+                    'Korea Meteorological Administration’s 1991–2020 average'),
+        'note_ko': '서울 대표 관측소 관측, 평년값은 기상청 1991~2020년 평균',
+        'line_emoji': {'Last year': '📅', SEASONAL_NORMAL_EN: '📊'},
+        'emoji': emoji,
+        'event_key': f'{yy}-{sid}-{smd}'}
+    return [fact('seasonal_last', 'seasonal', 'Last year',
+                 f'{en_date(last)}, {last.year}', f'{last.year}년 {last.month}월 {last.day}일',
+                 pin=True, label_ko='작년'),
+            fact('seasonal_normal', 'seasonal', SEASONAL_NORMAL_EN,
+                 f'{MONTHS_EN[nm - 1]} {nd}', f'{nm}월 {nd}일',
+                 pin=True, label_ko=SEASONAL_NORMAL_KO)]
+
+
 @source_check
 def _wx_span(key, start, end, rows=31):
     """_wx_rows() for the weather vein, with its source check
@@ -8980,7 +9137,7 @@ def _observe_source_check(name, text):
 
 
 def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
-               kobis_key=None, kopis_key=None, kepco_key=None):
+               kobis_key=None, kopis_key=None, kepco_key=None, kma_hub_key=None):
     # gov_key is the shared data.go.kr key: one key, per-API 활용신청, so the
     # property, weather, airport, health and culture veins all ride on it.
     # Harvested here alongside everything else, once per run, though nothing
@@ -9040,6 +9197,8 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     # KOPIS issues its own key too, on application; the performances card is
     # silent without it.
     pool += guarded(kopis_facts, kopis_key)
+    # KMA's API허브 issues its own key; the seasonal card is silent without it.
+    pool += guarded(seasonal_facts, kma_hub_key, state)
     # KEPCO's own key as well (bigdata.kepco.co.kr); both electricity cards
     # are silent without it. One fetch per month per run, cached.
     _KEPCO_CACHE.clear()
@@ -9082,6 +9241,7 @@ Rules:
 - "weather" lines are published readings from Seoul's official weather station: the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the then-and-now monthly set OR the season-to-date set (never blend the two). A season-to-date post is built around the swelter tally ("Days of 33°C or more, June 1–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, and the arrangement carries the half-century — never point it out. ℹ️ Python owns the LAYOUT of these cards: it groups the lines by metric, draws each metric once as a subhead, and puts the newer year first in every group, so you do not have to order them and cannot get the two pairs out of step. Choose a coherent set of complete pairs and leave the rest alone. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
 - "wxday" lines are YESTERDAY's published readings at Seoul's reference weather station: the high, the low and the rain (a rain value of "None" means none was recorded, and it is a reading, not a gap) — own post, never mixed with any other category, including "weather". All the lines offered are compulsory, in that order. Its opener is FIXED and written by Python ("Seoul's weather yesterday"), so whatever opener you write for this card is replaced; the dateline carries the date. Never call the day hot, cold, wet or dry, and never compare it with anything.
 - "rescue" lines are ONE WEEK of rescue notices filed by Seoul's districts on the national animal protection register: every animal, then cats, dogs and other animals — own post, never mixed with any other category. All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Animals rescued in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote says who files the notices. Never call the week busy or quiet, never remark on the split between cats and dogs, and never mention shelters, adoption or what became of any animal.
+- "seasonal" lines are ONE seasonal observation at Seoul's reference weather station (a first bloom, leaves turning, the first frost or snow): the same observation LAST season and the weather agency's published 1991–2020 normal — own post, never mixed with any other category, including "weather" and "wxday". Both lines are compulsory, in that order. Its opener is FIXED and written by Python (it names the event), so whatever opener you write for this card is replaced; the dateline carries the date it was observed. Never call it early, late, unusual or a sign of anything, and never compare the dates yourself.
 - "kopis" lines are ONE WEEK on Seoul's stages from the national box-office register: productions, productions that opened, performances given, tickets sold and box office — own post, never mixed with any other category, including "boxoffice" (that is cinema). All FIVE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("On stage in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote names the register. Never call the week busy or quiet, never name a show, and never compare the figures with anything.
 - "kepco" lines are ONE MONTH of electricity in Seoul from Korea Electric Power Corporation: customers, electricity used and the bill — own post, never mixed with any other category, including "kepcohk" and "kepcohist". All THREE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Electricity in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the month. Never call the month heavy or light, and never compare it with anything.
 - "kepcohk" lines set Seoul against Hong Kong on electricity over a YEAR: Seoul per capita, Hong Kong per capita, Seoul household, Hong Kong household — own post, never mixed with any other category, including "kepco". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Electricity in Seoul and Hong Kong"), so whatever opener you write is replaced; the dateline carries both periods. Never say which city uses more, never explain the gap, and never call either figure high or low.
@@ -9331,6 +9491,7 @@ COOLDOWNS = {
     'kepcohist':    (KEPCO_COOLDOWN_DAYS, 'Electricity then-and-now'),
     'kepcohouse':   (KEPCO_HOUSE_COOLDOWN_DAYS, 'Household electricity'),
     'railcommuter': (RAILCOMMUTER_COOLDOWN_DAYS, 'Commuter rail'),
+    'seasonal':     (SEASONAL_COOLDOWN_DAYS, 'Seasons'),
 }
 # The three veins whose card names a leader, remembered so the next run can
 # tell whether it changed (apply_cooldown_unless_changed).
@@ -11094,6 +11255,8 @@ def compose(sel, pool):
             opener_emoji = '🐾'
         elif fid.startswith('kopis'):
             opener_emoji = '🎭'
+        elif fid.startswith('seasonal'):
+            opener_emoji = RANKED_CARD_INFO.get('seasonal', {}).get('emoji') or '🍂'
         elif fid.startswith('kepco'):
             opener_emoji = '⚡️'
         else:
@@ -11184,7 +11347,7 @@ def compose(sel, pool):
                  'health', 'healthcost', 'culture', 'tourism', 'level', 'boxoffice',
                  'boxhist', 'incheon', 'railstations', 'seoulstation', 'wxday',
                  'rescue', 'kopis', 'kepco', 'kepcohk', 'kepcohist', 'kepcohouse',
-                 'railcommuter', 'infant'}
+                 'railcommuter', 'infant', 'seasonal'}
     uses_seoul = any(c not in non_seoul for c in cats)
     # kepcohk divides by KOSIS's registered population, so it credits KOSIS.
     # infant is KOSIS's registered population since 7 October 2026.
@@ -11199,7 +11362,7 @@ def compose(sel, pool):
     uses_molit = 'property' in cats
     # The river vein spans two publishers: the water is Seoul Open Data
     # (so 'river' stays out of non_seoul above) and the air is KMA.
-    uses_kma = bool({'weather', 'river', 'wxday'} & cats)
+    uses_kma = bool({'weather', 'river', 'wxday', 'seasonal'} & cats)
     uses_kac = 'airport' in cats
     # Incheon's totals are Korea Airports Corporation's (KOSIS); only the
     # country line is the Incheon feed's. See iiac_facts().
@@ -12554,6 +12717,7 @@ def main():
     kobis_key = config.get('kobis_key')
     kopis_key = config.get('kopis_key')
     kepco_key = config.get('kepco_key')
+    kma_hub_key = config.get('kma_hub_key')
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
 
     # Inspect the cross-vein collisions the detector finds for the live pool,
@@ -12561,7 +12725,7 @@ def main():
     # selector will be offered (unlike a --dry-run, whose picks the model makes).
     if SHOW_CROSS:
         pool = build_pool(api_key, state, kosis_key, gov_key, hrfco_key,
-                          kobis_key, kopis_key, kepco_key)
+                          kobis_key, kopis_key, kepco_key, kma_hub_key)
         elig = [f for f in pool if f.get('unit')]
         print(f'{len(pool)} facts, {len(elig)} collidable:')
         for f in sorted(elig, key=lambda f: (f['unit'], -f['num'])):
@@ -12621,7 +12785,7 @@ def main():
 
     if not want_spotlight:
         pool = build_pool(api_key, state, kosis_key, gov_key, hrfco_key,
-                          kobis_key, kopis_key, kepco_key)
+                          kobis_key, kopis_key, kepco_key, kma_hub_key)
         if len(pool) < 5:
             sys.exit(f'Pool too small ({len(pool)} facts) — data sources may be down.')
 
@@ -12924,6 +13088,12 @@ def main():
         leader = RANKED_CARD_INFO.get(primary, {}).get('leader')
         if leader:
             state[f'last_{primary}_leader'] = leader
+    if primary == 'seasonal':
+        # The observation just posted, so seasonal_facts() never offers it
+        # again; the newest 40 are plenty for two seasons of events.
+        ev_key = RANKED_CARD_INFO.get('seasonal', {}).get('event_key')
+        if ev_key:
+            state['seasonal_posted'] = ((state.get('seasonal_posted') or []) + [ev_key])[-40:]
     write_json_atomic(STATE, state, ensure_ascii=False, indent=2)
 
     log_card(c, sel, primary, posted_uri, handle, fallback=cards is None)
