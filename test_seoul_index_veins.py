@@ -2961,9 +2961,8 @@ class HeldVeins(unittest.TestCase):
         # spending and avgbill released 7 October 2026.
         # daynight, spotlight, busmovers, nightbus held 7 October 2026 (provenance pass).
         # seasonal held for its mock-up and released 23 October 2026.
-        # the four KCTI cards held for their mock-ups, 24 October 2026.
-        self.assertEqual(self._held, {'infra', 'air', 'tourism', 'daynight', 'spotlight', 'arrivals',
-                                      'staylength', 'arrivalsrise', 'arrivalslead'})
+        # the four KCTI cards held for their mock-ups and released 24 October 2026.
+        self.assertEqual(self._held, {'infra', 'air', 'tourism', 'daynight', 'spotlight'})
 
 class SpotlightHold(unittest.TestCase):
     """A held spotlight must not post: the draw sits outside the pool that
@@ -4476,13 +4475,13 @@ class KctiCards(unittest.TestCase):
         S._KCTI_CACHE.clear()
         self.assertEqual(self.run_fn(S.arrivalslead_facts), [])      # no checked name for 612
 
-    def test_the_four_cards_are_wired_and_held(self):
+    def test_the_four_cards_are_wired_and_released(self):
         src = open(S.__file__, encoding='utf-8').read()
         for c in ('arrivals', 'staylength', 'arrivalsrise', 'arrivalslead'):
             self.assertIn(c, S.RANKED_CATS)
             self.assertIn(c, S.ORDERED_CATS)
             self.assertIn(c, S.COOLDOWNS)
-            self.assertIn(c, S.HELD_CATS)
+            self.assertNotIn(c, S.HELD_CATS)
             self.assertIn(f'- "{c}" lines ', src)
             self.assertIn(f'pool += guarded({c}_facts, gov_key)', src)
 
