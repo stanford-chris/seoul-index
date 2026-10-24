@@ -357,6 +357,16 @@ PROVENANCE = {
         'checks': [c(S, B, 'Every observation row is station 108 with a real date; the normal is one row, 1991–2020, station 108.'),
                    c(R, B, 'The event’s row equal in the all-stations operation, same station, codes and date.')],
     },
+    'arrivals': {
+        'source': 'KCTI 출입국관광통계서비스_GW (data.go.kr 15158830), apis.data.go.kr/B551940 getEdrcntTourismStatsList, ED_CD=E',
+        'counts': 'Foreign arrivals into Korea in a month at every port, by nationality, crew included (China, August 2026: 827,704, of them 28,457 crew); the three largest; all visitors as our sum of every row (200 nationalities plus 교포, overseas Koreans); the same sum for the same month a year earlier.',
+        'checked_against': 'getForeignTuristStatsList (by sex, age, purpose and port) summed over every row: equal for China, Japan and the US in August 2026.',
+        'complete_fetch': 'numOfRows=400 against a totalCount of about 200; every row read and the count required to match.',
+        'labels': 'HELD (HELD_CATS) for its mock-up, 24 October 2026. National, not Seoul; "All visitors" is our sum, said in the footnote.',
+        'verified': '2026-10-24',
+        'checks': [c(S, B, 'At least 150 nationalities, each once, every row the month asked for, row count equal to totalCount.'),
+                   c(R, B, 'The leading nationality, both months, equal to the detailed operation summed exactly.')],
+    },
     'airport': {
         'source': 'Korea Airports Corporation, airport-transport-stats/info, 김포 row; KOSIS orgId 381 DT_920005_B001',
         'counts': 'Gimpo passengers (arrivals plus departures, every route) and flights in the month, the same month 20 years earlier, and the domestic/international split.',

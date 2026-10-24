@@ -317,7 +317,7 @@ SEVERE_STARVE_DAYS = STARVE_DAYS * 2
 ORDERED_CATS = {'level', 'complaint', 'infant', 'boxhist', 'busroutes', 'stations',
                 'busmovers', 'nightbus', 'busweekend', 'busstops', 'railstations', 'seoulstation',
                 'stationgap', 'wxday', 'rescue', 'kopis', 'kepco', 'kepcohk', 'kepcohouse',
-                'railcommuter', 'seasonal'}
+                'railcommuter', 'seasonal', 'arrivals'}
 
 # Every vein's lines are all-or-nothing on emoji, not just a chosen few: a
 # partial set reads as an oversight rather than a judgement, whatever the
@@ -556,7 +556,7 @@ BUSROUTES_COOLDOWN_DAYS = 3
 # on Friday" is mostly Thursday night's riders.
 # busmovers and nightbus released 7 October 2026: weekend holidays counted,
 # the night-bus dateline says early hours.
-HELD_CATS = {'infra', 'air', 'tourism', 'daynight', 'spotlight'}  # seasonal held for its mock-up and released 23 Oct 2026
+HELD_CATS = {'infra', 'air', 'tourism', 'daynight', 'spotlight', 'arrivals'}  # seasonal held and released 23 Oct 2026; arrivals held for its mock-up 24 Oct
 # And once more for the station card: 서울역 was the busiest station on every
 # one of the 7 days measured 10 Sep 2026 (122k-150k, summed across its five
 # platforms' rows), Jamsil or Hongik Univ. second.
@@ -2331,7 +2331,8 @@ BUSWEEKEND_COOLDOWN_DAYS = 7
 RANKED_CARD_INFO = {}
 RANKED_CATS = ('busroutes', 'stations', 'busmovers', 'nightbus', 'busweekend', 'busstops',
                'railstations', 'seoulstation', 'stationgap', 'wxday', 'rescue', 'kopis',
-               'kepco', 'kepcohk', 'kepcohist', 'kepcohouse', 'railcommuter', 'seasonal')
+               'kepco', 'kepcohk', 'kepcohist', 'kepcohouse', 'railcommuter', 'seasonal',
+               'arrivals')
 # The veins whose card is TWO lines by design: rush (one station at two
 # hours) and, since 11 September 2026, busmovers (one rise, one fall) and
 # busweekend (one holds up best, one falls most). Every other vein needs
@@ -5830,6 +5831,147 @@ def seasonal_facts(key, state):
                  pin=True, label_ko=SEASONAL_NORMAL_KO)]
 
 
+# --- visitors to Korea (KCTI 출입국관광통계) ------------------------------------
+# His ask, 23-24 October 2026, after a JoongAng Daily piece on record
+# foreign visitors to Seoul: the city's own visitor figure is published only
+# in press releases, so the nearest published series is KCTI's monthly
+# foreign arrivals into KOREA by nationality (data.go.kr 15158830, the _GW
+# twin of 15000297, shared data.go.kr key). A national card, like incheon.
+# ⚠️⚠️ CALL THE GATEWAY ADDRESS BELOW, NOT THE ONE THE OLD PAGE SHOWS. The
+# older twin lists openapi.tour.go.kr/openapi/service/EdrcntTourismStatsService,
+# which answered "SERVICE ACCESS DENIED" for 25 hours to an approved key; the
+# _GW page's own source names apis.data.go.kr/B551940, which answered at once.
+# ⚠️ The figures INCLUDE aircraft and ship crew: China's 827,704 for August
+# 2026 is the detailed operation's sum over every row, 28,457 of them crew
+# (sexCd C), exact for China, Japan and the US. The footnote says so.
+# ⚠️ No total row is served: "All visitors" is our sum of the month's rows
+# (200 nationalities plus 교포, code 999, overseas Koreans), counting like the
+# busroutes total. The same month a year earlier is summed the same way.
+# About a month's lag: on 24 October 2026 August was the newest month.
+ARRIVALS_BASE = 'https://apis.data.go.kr/B551940/EdrcntTourismStatsService/'
+ARRIVALS_LIST = (ARRIVALS_BASE + 'getEdrcntTourismStatsList?serviceKey={key}&YM={ym}'
+                 '&ED_CD=E&numOfRows=400&pageNo=1')
+ARRIVALS_DETAIL = (ARRIVALS_BASE + 'getForeignTuristStatsList?serviceKey={key}&YM={ym}'
+                   '&NAT_CD={nat}&numOfRows=5000&pageNo=1')
+ARRIVALS_COOLDOWN_DAYS = 28
+ARRIVALS_MIN_ROWS = 150
+ARRIVALS_OPENER_EN = 'Visitors to Korea'
+ARRIVALS_OPENER_KO = '방한 외국인'
+# English names for the codes that can lead a month, read off the August 2026
+# list. A top-three nationality outside this table withholds the card
+# rather than print a name nobody checked.
+ARRIVALS_EN = {
+    '112': ('China', '중국'), '130': ('Japan', '일본'), '113': ('Taiwan', '대만'),
+    '275': ('United States', '미국'), '120': ('Hong Kong', '홍콩'),
+    '185': ('Vietnam', '베트남'), '155': ('Philippines', '필리핀'),
+    '125': ('Indonesia', '인도네시아'), '213': ('Canada', '캐나다'),
+    '321': ('France', '프랑스'), '366': ('Russia', '러시아'), '124': ('India', '인도'),
+    '316': ('United Kingdom', '영국'), '143': ('Malaysia', '말레이시아'),
+    '170': ('Thailand', '태국'), '164': ('Singapore', '싱가포르'),
+    '324': ('Germany', '독일'), '404': ('Australia', '호주'), '145': ('Mongolia', '몽골'),
+}
+
+
+def _arrivals_rows(key, ym):
+    """[(natCd, num)] for one month, [] when the month is not yet published,
+    None when the answer could not be read."""
+    text = _curl(ARRIVALS_LIST.format(key=key, ym=ym))
+    if '<resultCode>0000</resultCode>' not in text:
+        return None
+    tc = re.search(r'<totalCount>(\d+)</totalCount>', text)
+    rows = []
+    for item in re.findall(r'<item>(.*?)</item>', text, re.S):
+        nat = re.search(r'<natCd>(\d+)</natCd>', item)
+        num = re.search(r'<num>(\d+)</num>', item)
+        when = re.search(r'<ym>(\d+)</ym>', item)
+        if not (nat and num and when) or when.group(1) != ym:
+            return None
+        rows.append((nat.group(1), int(num.group(1))))
+    if tc is None or int(tc.group(1)) != len(rows):
+        return None
+    return rows
+
+
+@source_check
+def check_arrivals(key, ym, rows, lead):
+    """Source checks (PROVENANCE['arrivals']): a full month, each
+    nationality once; and the leading nationality's figure equal to the
+    detailed operation (by sex, age, purpose and port) summed over every
+    row. Exact for China, Japan and the US in August 2026."""
+    require(len(rows) >= ARRIVALS_MIN_ROWS,
+            f'arrivals: {len(rows)} nationalities for {ym}, under {ARRIVALS_MIN_ROWS}')
+    require(len({n for n, _ in rows}) == len(rows), f'arrivals: a nationality twice in {ym}')
+    nat, num = lead
+    text = _curl(ARRIVALS_DETAIL.format(key=key, ym=ym, nat=nat), timeout=60)
+    tc = re.search(r'<totalCount>(\d+)</totalCount>', text)
+    nums = [int(n) for n in re.findall(r'<num>(\d+)</num>', text)]
+    require(tc is not None and int(tc.group(1)) == len(nums),
+            f'arrivals: detailed rows for {nat} {ym} incomplete')
+    reconcile(f'arrivals: {nat} {ym} against the detailed rows', num, sum(nums), 0)
+
+
+def arrivals_facts(key):
+    """The arrivals card: the newest month's three largest nationalities,
+    all visitors, and all visitors in the same month a year earlier. Fills
+    RANKED_CARD_INFO when built; prints why when withheld."""
+    RANKED_CARD_INFO.pop('arrivals', None)
+    if not key:
+        return []
+    today = datetime.now(SEOUL_TZ).date()
+    y, m = today.year, today.month
+    rows = None
+    for _ in range(5):
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+        rows = _arrivals_rows(key, f'{y}{m:02d}')
+        if rows is None:
+            print('Arrivals card withheld: the arrivals list could not be read.')
+            return []
+        if rows:
+            break
+    if not rows:
+        print('Arrivals card withheld: no month published in the last five.')
+        return []
+    ym = f'{y}{m:02d}'
+    before = _arrivals_rows(key, f'{y - 1}{m:02d}')
+    if not before:
+        print(f'Arrivals card withheld: no rows for {y - 1}-{m:02d}.')
+        return []
+    top = sorted(rows, key=lambda r: -r[1])[:3]
+    if any(n not in ARRIVALS_EN for n, _ in top):
+        print(f'Arrivals card withheld: no checked English name for {[n for n, _ in top]}.')
+        return []
+    check_arrivals(key, ym, rows, top[0])
+    check_arrivals(key, f'{y - 1}{m:02d}', before, sorted(before, key=lambda r: -r[1])[0])
+    per_en, per_ko = f'{MONTHS_EN[m - 1]} {y}', f'{y}년 {m}월'
+    then_en, then_ko = f'{MONTHS_EN[m - 1]} {y - 1}', f'{y - 1}년 {m}월'
+    # 999 is 교포 (overseas Koreans), a row of its own and not a nationality.
+    n_nat = sum(1 for n, _ in rows if n != '999')
+    kin_en = ' and overseas Koreans' if any(n == '999' for n, _ in rows) else ''
+    kin_ko = '과 교포' if kin_en else ''  # 국적 ends in a consonant: 과
+    note_en, note_ko = with_latest(
+        f'Foreign arrivals at every port, crew included; all visitors is the sum '
+        f'of {n_nat} nationalities{kin_en}',
+        f'모든 입국항 기준, 승무원 포함, 전체는 {n_nat}개 국적{kin_ko} 합계',
+        per_en, per_ko, date(y, m, 1), 'month')
+    RANKED_CARD_INFO['arrivals'] = {
+        'day_en': per_en, 'day_ko': per_ko,
+        'opener_en': ARRIVALS_OPENER_EN, 'opener_ko': ARRIVALS_OPENER_KO,
+        'dateline_en': per_en, 'dateline_ko': per_ko,
+        'note_en': note_en, 'note_ko': note_ko,
+        'emoji': '✈️'}
+    facts = [fact(f'arrivals_{n}', 'arrivals', ARRIVALS_EN[n][0], grouped(v), grouped(v),
+                  pin=True, label_ko=ARRIVALS_EN[n][1]) for n, v in top]
+    total, total_then = sum(v for _, v in rows), sum(v for _, v in before)
+    facts.append(fact('arrivals_all', 'arrivals', 'All visitors', grouped(total), grouped(total),
+                      pin=True, label_ko='전체'))
+    facts.append(fact('arrivals_all_then', 'arrivals', f'All visitors, {then_en}',
+                      grouped(total_then), grouped(total_then), pin=True,
+                      label_ko=f'전체, {then_ko}'))
+    return facts
+
+
 @source_check
 def _wx_span(key, start, end, rows=31):
     """_wx_rows() for the weather vein, with its source check
@@ -9202,6 +9344,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += guarded(kopis_facts, kopis_key)
     # KMA's API허브 issues its own key; the seasonal card is silent without it.
     pool += guarded(seasonal_facts, kma_hub_key, state)
+    pool += guarded(arrivals_facts, gov_key)
     # KEPCO's own key as well (bigdata.kepco.co.kr); both electricity cards
     # are silent without it. One fetch per month per run, cached.
     _KEPCO_CACHE.clear()
@@ -9245,6 +9388,7 @@ Rules:
 - "wxday" lines are YESTERDAY's published readings at Seoul's reference weather station: the high, the low and the rain (a rain value of "None" means none was recorded, and it is a reading, not a gap) — own post, never mixed with any other category, including "weather". All the lines offered are compulsory, in that order. Its opener is FIXED and written by Python ("Seoul's weather yesterday"), so whatever opener you write for this card is replaced; the dateline carries the date. Never call the day hot, cold, wet or dry, and never compare it with anything.
 - "rescue" lines are ONE WEEK of rescue notices filed by Seoul's districts on the national animal protection register: every animal, then cats, dogs and other animals — own post, never mixed with any other category. All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Animals rescued in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote says who files the notices. Never call the week busy or quiet, never remark on the split between cats and dogs, and never mention shelters, adoption or what became of any animal.
 - "seasonal" lines are ONE seasonal observation at Seoul's reference weather station (a first bloom, leaves turning, the first frost or snow): the date it was observed THIS season, the same observation LAST season and the weather agency's published 1991–2020 normal — own post, never mixed with any other category, including "weather" and "wxday". All THREE lines are compulsory, in that order. Its opener is FIXED and written by Python (it names the event), so whatever opener you write for this card is replaced. Never call it early, late, unusual or a sign of anything, and never compare the dates yourself.
+- "arrivals" lines are ONE MONTH of foreign visitors arriving in KOREA (the whole country, not Seoul) from the Korea Culture and Tourism Institute: the three largest nationalities, all visitors, and all visitors in the same month a year earlier — own post, never mixed with any other category, including "tourism" and "incheon". All FIVE lines are compulsory, in that order. Its opener is FIXED and written by Python ("Visitors to Korea"), so whatever opener you write for this card is replaced; the dateline carries the month. Never call the month a record, busy or quiet, never give a percentage change, and never compare the two totals yourself.
 - "kopis" lines are ONE WEEK on Seoul's stages from the national box-office register: productions, productions that opened, performances given, tickets sold and box office — own post, never mixed with any other category, including "boxoffice" (that is cinema). All FIVE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("On stage in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote names the register. Never call the week busy or quiet, never name a show, and never compare the figures with anything.
 - "kepco" lines are ONE MONTH of electricity in Seoul from Korea Electric Power Corporation: customers, electricity used and the bill — own post, never mixed with any other category, including "kepcohk" and "kepcohist". All THREE lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Electricity in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the month. Never call the month heavy or light, and never compare it with anything.
 - "kepcohk" lines set Seoul against Hong Kong on electricity over a YEAR: Seoul per capita, Hong Kong per capita, Seoul household, Hong Kong household — own post, never mixed with any other category, including "kepco". All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Electricity in Seoul and Hong Kong"), so whatever opener you write is replaced; the dateline carries both periods. Never say which city uses more, never explain the gap, and never call either figure high or low.
@@ -9495,6 +9639,7 @@ COOLDOWNS = {
     'kepcohouse':   (KEPCO_HOUSE_COOLDOWN_DAYS, 'Household electricity'),
     'railcommuter': (RAILCOMMUTER_COOLDOWN_DAYS, 'Commuter rail'),
     'seasonal':     (SEASONAL_COOLDOWN_DAYS, 'Seasons'),
+    'arrivals':     (ARRIVALS_COOLDOWN_DAYS, 'Visitors to Korea'),
 }
 # The three veins whose card names a leader, remembered so the next run can
 # tell whether it changed (apply_cooldown_unless_changed).
@@ -11274,6 +11419,8 @@ def compose(sel, pool):
             opener_emoji = '🐾'
         elif fid.startswith('kopis'):
             opener_emoji = '🎭'
+        elif fid.startswith('arrivals'):
+            opener_emoji = '✈️'
         elif fid.startswith('seasonal'):
             opener_emoji = RANKED_CARD_INFO.get('seasonal', {}).get('emoji') or '🍂'
         elif fid.startswith('kepco'):
@@ -11366,7 +11513,7 @@ def compose(sel, pool):
                  'health', 'healthcost', 'culture', 'tourism', 'level', 'boxoffice',
                  'boxhist', 'incheon', 'railstations', 'seoulstation', 'wxday',
                  'rescue', 'kopis', 'kepco', 'kepcohk', 'kepcohist', 'kepcohouse',
-                 'railcommuter', 'infant', 'seasonal'}
+                 'railcommuter', 'infant', 'seasonal', 'arrivals'}
     uses_seoul = any(c not in non_seoul for c in cats)
     # kepcohk divides by KOSIS's registered population, so it credits KOSIS.
     # infant is KOSIS's registered population since 7 October 2026.
@@ -11397,6 +11544,9 @@ def compose(sel, pool):
     uses_hira_cost = 'healthcost' in cats
     uses_mcst = 'culture' in cats
     uses_tour = 'tourism' in cats
+    # Same publisher as tourism (KCTI), credited separately so the tourism
+    # card's paid-admission scope never rides onto an arrivals card.
+    uses_arrivals = 'arrivals' in cats
     uses_books = 'books' in cats
     uses_kobis = bool({'boxoffice', 'boxhist'} & cats)
     # The rescue register is the quarantine agency's, served through data.go.kr.
@@ -11417,7 +11567,7 @@ def compose(sel, pool):
            (['korail.com'] if uses_korail else []) + \
            (['opendata.hira.or.kr'] if uses_hira or uses_hira_cost else []) + \
            (['mcst.go.kr'] if uses_mcst else []) + \
-           (['know.tour.go.kr'] if uses_tour else []) + \
+           (['know.tour.go.kr'] if uses_tour or uses_arrivals else []) + \
            (['hrfco.go.kr'] if 'level' in cats else []) + \
            (['kobis.or.kr'] if uses_kobis else []) + \
            (['animal.go.kr'] if uses_apqa else []) + \
@@ -11767,6 +11917,9 @@ def compose(sel, pool):
         if CULTURE_Y['y']:
             scope_en.append((f'Culture-facility survey, {CULTURE_Y["y"]} figures', None))
             scope_ko.append((f'문화기반시설총람, {CULTURE_Y["y"]}년 기준', None))
+    if uses_arrivals and not uses_tour:
+        src_en += ' · KCTI'
+        src_ko += ' · 한국문화관광연구원'
     if uses_tour:
         # Paid-admission scope and the (months-old) data month are keys to
         # the figures; both ride the card.

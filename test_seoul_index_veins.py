@@ -2961,7 +2961,8 @@ class HeldVeins(unittest.TestCase):
         # spending and avgbill released 7 October 2026.
         # daynight, spotlight, busmovers, nightbus held 7 October 2026 (provenance pass).
         # seasonal held for its mock-up and released 23 October 2026.
-        self.assertEqual(self._held, {'infra', 'air', 'tourism', 'daynight', 'spotlight'})
+        # arrivals held for its mock-up, 24 October 2026.
+        self.assertEqual(self._held, {'infra', 'air', 'tourism', 'daynight', 'spotlight', 'arrivals'})
 
 class SpotlightHold(unittest.TestCase):
     """A held spotlight must not post: the draw sits outside the pool that
@@ -4329,6 +4330,137 @@ class RescueCard(unittest.TestCase):
         self.assertIn("uses_apqa = 'rescue' in cats", src)
         self.assertIn("('animal.go.kr', 'https://www.animal.go.kr')", src)
         self.assertIn("pool += guarded(rescue_facts, gov_key)", src)
+
+
+class ArrivalsCard(unittest.TestCase):
+    """Foreign arrivals into Korea by nationality. What would ship it
+    wrong: the newest month read as an empty one (or an empty one as a
+    failure), a nationality printed under a name nobody checked, a short
+    list summed as all visitors, and the year-earlier total from the wrong
+    month."""
+
+    def xml(self, ym, rows):
+        items = ''.join(f'<item><ed>방한외래관광객</ed><edCd>E</edCd><natCd>{n}</natCd>'
+                        f'<natKorNm>x</natKorNm><num>{v}</num><rnum>{i}</rnum><ym>{ym}</ym></item>'
+                        for i, (n, v) in enumerate(rows, 1))
+        return (f'<response><header><resultCode>0000</resultCode></header><body><items>{items}</items>'
+                f'<totalCount>{len(rows)}</totalCount></body></response>')
+
+    def months(self):
+        t = S.datetime.now(S.SEOUL_TZ).date()
+        y, m = t.year, t.month
+        out = []
+        for _ in range(3):
+            m -= 1
+            if m == 0:
+                y, m = y - 1, 12
+            out.append((y, m))
+        return out
+
+    def rows(self, lead=900, n=160):
+        return [('112', lead), ('130', 400), ('113', 200)] + [(str(500 + i), 1) for i in range(n - 3)]
+
+    def run_with(self, by_ym):
+        import subprocess as real_subprocess
+        calls = []
+
+        def run(cmd, **kw):
+            url = cmd[-1]
+            calls.append(url)
+            ym = S.re.search(r'YM=(\d{6})', url).group(1)
+            body = by_ym.get(ym, self.xml(ym, []))
+            return types.SimpleNamespace(stdout=body, returncode=0)
+        S.subprocess.run = run
+        try:
+            return S.arrivals_facts('KEY'), calls
+        finally:
+            S.subprocess.run = real_subprocess.run
+
+    def tearDown(self):
+        S.RANKED_CARD_INFO.pop('arrivals', None)
+
+    def test_the_newest_published_month_beside_the_same_month_a_year_earlier(self):
+        (y1, m1), (y2, m2), _ = self.months()
+        now, then = f'{y2}{m2:02d}', f'{y2 - 1}{m2:02d}'
+        facts, calls = self.run_with({now: self.xml(now, self.rows()),
+                                      then: self.xml(then, self.rows(lead=700))})
+        self.assertEqual([(f['label_en'], f['value_en']) for f in facts],
+                         [('China', '900'), ('Japan', '400'), ('Taiwan', '200'),
+                          ('All visitors', '1,657'),
+                          (f'All visitors, {S.MONTHS_EN[m2 - 1]} {y2 - 1}', '1,457')])
+        self.assertEqual(facts[3]['label_ko'], '전체')
+        info = S.RANKED_CARD_INFO['arrivals']
+        self.assertEqual(info['dateline_en'], f'{S.MONTHS_EN[m2 - 1]} {y2}')
+        self.assertIn('crew included', info['note_en'])
+        self.assertIn('sum of 160 nationalities', info['note_en'])
+        self.assertNotIn('overseas Koreans', info['note_en'])
+        self.assertTrue(any(f'YM={y1}{m1:02d}' in c for c in calls))
+
+    def test_overseas_koreans_are_named_and_not_counted_as_a_nationality(self):
+        (_, _), (y2, m2), _ = self.months()
+        now, then = f'{y2}{m2:02d}', f'{y2 - 1}{m2:02d}'
+        rows = self.rows() + [('999', 5)]
+        facts, _ = self.run_with({now: self.xml(now, rows), then: self.xml(then, self.rows())})
+        self.assertEqual(facts[3]['value_en'], '1,662')
+        note = S.RANKED_CARD_INFO['arrivals']
+        self.assertIn('sum of 160 nationalities and overseas Koreans', note['note_en'])
+        self.assertIn('160개 국적과 교포 합계', note['note_ko'])
+
+    def test_unreadable_unnamed_or_missing_year_withholds(self):
+        (_, _), (y2, m2), _ = self.months()
+        now, then = f'{y2}{m2:02d}', f'{y2 - 1}{m2:02d}'
+        good_then = self.xml(then, self.rows())
+        self.assertEqual(self.run_with({now: self.xml(now, self.rows()).replace('0000', '0099')})[0], [])
+        stranger = [('998', 5000)] + self.rows()
+        self.assertEqual(self.run_with({now: self.xml(now, stranger), then: good_then})[0], [])
+        self.assertEqual(self.run_with({now: self.xml(now, self.rows())})[0], [])
+        self.assertEqual(self.run_with({})[0], [])
+        # A page short of its own totalCount is a truncated read, never a month.
+        short = self.xml(now, self.rows()).replace('<totalCount>160<', '<totalCount>161<')
+        self.assertEqual(self.run_with({now: short, then: good_then})[0], [])
+        self.assertNotIn('arrivals', S.RANKED_CARD_INFO)
+        self.assertEqual(S.arrivals_facts(None), [])
+
+    def test_a_short_list_or_a_detail_mismatch_fails_the_source_check(self):
+        (_, _), (y2, m2), _ = self.months()
+        now, then = f'{y2}{m2:02d}', f'{y2 - 1}{m2:02d}'
+        detail = ('<response><header><resultCode>0000</resultCode></header><body><items>'
+                  '<item><num>500</num></item><item><num>400</num></item></items>'
+                  '<totalCount>2</totalCount></body></response>')
+        import subprocess as real_subprocess
+
+        def run_factory(detail_body, list_rows):
+            def run(cmd, **kw):
+                url = cmd[-1]
+                ym = S.re.search(r'YM=(\d{6})', url).group(1)
+                if 'getForeignTuristStatsList' in url:
+                    return types.SimpleNamespace(stdout=detail_body, returncode=0)
+                return types.SimpleNamespace(stdout={now: self.xml(now, list_rows),
+                                                     then: self.xml(then, self.rows())}.get(ym, self.xml(ym, [])),
+                                             returncode=0)
+            return run
+        S.SOURCE_CHECKS = True
+        try:
+            S.subprocess.run = run_factory(detail, self.rows())
+            self.assertTrue(S.arrivals_facts('KEY'))
+            S.subprocess.run = run_factory(detail.replace('<num>400</num>', '<num>401</num>'), self.rows())
+            with self.assertRaises(S.SourceCheckFailed):
+                S.arrivals_facts('KEY')
+            S.subprocess.run = run_factory(detail, self.rows(n=40))
+            with self.assertRaises(S.SourceCheckFailed):
+                S.arrivals_facts('KEY')
+        finally:
+            S.SOURCE_CHECKS = False
+            S.subprocess.run = real_subprocess.run
+
+    def test_the_vein_is_wired_everywhere_the_other_ranked_cards_are(self):
+        self.assertIn('arrivals', S.RANKED_CATS)
+        self.assertIn('arrivals', S.ORDERED_CATS)
+        self.assertIn('arrivals', S.COOLDOWNS)
+        src = open(S.__file__, encoding='utf-8').read()
+        self.assertIn('- "arrivals" lines are', src)
+        self.assertIn('pool += guarded(arrivals_facts, gov_key)', src)
+        self.assertIn("uses_arrivals = 'arrivals' in cats", src)
 
 
 class SeasonalCard(unittest.TestCase):
