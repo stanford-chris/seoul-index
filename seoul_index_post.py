@@ -478,9 +478,8 @@ WORLD_COOLDOWN_DAYS = 3
 # 17 Aug 2026, on 4, 6, 10 and 17 August, three of them line-for-line the same).
 # recent_ids alone cannot fix this: at RECENT_IDS_KEEP=24 it only spaces repeats
 # about six posts apart. At three posts a day, 3 days is about one spending card
-# in nine. 'avgbill' is deliberately NOT cooled — it is the same source data
-# under a different framing ("Average bill in Seoul"), and it is not what
-# repeats.
+# in nine. 'avgbill' is not cooled; its repeat is the PAIR, handled by
+# apply_avggap_gate() (29 October 2026), not the vein's frequency.
 SPENDING_COOLDOWN_DAYS = 3
 
 # Bike, traffic and transport get the same cooldown for the same reason as
@@ -9887,6 +9886,35 @@ def apply_cooldowns(pool, state):
     return pool
 
 
+def avggap_kos(pool):
+    """The categories in today's widest average-bill gap ('avggap_<ko>')."""
+    return {f['id'][len('avggap_'):] for f in pool if f['id'].startswith('avggap_')}
+
+
+def apply_avggap_gate(pool, state):
+    """Offer the widest average-bill gap once per sales quarter, then drop it.
+
+    The gap is the dearest and cheapest average bill in a QUARTERLY aggregate,
+    so it is frozen for three months, and the selector, told to build around a
+    pair, built on it every time: art academies against internet cafés on
+    31 July, 29 August, 24 September, 14 and 24 October 2026 (bot-scout,
+    28 October). A cooldown would not have helped: the vein already posted
+    about every ten days, and each post anchored on the same two lines.
+
+    Once a card has carried both ends of the gap this quarter
+    (state['last_avggap_q'], stamped in main() on an actual post), both
+    'avggap_' facts AND the two 'avg_' facts for the same categories leave the
+    pool, so the next avgbill card is built from the middle of the range. A new
+    quarter offers the gap again. A missing quarter never closes the gate."""
+    q = SALES_Q['en']
+    kos = avggap_kos(pool)
+    if not q or not kos or state.get('last_avggap_q') != q:
+        return pool
+    drop = {f'avggap_{k}' for k in kos} | {f'avg_{k}' for k in kos}
+    print(f'Average bill: the {q} widest gap has posted; leaving it out until a new quarter.')
+    return [f for f in pool if f['id'] not in drop]
+
+
 def apply_cooldown(pool, state, stamp_key, cat, days, label):
     """Drop `cat` from the pool if its last post is younger than `days`.
 
@@ -13172,6 +13200,7 @@ def main():
         # below, so that a post held back here is dropped from the running
         # rather than merely deferred to the next post.
         pool = apply_cooldowns(pool, state)
+        pool = apply_avggap_gate(pool, state)
         pool = apply_holds(pool)
 
         # The floor under the veins the selector never reaches for. Applied
@@ -13465,6 +13494,12 @@ def main():
         leader = RANKED_CARD_INFO.get(primary, {}).get('leader')
         if leader:
             state[f'last_{primary}_leader'] = leader
+    # The quarter whose widest average-bill gap a card has now shown, for
+    # apply_avggap_gate(): both ends, as gap lines or as plain avg_ lines.
+    gap_kos = avggap_kos(pool)
+    used_kos = {i.split('_', 1)[1] for i in used if i.startswith(('avg_', 'avggap_'))}
+    if gap_kos and gap_kos <= used_kos and SALES_Q['en']:
+        state['last_avggap_q'] = SALES_Q['en']
     if primary == 'seasonal':
         # The observation just posted, so seasonal_facts() never offers it
         # again; the newest 40 are plenty for two seasons of events.

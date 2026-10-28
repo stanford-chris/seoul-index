@@ -5611,5 +5611,36 @@ class SpotlightBaselineKeyedOnReading(unittest.TestCase):
         self.assertIsNone(L.baseline('X', 'Wed', 21, rows))
 
 
+class AvgGapGate(unittest.TestCase):
+    """The widest average-bill gap is offered once per sales quarter
+    (art academies against internet cafés five times, 31 Jul to 24 Oct 2026)."""
+
+    def setUp(self):
+        self._q = dict(S.SALES_Q)
+        S.SALES_Q.update(en='2026 Q2', ko='2026년 2분기')
+
+    def tearDown(self):
+        S.SALES_Q.clear(); S.SALES_Q.update(self._q)
+
+    def _pool(self):
+        return ([{'cat': 'avgbill', 'id': f'avg_{k}'} for k in ('a', 'b', 'c', 'd')]
+                + [{'cat': 'avgbill', 'id': 'avggap_a'}, {'cat': 'avgbill', 'id': 'avggap_d'}])
+
+    def ids(self, pool):
+        return {f['id'] for f in pool}
+
+    def test_open_until_the_quarter_has_posted(self):
+        self.assertEqual(len(S.apply_avggap_gate(self._pool(), {})), 6)
+        self.assertEqual(len(S.apply_avggap_gate(self._pool(), {'last_avggap_q': '2026 Q1'})), 6)
+
+    def test_closed_drops_the_pair_and_both_ends(self):
+        out = S.apply_avggap_gate(self._pool(), {'last_avggap_q': '2026 Q2'})
+        self.assertEqual(self.ids(out), {'avg_b', 'avg_c'})
+
+    def test_no_quarter_never_closes_it(self):
+        S.SALES_Q['en'] = None
+        self.assertEqual(len(S.apply_avggap_gate(self._pool(), {'last_avggap_q': None})), 6)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)
