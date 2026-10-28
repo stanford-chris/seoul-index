@@ -11765,6 +11765,10 @@ def compose(sel, pool):
     # The river vein spans two publishers: the water is Seoul Open Data
     # (so 'river' stays out of non_seoul above) and the air is KMA.
     uses_kma = bool({'weather', 'river', 'wxday', 'seasonal'} & cats)
+    # The seasonal observations come from KMA's API허브, not the data.go.kr
+    # services the other weather veins read, so its own host is credited
+    # (his call, 29 October 2026).
+    uses_kma_hub = 'seasonal' in cats
     uses_kac = 'airport' in cats
     # Incheon's totals are Korea Airports Corporation's (KOSIS); only the
     # country line is the Incheon feed's. See iiac_facts().
@@ -11796,7 +11800,8 @@ def compose(sel, pool):
            (['kosis.kr'] if uses_kosis or lib_ratio else []) + \
            ([OECD_DOMAIN] if uses_oecd else []) + \
            (['rt.molit.go.kr'] if uses_molit else []) + \
-           (['data.kma.go.kr'] if uses_kma else []) + \
+           (['data.kma.go.kr'] if {'weather', 'river', 'wxday'} & cats else []) + \
+           (['apihub.kma.go.kr'] if uses_kma_hub else []) + \
            (['airport.co.kr'] if uses_kac else []) + \
            (['airport.co.kr'] if uses_icn and not uses_kac else []) + \
            (['airport.kr'] if uses_iiac else []) + \
@@ -12929,6 +12934,7 @@ LINK_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                 (OECD_DOMAIN, f'https://{OECD_DOMAIN}'),
                 ('rt.molit.go.kr', 'https://rt.molit.go.kr'),
                 ('data.kma.go.kr', 'https://data.kma.go.kr'),
+                ('apihub.kma.go.kr', 'https://apihub.kma.go.kr'),
                 ('airport.co.kr', 'https://www.airport.co.kr'),
                 ('airport.kr', 'https://www.airport.kr'),
                 ('korail.com', 'https://www.korail.com'),

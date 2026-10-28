@@ -221,7 +221,7 @@ CARDS = [
 # with the source-code line at all.
 SOURCE_PREFIX = 'Sources · 출처: '
 SOURCE_LINE = (SOURCE_PREFIX + 'data.seoul.go.kr, kosis.kr, data-explorer.oecd.org, '
-               'rt.molit.go.kr, data.kma.go.kr, airport.co.kr, airport.kr, korail.com, '
+               'rt.molit.go.kr, data.kma.go.kr, apihub.kma.go.kr, airport.co.kr, airport.kr, korail.com, '
                'opendata.hira.or.kr, mcst.go.kr, know.tour.go.kr, '
                'hrfco.go.kr, kobis.or.kr, animal.go.kr, kopis.or.kr, bigdata.kepco.co.kr, '
                'data.worldbank.org')
@@ -230,6 +230,7 @@ SOURCE_DOMAINS = [('data.seoul.go.kr', 'https://data.seoul.go.kr'),
                   ('data-explorer.oecd.org', 'https://data-explorer.oecd.org'),
                   ('rt.molit.go.kr', 'https://rt.molit.go.kr'),
                   ('data.kma.go.kr', 'https://data.kma.go.kr'),
+                  ('apihub.kma.go.kr', 'https://apihub.kma.go.kr'),
                   ('airport.co.kr', 'https://www.airport.co.kr'),
                   ('airport.kr', 'https://www.airport.kr'),
                   ('korail.com', 'https://www.korail.com'),

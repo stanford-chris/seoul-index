@@ -4551,6 +4551,19 @@ class SeasonalCard(unittest.TestCase):
         self.assertEqual(info['event_key'], f'{y}-301-301')
         self.assertIn('ssn=301', [c for c in calls if 'sfc_ssn_norm' in c][0])
 
+    def test_the_source_reply_credits_the_api_hub_alone(self):
+        """The observations are read from apihub.kma.go.kr, not the
+        data.go.kr services behind data.kma.go.kr's credit (29 Oct 2026)."""
+        y = self.recent.year
+        facts, _ = self.run_with(self.obs((y - 1, f'{y - 1}-11-04', 301, 301),
+                                          (y, f'{self.recent:%Y-%m-%d}', 301, 301)))
+        sel = {'opener_en': 'x', 'opener_ko': '가', 'opener_emoji': '🍂',
+               'picks': [{'id': f['id']} for f in facts]}
+        c = S.compose(sel, facts)
+        self.assertIn('apihub.kma.go.kr', c['src_en'])
+        self.assertNotIn('data.kma.go.kr', c['src_en'])
+        self.assertIn('apihub.kma.go.kr', dict(S.LINK_DOMAINS))
+
     def test_last_season_is_the_season_year_not_the_calendar_year(self):
         # A season's first snow can fall either side of New Year, and both
         # rows carry the season-year (YY). Here last season's fell in
