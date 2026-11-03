@@ -1225,14 +1225,26 @@ class ScreensCardCreditRidesTheFootnote(unittest.TestCase):
                'picks': [{'id': f['id'], 'emoji': ''} for f in hist]}
         return S.compose(sel, hist)
 
-    def test_the_credit_is_the_footnote_and_the_masthead_is_empty(self):
+    def test_the_credit_is_the_footnote_and_the_date_is_the_second_line(self):
+        # The date joined the second line on 3 November 2026, his rule that a
+        # card's date sits under the title. "each year", never a weekday: the
+        # rows are three different years.
         c = self.card()
         self.assertTrue(c['credit_on_card'])
         self.assertEqual(c['note_en'], c['src_en'])
         self.assertEqual(c['note_ko'], c['src_ko'])
         self.assertTrue(c['src_en'].startswith('Source: kobis.or.kr'))
-        self.assertEqual(c['dateline_en'], '')
-        self.assertEqual(c['dateline_ko'], '')
+        self.assertEqual(c['dateline_en'], f'{S.BOXOFFICE_D["en"]}, each year')
+        self.assertEqual(c['dateline_ko'], f'해마다 {S.BOXOFFICE_D["ko"]}')
+        for w in S.WEEKDAY_NAMES_EN:
+            self.assertNotIn(w, c['dateline_en'])
+        self.assertNotIn('요일', c['dateline_ko'])
+
+    def test_the_opener_is_fixed_and_says_screens(self):
+        op_en, op_ko = S.FIXED_OPENERS['boxhist']
+        self.assertIn('screens', op_en)
+        self.assertIn('Seoul', op_en)
+        self.assertIn('스크린', op_ko)
 
     def test_the_credit_reaches_the_alt_exactly_once_and_last(self):
         c = self.card()
@@ -1254,7 +1266,7 @@ class ScreensCardCreditRidesTheFootnote(unittest.TestCase):
         c = self.card()
         _, _, note, dl = S._card_payload(c, 'en')
         self.assertEqual(note, c['src_en'])
-        self.assertEqual(dl, '')
+        self.assertEqual(dl, c['dateline_en'])
 
 
 class AirportMonthRidesTheMasthead(unittest.TestCase):
