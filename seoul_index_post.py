@@ -5662,7 +5662,64 @@ def wx_rain_to_date(key, yday):
     return out
 
 
-def wx_day_facts(key):
+# KMA's published 1991-2020 normals (평년값) for station 108, from the API허브
+# (sfc_norm1.php, tmst=2021, the period the seasonal card cites), his call, 14
+# November 2026: each rain-to-date line is followed by the WHOLE month's and
+# the WHOLE year's normal, as published. Not a to-date normal: the daily
+# normals are smoothed and do not sum to the monthly ones (November's days
+# 50.5mm against its published 51.1mm), so a to-date figure would be ours.
+# Measured 14 November 2026: the twelve monthly RN normals sum to the yearly
+# one exactly (1,417.9mm), which is the check below.
+WX_NORM = ('https://apihub.kma.go.kr/api/typ01/url/sfc_norm1.php'
+           '?norm={norm}&tmst=2021&stn=108&MM1=1&DD1=1&MM2=12&DD2=31&authKey={key}')
+WX_NORM_EN = {'month': '{month} average, 1991–2020', 'year': 'Yearly average, 1991–2020'}
+WX_NORM_KO = {'month': '{m}월 평년 강수량(1991~2020년)', 'year': '연 평년 강수량(1991~2020년)'}
+
+
+def _kma_table(text):
+    """A KMA API허브 text table as dicts keyed by its own '# ST,STN,...'
+    header, or None when the answer is not one (a JSON refusal, a 403)."""
+    if not text or '#START7777' not in text:
+        return None
+    head, rows = None, []
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith('# ST,'):
+            head = [h.strip() for h in s[1:].replace('=', '').split(',') if h.strip()]
+        elif s and not s.startswith('#') and head:
+            vals = [v.strip() for v in s.replace('=', '').split(',') if v.strip()]
+            if len(vals) != len(head):
+                return None
+            rows.append(dict(zip(head, vals)))
+    return rows if head else None
+
+
+def wx_rain_normals(hub_key):
+    """{month number: mm} and the yearly mm of station 108's 1991-2020 rain
+    normal, or None. Withheld unless the twelve months are all there, every
+    row is ST 2021 and STN 108, and the months sum to the year (to 0.15mm,
+    for KMA's rounding of each figure to 0.1)."""
+    if not hub_key:
+        return None
+    months = _kma_table(_curl(WX_NORM.format(norm='M', key=hub_key)))
+    year = _kma_table(_curl(WX_NORM.format(norm='Y', key=hub_key)))
+    try:
+        if (not months or not year or len(year) != 1
+                or any(r['ST'] != '2021' or r['STN'] != '108' for r in months + year)):
+            raise ValueError('rows')
+        by_month = {int(r['MM']): float(r['RN']) for r in months}
+        year_mm = float(year[0]['RN'])
+    except (ValueError, KeyError, TypeError):
+        print('Rain normals withheld: the answer is not twelve months and a year for station 108.')
+        return None
+    if sorted(by_month) != list(range(1, 13)) or abs(sum(by_month.values()) - year_mm) > 0.15:
+        print(f'Rain normals withheld: months {sorted(by_month)} sum to '
+              f'{sum(by_month.values()):.1f}mm against the year {year_mm}mm.')
+        return None
+    return by_month, year_mm
+
+
+def wx_day_facts(key, hub_key=None):
     """The wxday card: yesterday's published readings from station 108.
     Fills RANKED_CARD_INFO when built; prints why when withheld."""
     RANKED_CARD_INFO.pop('wxday', None)
@@ -5701,15 +5758,29 @@ def wx_day_facts(key):
              fact('wxday_lo', 'wxday', 'Low', to_f(lo), f'{lo:.1f}°C', pin=True, label_ko='최저기온')]
     rain_en, rain_ko = (f'{rn:.1f}mm', f'{rn:.1f}mm') if rn is not None else ('None', '없음')
     facts.append(fact('wxday_rain', 'wxday', 'Rain', rain_en, rain_ko, pin=True, label_ko='강수량'))
-    for fid, label_en, label_ko, mm in wx_rain_to_date(key, yday):
-        # ☔️ on the month line only; the year line is bare, his call,
-        # 14 November 2026 ("we don't need emojis on both lines").
+    totals = wx_rain_to_date(key, yday)
+    normals = wx_rain_normals(hub_key) if totals else None
+    info = RANKED_CARD_INFO['wxday']
+    for fid, label_en, label_ko, mm in totals:
+        # ☔️ on the month line only; every other rain line is bare but
+        # indented to line up, his call, 14 November 2026 ("we don't need
+        # emojis on both lines").
         if fid == 'wxday_rain_month':
-            RANKED_CARD_INFO['wxday']['line_emoji'][label_en] = '☔️'
-        else:   # bare, but indented to line up with the labels above it
-            RANKED_CARD_INFO['wxday'].setdefault('indent_labels', set()).add(label_en)
-        facts.append(fact(fid, 'wxday', label_en, f'{mm:.1f}mm', f'{mm:.1f}mm',
+            info['line_emoji'][label_en] = '☔️'
+        else:
+            info.setdefault('indent_labels', set()).add(label_en)
+        facts.append(fact(fid, 'wxday', label_en, f'{mm:,.1f}mm', f'{mm:,.1f}mm',
                           pin=True, label_ko=label_ko))
+        # Each total is followed by its whole-period normal, and only by it:
+        # no normal stands on the card without the total it sits under.
+        if normals:
+            span = 'month' if fid == 'wxday_rain_month' else 'year'
+            nmm = normals[0][yday.month] if span == 'month' else normals[1]
+            n_en = WX_NORM_EN[span].format(month=f'{yday:%B}')
+            n_ko = WX_NORM_KO[span].format(m=yday.month)
+            info.setdefault('indent_labels', set()).add(n_en)
+            facts.append(fact(f'wxday_norm_{span}', 'wxday', n_en, f'{nmm:,.1f}mm',
+                              f'{nmm:,.1f}mm', pin=True, label_ko=n_ko))
     # Sunshine hours, his call, 11 September 2026: on a dry day it says what
     # "Rain: None" cannot (3 September 11.0 hours, 10 September 0.2). And
     # fresh snow, only on a day it fell, the seasonal-line pattern.
@@ -9575,7 +9646,7 @@ def build_pool(api_key, state, kosis_key=None, gov_key=None, hrfco_key=None,
     pool += guarded(worldbank_facts, state, kosis_key)
     pool += guarded(molit_facts, gov_key)
     pool += guarded(kma_facts, gov_key)
-    pool += guarded(wx_day_facts, gov_key)
+    pool += guarded(wx_day_facts, gov_key, kma_hub_key)
     pool += guarded(kac_facts, gov_key, kosis_key)
     pool += guarded(iiac_facts, gov_key, kosis_key)
     # rail (Korea's busiest intercity route and commuter line, and a
@@ -9640,7 +9711,7 @@ Rules:
 - "nation" lines set SEOUL against whole countries, on one metric, from the World Bank (countries) and KOSIS (Seoul). Seoul leads the card; the peers are whole nations (Korea, Japan, the US…), which is the point — e.g. Seoul is denser than entire countries. Labels are BARE PLACE NAMES (Seoul, then countries), so the opener MUST name the metric (e.g. "People per square kilometer", "Births per woman") — the same rule as the world lines. Do NOT reach for the generic "Seoul and the nation" / "서울과 전국" opener here: that framing belongs to the Seoul-vs-Korea "national" lines, and on a nation card it names no metric, leaving the countries measuring nothing — make the metric itself the opener. Build them into their own post: every nation line must come from the SAME pair (all nation_density, or all nation_fertility, never a mix), ALWAYS include the Seoul line, and a nation line NEVER appears alongside a Seoul-only line of any other category or a world (city) line. The pair is the point: Seoul against the country that most sharpens it (the widest gap, or a near dead heat).
 - "property" lines are one month's apartment-market filings from the national land ministry: actual sale prices (the dearest and cheapest single sales), a record jeonse deposit, and counts of filings. Build them into their own post — never alongside a live "right now" line, a spending line, a national line or a world line. The pairs are the point: the price gap (dearest vs cheapest sale) or the jeonse/monthly-rent split. Never put a month or date in a property label — the filing month rides on the card automatically.
 - "weather" lines are published readings from Seoul's official weather station: the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the then-and-now monthly set OR the season-to-date set (never blend the two). A season-to-date post is built around the swelter tally ("Days of 33°C or more, June 1–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, and the arrangement carries the half-century — never point it out. ℹ️ Python owns the LAYOUT of these cards: it groups the lines by metric, draws each metric once as a subhead, and puts the newer year first in every group, so you do not have to order them and cannot get the two pairs out of step. Choose a coherent set of complete pairs and leave the rest alone. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
-- "wxday" lines are YESTERDAY's published readings at Seoul's reference weather station: the high, the low and the rain (a rain value of "None" means none was recorded, and it is a reading, not a gap), and the rain so far in that month and that year — own post, never mixed with any other category, including "weather". All the lines offered are compulsory, in that order. Its opener is FIXED and written by Python ("Seoul's weather yesterday"), so whatever opener you write for this card is replaced; the dateline carries the date. Never call the day hot, cold, wet or dry, and never compare it with anything.
+- "wxday" lines are YESTERDAY's published readings at Seoul's reference weather station: the high, the low and the rain (a rain value of "None" means none was recorded, and it is a reading, not a gap), and the rain so far in that month and that year, each followed by the weather agency's published 1991–2020 average for the whole month or year — own post, never mixed with any other category, including "weather". All the lines offered are compulsory, in that order. Its opener is FIXED and written by Python ("Seoul's weather yesterday"), so whatever opener you write for this card is replaced; the dateline carries the date. Never call the day hot, cold, wet or dry, and never compare it with anything.
 - "rescue" lines are ONE WEEK of rescue notices filed by Seoul's districts on the national animal protection register: every animal, then cats, dogs and other animals — own post, never mixed with any other category. All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Animals rescued in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote says who files the notices. Never call the week busy or quiet, never remark on the split between cats and dogs, and never mention shelters, adoption or what became of any animal.
 - "seasonal" lines are ONE seasonal observation at Seoul's reference weather station (a first bloom, leaves turning, the first frost or snow): the date it was observed THIS season, the same observation LAST season and the weather agency's published 1991–2020 normal — own post, never mixed with any other category, including "weather" and "wxday". All THREE lines are compulsory, in that order. Its opener is FIXED and written by Python (it names the event), so whatever opener you write for this card is replaced. Never call it early, late, unusual or a sign of anything, and never compare the dates yourself.
 - "arrivals" lines are ONE MONTH of travel across Korea's borders from the Korea Culture and Tourism Institute: foreigners arriving and Koreans leaving, each in the newest month and the same month a year earlier — own post, never mixed with any other category. All FOUR lines are compulsory. Its opener is FIXED and written by Python ("In and out of Korea"). Never call the month a record, busy or quiet, never give a percentage, and never compare the figures yourself.
@@ -11828,7 +11899,9 @@ def compose(sel, pool):
     # The seasonal observations come from KMA's API허브, not the data.go.kr
     # services the other weather veins read, so its own host is credited
     # (his call, 29 October 2026).
-    uses_kma_hub = 'seasonal' in cats
+    # wxday's two 1991-2020 averages come from the API허브 too (14 November 2026).
+    uses_kma_hub = 'seasonal' in cats or any(l.get('id', '').startswith('wxday_norm_')
+                                             for l in lines)
     uses_kac = 'airport' in cats
     # Incheon's totals are Korea Airports Corporation's (KOSIS); only the
     # country line is the Incheon feed's. See iiac_facts().

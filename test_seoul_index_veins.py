@@ -4320,6 +4320,61 @@ class WxRainToDate(unittest.TestCase):
         self.assertNotIn('class="ico"', C._row_html({'label': 'x', 'value': '1'}))
         self.assertNotIn('hidden', C._row_html({'emoji': '☔️', 'label': 'x', 'value': '1', 'indent': True}))
 
+    NORM_HEAD = ('#START7777\n# ST,STN, MM,    TA,TA_MAX,TA_MIN,    RN,=\n')
+
+    def normals(self, months=None, year='1417.9', stn='108'):
+        months = months or {1: 16.8, 2: 28.2, 3: 36.9, 4: 72.9, 5: 103.6, 6: 129.5,
+                            7: 414.4, 8: 348.2, 9: 141.5, 10: 52.2, 11: 51.1, 12: 22.6}
+        m = self.NORM_HEAD + ''.join(f'2021,{stn},{k},1,1,1,{v},=\n' for k, v in months.items()) + '#7777END'
+        y = '#START7777\n# ST,STN,    TA,TA_MAX,TA_MIN,    RN,=\n' + f'2021,{stn},12.8,17.4,8.9,{year},=\n#7777END'
+        real = S._curl
+        S._curl = lambda url, *a, **k: m if 'norm=M' in url else y
+        try:
+            return S.wx_rain_normals('HUB')
+        finally:
+            S._curl = real
+
+    def test_the_published_normals_are_read_and_checked_against_each_other(self):
+        by_month, year = self.normals()
+        self.assertEqual((by_month[11], year), (51.1, 1417.9))
+        self.assertIsNone(self.normals(year='1500.0'))                  # months do not sum to it
+        self.assertIsNone(self.normals(months={11: 51.1}, year='51.1'))  # not twelve months
+        self.assertIsNone(self.normals(stn='112'))
+        self.assertIsNone(S.wx_rain_normals(None))
+        real = S._curl
+        S._curl = lambda *a, **k: '{"result": {"status": 403}}'
+        try:
+            self.assertIsNone(S.wx_rain_normals('HUB'))
+        finally:
+            S._curl = real
+
+    def test_each_average_follows_its_own_total_and_never_stands_alone(self):
+        yday = S.datetime.now(S.SEOUL_TZ).date() - S.timedelta(days=1)
+        real = (S._wx_rows, S.check_wxday, S.wx_rain_normals)
+
+        def rows(key, start, end, rows=31):
+            if start == end:
+                return [{'tm': f'{yday:%Y-%m-%d}', 'stnId': '108', 'maxTa': '15.6', 'minTa': '8.9', 'sumRn': ''}]
+            return self.year(yday, lambda d: '1.0')
+        S._wx_rows, S.check_wxday = rows, lambda *a: None
+        S.wx_rain_normals = lambda k: ({m: 10.0 for m in range(1, 13)}, 1234.5)
+        try:
+            ids = [f['id'] for f in S.wx_day_facts('KEY', 'HUB')]
+            vals = {f['id']: f['value_en'] for f in S.wx_day_facts('KEY', 'HUB')}
+            S.wx_rain_normals = lambda k: None
+            bare = [f['id'] for f in S.wx_day_facts('KEY', 'HUB')]
+        finally:
+            S._wx_rows, S.check_wxday, S.wx_rain_normals = real
+            S.RANKED_CARD_INFO.pop('wxday', None)
+        for total, norm in (('wxday_rain_month', 'wxday_norm_month'), ('wxday_rain_year', 'wxday_norm_year')):
+            if total in ids:
+                self.assertEqual(ids.index(norm), ids.index(total) + 1)
+            else:
+                self.assertNotIn(norm, ids)
+        if 'wxday_norm_year' in vals:
+            self.assertEqual(vals['wxday_norm_year'], '1,234.5mm')
+        self.assertFalse([i for i in bare if i.startswith('wxday_norm_')])
+
     def test_wxday_ids_never_go_to_the_selector_as_ids_to_avoid(self):
         # With yesterday's ids on AVOID_IDS the selector answered with only
         # the two new rain-to-date lines, twice in one dry run.
