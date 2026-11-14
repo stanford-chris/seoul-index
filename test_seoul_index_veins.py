@@ -4244,6 +4244,94 @@ class WxDayCard(unittest.TestCase):
         self.assertIn("uses_kma = bool({'weather', 'river', 'wxday', 'seasonal'} & cats)", src)
 
 
+class WxRainToDate(unittest.TestCase):
+    """Rain so far this month and this year on the wxday card, summed from
+    the daily rows (his call, 14 November 2026). What would ship it wrong: a
+    missing day summed as a dry one, another station's row, a blank read as
+    anything but 0, and a line that only repeats another (the month line on
+    the 1st, the year line in January)."""
+
+    REAL_SELECT = staticmethod(S.select)
+
+    def run_with(self, yday, rows):
+        real = S._wx_rows
+        S._wx_rows = lambda key, start, end, rows_=None, **kw: rows
+        try:
+            return S.wx_rain_to_date('KEY', yday)
+        finally:
+            S._wx_rows = real
+
+    def year(self, yday, rain=lambda d: ''):
+        d, out = S.date(yday.year, 1, 1), []
+        while d <= yday:
+            out.append({'tm': f'{d:%Y-%m-%d}', 'stnId': '108', 'sumRn': rain(d)})
+            d += S.timedelta(days=1)
+        return out
+
+    def test_month_and_year_sums_with_blanks_as_dry(self):
+        yday = S.date(2026, 11, 13)
+        rows = self.year(yday, lambda d: '1.5' if d.day == 5 else ('0.0' if d.day == 6 else ''))
+        self.assertEqual(self.run_with(yday, rows),
+                         [('wxday_rain_month', 'Rain so far in November', '11월 누적 강수량', 1.5),
+                          ('wxday_rain_year', 'Rain so far in 2026', '2026년 누적 강수량', 16.5)])
+
+    def test_a_missing_day_or_another_station_drops_both_lines(self):
+        yday = S.date(2026, 11, 13)
+        rows = self.year(yday, lambda d: '2.0')
+        self.assertEqual(self.run_with(yday, rows[:-1]), [])
+        rows[40]['stnId'] = '112'
+        self.assertEqual(self.run_with(yday, rows), [])
+        self.assertEqual(self.run_with(yday, []), [])
+
+    def test_no_month_line_on_the_first_and_no_year_line_in_january(self):
+        self.assertEqual([t[0] for t in self.run_with(S.date(2026, 11, 1), self.year(S.date(2026, 11, 1)))],
+                         ['wxday_rain_year'])
+        self.assertEqual([t[0] for t in self.run_with(S.date(2026, 1, 9), self.year(S.date(2026, 1, 9)))],
+                         ['wxday_rain_month'])
+        self.assertEqual(self.run_with(S.date(2026, 1, 1), self.year(S.date(2026, 1, 1))), [])
+
+    def test_the_card_carries_them_after_the_days_rain_with_their_own_glyph(self):
+        yday = S.datetime.now(S.SEOUL_TZ).date() - S.timedelta(days=1)
+        real_rows, real_check = S._wx_rows, S.check_wxday
+
+        def rows(key, start, end, rows=31):
+            if start == end:
+                return [{'tm': f'{yday:%Y-%m-%d}', 'stnId': '108', 'maxTa': '15.6', 'minTa': '8.9', 'sumRn': ''}]
+            return self.year(yday, lambda d: '1.0')
+        S._wx_rows, S.check_wxday = rows, lambda *a: None
+        try:
+            facts = S.wx_day_facts('KEY')
+        finally:
+            S._wx_rows, S.check_wxday = real_rows, real_check
+            info = S.RANKED_CARD_INFO.pop('wxday', {})
+        labels = [f['label_en'] for f in facts]
+        self.assertEqual(labels[:3], ['High', 'Low', 'Rain'])
+        extra = [l for l in labels[3:] if l.startswith('Rain so far')]
+        self.assertTrue(extra)
+        self.assertTrue(all(info['line_emoji'][l] == '☔️' for l in extra))
+
+    def test_wxday_ids_never_go_to_the_selector_as_ids_to_avoid(self):
+        # With yesterday's ids on AVOID_IDS the selector answered with only
+        # the two new rain-to-date lines, twice in one dry run.
+        seen = {}
+
+        def run(cmd, **kw):
+            seen['prompt'] = cmd[-1]
+            return types.SimpleNamespace(stdout='{"picks": []}', returncode=0, stderr='')
+        real = S.subprocess.run
+        S.subprocess.run = run
+        try:
+            pool = [{'id': i, 'cat': 'wxday', 'label_en': i, 'value_en': '1',
+                     'estimated': False, 'pair': None} for i in ('wxday_hi', 'wxday_rain_month')]
+            # The real select(): test_seoul_index_selection swaps S.select
+            # for a stub and leaves it, so look it up as it was at import.
+            self.REAL_SELECT(pool, {'recent_ids': ['wxday_hi', 'sub_x']})
+        finally:
+            S.subprocess.run = real
+        payload = json.loads(seen['prompt'].rsplit('\n\n', 1)[1])
+        self.assertEqual(payload['AVOID_IDS'], ['sub_x'])
+
+
 class RescueCard(unittest.TestCase):
     """One week of Seoul's rescue notices, the total and the species split.
     What would ship it wrong: a window that ends yesterday (notices lag the

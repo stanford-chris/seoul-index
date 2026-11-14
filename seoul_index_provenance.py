@@ -340,9 +340,9 @@ PROVENANCE = {
     },
     'wxday': {
         'source': 'ASOS daily, yesterday’s row, station 108',
-        'counts': 'High (maxTa), low (minTa), rain (sumRn; blank prints “None”), sunshine (sumSsHr), fresh-snow depth (ddMefs).',
-        'checked_against': 'ASOS hourly, hours 00 to 23 (24:00 is not served until the day after): over 41 days, sunshine equal; rain from 01:00 never more than the total, none on a blank day; high 0 to 0.9 above, low 0 to 0.6 below.',
-        'complete_fetch': 'One row.',
+        'counts': 'High (maxTa), low (minTa), rain (sumRn; blank prints “None”), sunshine (sumSsHr), fresh-snow depth (ddMefs). Rain so far in the month and the year: sumRn summed over every day from the 1st and from 1 January to yesterday (blank counts as 0); no month line on the 1st, no year line in January.',
+        'checked_against': 'ASOS hourly, hours 00 to 23 (24:00 is not served until the day after): over 41 days, sunshine equal; rain from 01:00 never more than the total, none on a blank day; high 0 to 0.9 above, low 0 to 0.6 below. The summed month agrees with KMA’s own monthly report (SfcMtlyInfoService getMmSumry2 rn_day): October 2025, 186.3mm both ways; that report runs about ten months behind, so it cannot supply the running figure.',
+        'complete_fetch': 'One row; and one page from 1 January to yesterday (numOfRows 366), every date present once at station 108, or both rain-to-date lines drop.',
         'labels': 'Accurate.',
         'verified': V,
         'checks': [c(R, B, 'One row, station 108, yesterday; 24 hourly readings; sunshine equal; rain not exceeded; high and low within 1.5 of the hourly extremes.')],

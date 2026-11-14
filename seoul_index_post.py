@@ -5482,6 +5482,8 @@ JEONSE_NOTE_EN = ('Jeonse is a lump-sum deposit paid instead of monthly rent, '
 # Same editorial rule as the property vein: a line is a published daily
 # reading (the hottest day IS a row) or a count of rows against a criterion
 # stated in the label. No monthly means or totals — those are computations.
+# ONE exception, his call, 14 November 2026: wxday's rain so far this month
+# and this year, summed from every daily row (see wx_rain_to_date()).
 #
 # The half-century pair is the vein's reason to exist: the same calendar
 # month, WX_YEARS_BACK years apart, each side a published reading from the
@@ -5623,6 +5625,43 @@ def check_wxday(key, rows, yday):
     require(min(ta) - 1.5 <= lo <= min(ta), f'wxday: low {lo}, hourly minimum {min(ta)}')
 
 
+def wx_rain_to_date(key, yday):
+    """Rain so far in yesterday's month and year at station 108, summed from
+    the daily rows: [(id, label_en, label_ko, mm)], or [] when the rows are
+    not complete. His call, 14 November 2026 ("sum daily rows"), which sets
+    aside the vein's no-totals rule for these two lines only. KMA's own
+    monthly report (SfcMtlyInfoService getMmSumry2, rn_day) publishes the
+    same sum, but about ten months late: December 2025 was its newest month
+    on 14 November 2026. Where it has published, the method agrees exactly:
+    October 2025's 31 daily rows sum to 186.3mm, its rn_day.
+
+    One call for 1 January to yesterday (317 rows on 13 November 2026, one
+    page). A blank sumRn is a dry day (see the wxday notes above), but a
+    MISSING row is not, so every day must be present, station 108, once;
+    otherwise both lines drop and the card keeps its daily lines. On the 1st
+    the month line would only repeat yesterday's rain, and in January the
+    year line would only repeat the month's, so each is left off then."""
+    start = yday.replace(month=1, day=1)
+    rows = _wx_rows(key, f'{start:%Y%m%d}', f'{yday:%Y%m%d}', rows=366)
+    want = {f'{start + timedelta(days=i):%Y-%m-%d}' for i in range((yday - start).days + 1)}
+    got = [r.get('tm') for r in rows]
+    if (len(got) != len(want) or set(got) != want
+            or any(r.get('stnId') != '108' for r in rows)):
+        print(f'Rain-to-date lines withheld: {len(got)} daily rows for {len(want)} days.')
+        return []
+    month = f'{yday:%Y-%m}'
+    year_mm = sum(_wx_num(r, 'sumRn') or 0 for r in rows)
+    month_mm = sum(_wx_num(r, 'sumRn') or 0 for r in rows if r['tm'].startswith(month))
+    out = []
+    if yday.day > 1:
+        out.append(('wxday_rain_month', f'Rain so far in {yday:%B}',
+                    f'{yday.month}월 누적 강수량', round(month_mm, 1)))
+    if yday.month > 1:
+        out.append(('wxday_rain_year', f'Rain so far in {yday.year}',
+                    f'{yday.year}년 누적 강수량', round(year_mm, 1)))
+    return out
+
+
 def wx_day_facts(key):
     """The wxday card: yesterday's published readings from station 108.
     Fills RANKED_CARD_INFO when built; prints why when withheld."""
@@ -5662,6 +5701,10 @@ def wx_day_facts(key):
              fact('wxday_lo', 'wxday', 'Low', to_f(lo), f'{lo:.1f}°C', pin=True, label_ko='최저기온')]
     rain_en, rain_ko = (f'{rn:.1f}mm', f'{rn:.1f}mm') if rn is not None else ('None', '없음')
     facts.append(fact('wxday_rain', 'wxday', 'Rain', rain_en, rain_ko, pin=True, label_ko='강수량'))
+    for fid, label_en, label_ko, mm in wx_rain_to_date(key, yday):
+        RANKED_CARD_INFO['wxday']['line_emoji'][label_en] = '☔️'
+        facts.append(fact(fid, 'wxday', label_en, f'{mm:.1f}mm', f'{mm:.1f}mm',
+                          pin=True, label_ko=label_ko))
     # Sunshine hours, his call, 11 September 2026: on a dry day it says what
     # "Rain: None" cannot (3 September 11.0 hours, 10 September 0.2). And
     # fresh snow, only on a day it fell, the seasonal-line pattern.
@@ -9592,7 +9635,7 @@ Rules:
 - "nation" lines set SEOUL against whole countries, on one metric, from the World Bank (countries) and KOSIS (Seoul). Seoul leads the card; the peers are whole nations (Korea, Japan, the US…), which is the point — e.g. Seoul is denser than entire countries. Labels are BARE PLACE NAMES (Seoul, then countries), so the opener MUST name the metric (e.g. "People per square kilometer", "Births per woman") — the same rule as the world lines. Do NOT reach for the generic "Seoul and the nation" / "서울과 전국" opener here: that framing belongs to the Seoul-vs-Korea "national" lines, and on a nation card it names no metric, leaving the countries measuring nothing — make the metric itself the opener. Build them into their own post: every nation line must come from the SAME pair (all nation_density, or all nation_fertility, never a mix), ALWAYS include the Seoul line, and a nation line NEVER appears alongside a Seoul-only line of any other category or a world (city) line. The pair is the point: Seoul against the country that most sharpens it (the widest gap, or a near dead heat).
 - "property" lines are one month's apartment-market filings from the national land ministry: actual sale prices (the dearest and cheapest single sales), a record jeonse deposit, and counts of filings. Build them into their own post — never alongside a live "right now" line, a spending line, a national line or a world line. The pairs are the point: the price gap (dearest vs cheapest sale) or the jeonse/monthly-rent split. Never put a month or date in a property label — the filing month rides on the card automatically.
 - "weather" lines are published readings from Seoul's official weather station: the last full month set against the SAME month FIFTY YEARS earlier, and (in summer) a season-to-date swelter tally — days of 33°C or more counted from 1 June through yesterday — likewise against the same span fifty years back (each label already carries its dates and year — do not reword those labels). Build them into their own post, never mixed with any other category, and pick ONE frame: the then-and-now monthly set OR the season-to-date set (never blend the two). A season-to-date post is built around the swelter tally ("Days of 33°C or more, June 1–…") — always include that pair; the hottest/wettest/tropical season-to-date pairs are its companions. In any then-and-now or season-to-date post every pair must keep BOTH its sides, and the arrangement carries the half-century — never point it out. ℹ️ Python owns the LAYOUT of these cards: it groups the lines by metric, draws each metric once as a subhead, and puts the newer year first in every group, so you do not have to order them and cannot get the two pairs out of step. Choose a coherent set of complete pairs and leave the rest alone. Open both fifty-year weather frames with "50 years apart" / "50년의 간격" (the numeral, not "Fifty").
-- "wxday" lines are YESTERDAY's published readings at Seoul's reference weather station: the high, the low and the rain (a rain value of "None" means none was recorded, and it is a reading, not a gap) — own post, never mixed with any other category, including "weather". All the lines offered are compulsory, in that order. Its opener is FIXED and written by Python ("Seoul's weather yesterday"), so whatever opener you write for this card is replaced; the dateline carries the date. Never call the day hot, cold, wet or dry, and never compare it with anything.
+- "wxday" lines are YESTERDAY's published readings at Seoul's reference weather station: the high, the low and the rain (a rain value of "None" means none was recorded, and it is a reading, not a gap), and the rain so far in that month and that year — own post, never mixed with any other category, including "weather". All the lines offered are compulsory, in that order. Its opener is FIXED and written by Python ("Seoul's weather yesterday"), so whatever opener you write for this card is replaced; the dateline carries the date. Never call the day hot, cold, wet or dry, and never compare it with anything.
 - "rescue" lines are ONE WEEK of rescue notices filed by Seoul's districts on the national animal protection register: every animal, then cats, dogs and other animals — own post, never mixed with any other category. All FOUR lines are compulsory, used together, in that order. Its opener is FIXED and written by Python ("Animals rescued in Seoul"), so whatever opener you write for this card is replaced; the dateline carries the week and the footnote says who files the notices. Never call the week busy or quiet, never remark on the split between cats and dogs, and never mention shelters, adoption or what became of any animal.
 - "seasonal" lines are ONE seasonal observation at Seoul's reference weather station (a first bloom, leaves turning, the first frost or snow): the date it was observed THIS season, the same observation LAST season and the weather agency's published 1991–2020 normal — own post, never mixed with any other category, including "weather" and "wxday". All THREE lines are compulsory, in that order. Its opener is FIXED and written by Python (it names the event), so whatever opener you write for this card is replaced. Never call it early, late, unusual or a sign of anything, and never compare the dates yourself.
 - "arrivals" lines are ONE MONTH of travel across Korea's borders from the Korea Culture and Tourism Institute: foreigners arriving and Koreans leaving, each in the newest month and the same month a year earlier — own post, never mixed with any other category. All FOUR lines are compulsory. Its opener is FIXED and written by Python ("In and out of Korea"). Never call the month a record, busy or quiet, never give a percentage, and never compare the figures yourself.
@@ -10132,7 +10175,13 @@ CONFINED = ['--restricted', '--tools', '']
 
 
 def select(pool, state):
-    avoid = state.get('recent_ids', [])[-RECENT_IDS_KEEP:]
+    # wxday's lines are all compulsory and carry the same ids every day, so
+    # they never go out as ids to avoid. While every wxday id was on the list
+    # the selector had no other choice and used them all; once the two
+    # rain-to-date lines arrived (14 November 2026) they were the only ids NOT
+    # on it, and it answered with just those two, twice in one dry run.
+    compulsory = {f['id'] for f in pool if f['cat'] == 'wxday'}
+    avoid = [i for i in state.get('recent_ids', [])[-RECENT_IDS_KEEP:] if i not in compulsory]
     slim = [{'id': f['id'], 'cat': f['cat'], 'label_en': f['label_en'],
              'value_en': f['value_en'], 'estimated': f['estimated'], 'pair': f['pair']}
             for f in pool]
