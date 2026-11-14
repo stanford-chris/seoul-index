@@ -4308,7 +4308,10 @@ class WxRainToDate(unittest.TestCase):
         self.assertEqual(labels[:3], ['High', 'Low', 'Rain'])
         extra = [l for l in labels[3:] if l.startswith('Rain so far')]
         self.assertTrue(extra)
-        self.assertTrue(all(info['line_emoji'][l] == '☔️' for l in extra))
+        month = [l for l in extra if not l[-4:].isdigit()]
+        year = [l for l in extra if l[-4:].isdigit()]
+        self.assertTrue(all(info['line_emoji'][l] == '☔️' for l in month))
+        self.assertTrue(all(l not in info['line_emoji'] for l in year))   # bare, his call
 
     def test_wxday_ids_never_go_to_the_selector_as_ids_to_avoid(self):
         # With yesterday's ids on AVOID_IDS the selector answered with only

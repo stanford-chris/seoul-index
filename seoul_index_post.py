@@ -5702,7 +5702,10 @@ def wx_day_facts(key):
     rain_en, rain_ko = (f'{rn:.1f}mm', f'{rn:.1f}mm') if rn is not None else ('None', '없음')
     facts.append(fact('wxday_rain', 'wxday', 'Rain', rain_en, rain_ko, pin=True, label_ko='강수량'))
     for fid, label_en, label_ko, mm in wx_rain_to_date(key, yday):
-        RANKED_CARD_INFO['wxday']['line_emoji'][label_en] = '☔️'
+        # ☔️ on the month line only; the year line is bare, his call,
+        # 14 November 2026 ("we don't need emojis on both lines").
+        if fid == 'wxday_rain_month':
+            RANKED_CARD_INFO['wxday']['line_emoji'][label_en] = '☔️'
         facts.append(fact(fid, 'wxday', label_en, f'{mm:.1f}mm', f'{mm:.1f}mm',
                           pin=True, label_ko=label_ko))
     # Sunshine hours, his call, 11 September 2026: on a dry day it says what
