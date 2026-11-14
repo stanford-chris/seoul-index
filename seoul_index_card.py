@@ -135,6 +135,11 @@ def _row_html(line):
     # this span (rather than leaving the emoji to fend for itself) whenever
     # the row would otherwise wrap and orphan it alone on its own line.
     lead = f'<span class="ico">{_esc(emoji)} </span>' if emoji else ''
+    # 'indent': a bare row that should line up with glyph-led rows. A real
+    # emoji, hidden, takes exactly an emoji's width; it is never in the alt
+    # text, which is built from the line's own (empty) emoji.
+    if not emoji and line.get('indent'):
+        lead = '<span class="ico" style="visibility:hidden">☔️ </span>'
     lab = _esc(line['label'])
     m = _YEAR_LEAD.match(lab)
     if m:

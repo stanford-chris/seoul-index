@@ -5706,6 +5706,8 @@ def wx_day_facts(key):
         # 14 November 2026 ("we don't need emojis on both lines").
         if fid == 'wxday_rain_month':
             RANKED_CARD_INFO['wxday']['line_emoji'][label_en] = '☔️'
+        else:   # bare, but indented to line up with the labels above it
+            RANKED_CARD_INFO['wxday'].setdefault('indent_labels', set()).add(label_en)
         facts.append(fact(fid, 'wxday', label_en, f'{mm:.1f}mm', f'{mm:.1f}mm',
                           pin=True, label_ko=label_ko))
     # Sunshine hours, his call, 11 September 2026: on a dry day it says what
@@ -12906,6 +12908,12 @@ def compose(sel, pool):
             l['emoji'] = _valid_emoji(per_line.get(l['label_en']))
             if cats != {l['cat']} and not l['emoji']:
                 l['emoji'] = _valid_emoji(entry.get('cross_emoji'))
+            # A bare line on a card whose other lines carry glyphs: an
+            # invisible slot keeps its label in line with theirs (see
+            # _row_html's 'indent'). wxday's year rain line, his call,
+            # 14 November 2026.
+            if not l['emoji'] and l['label_en'] in entry.get('indent_labels', ()):
+                l['indent'] = True
 
     # The ordered elements the card draws, per language. A grouped cross pair puts
     # a date subhead over the dated lines and a "Right now" subhead over the live
@@ -12916,7 +12924,8 @@ def compose(sel, pool):
         rows = [{'emoji': l['emoji'], 'label': l[f'label_{lang}'],
                  'value': l[f'value_{lang}'],
                  **({'emph': l[f'emph_{lang}']} if l.get(f'emph_{lang}') else {}),
-                 **({'bold': True} if l.get('bold') else {})}
+                 **({'bold': True} if l.get('bold') else {}),
+                 **({'indent': True} if l.get('indent') else {})}
                 for l in lines]
         if metric_grouped:
             # Metric as the subhead, period as the row, bolded because under the

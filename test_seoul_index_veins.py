@@ -4312,6 +4312,13 @@ class WxRainToDate(unittest.TestCase):
         year = [l for l in extra if l[-4:].isdigit()]
         self.assertTrue(all(info['line_emoji'][l] == '☔️' for l in month))
         self.assertTrue(all(l not in info['line_emoji'] for l in year))   # bare, his call
+        self.assertTrue(all(l in info['indent_labels'] for l in year))    # but in line
+
+    def test_an_indented_bare_row_gets_a_hidden_slot_and_nothing_else_does(self):
+        import seoul_index_card as C
+        self.assertIn('visibility:hidden', C._row_html({'label': 'x', 'value': '1', 'indent': True}))
+        self.assertNotIn('class="ico"', C._row_html({'label': 'x', 'value': '1'}))
+        self.assertNotIn('hidden', C._row_html({'emoji': '☔️', 'label': 'x', 'value': '1', 'indent': True}))
 
     def test_wxday_ids_never_go_to_the_selector_as_ids_to_avoid(self):
         # With yesterday's ids on AVOID_IDS the selector answered with only
