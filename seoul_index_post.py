@@ -5672,7 +5672,7 @@ def wx_rain_to_date(key, yday):
 # one exactly (1,417.9mm), which is the check below.
 WX_NORM = ('https://apihub.kma.go.kr/api/typ01/url/sfc_norm1.php'
            '?norm={norm}&tmst=2021&stn=108&MM1=1&DD1=1&MM2=12&DD2=31&authKey={key}')
-WX_NORM_EN = {'month': 'Average total for {month}, 1991–2020', 'year': 'Yearly average, 1991–2020'}
+WX_NORM_EN = {'month': 'Average total for {month}, 1991–2020', 'year': 'Average total for the year, 1991–2020'}
 WX_NORM_KO = {'month': '{m}월 평년 강수량(1991~2020년)', 'year': '연 평년 강수량(1991~2020년)'}
 
 
