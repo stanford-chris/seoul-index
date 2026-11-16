@@ -421,6 +421,54 @@ class PriceSpreadGuard(unittest.TestCase):
             self.assertEqual(S.price_facts('KEY', {'price_i': 1}), [])
 
 
+# The Open Data Plaza renames this service's fields between 30 November and
+# 4 December 2026 (mailed 16 November), gradually, so a page can carry either.
+def renamed(r, compact_date=False):
+    back = {old: new for new, old in S.PRICE_FIELD_RENAMES.items()}
+    out = {back.get(k, k): v for k, v in r.items()}
+    if compact_date:
+        out['CHCK_YMD'] = out['CHCK_YMD'].replace('-', '')
+    return out
+
+
+class PriceFieldRenames(unittest.TestCase):
+    ROWS = [(2000, '노원구', '대형마트', '2026-08-10'), (3500, '광진구', '전통시장', '2026-08-12'),
+            (6900, '동작구', '전통시장', '2026-08-14')]
+
+    def run_rows(self, rows, convert):
+        rows = sorted(rows + round_filler(), key=lambda r: r['P_DATE'], reverse=True) + [old_row()]
+        rows = [convert(i, r) for i, r in enumerate(rows)]
+        with Stub({'ListNecessariesPrices': ok('ListNecessariesPricesService', rows)}):
+            return {f['value_en'] for f in S.price_facts('KEY', {'price_i': 1})}
+
+    def check(self, convert):
+        vals = self.run_rows([prow(CABBAGE, p, gu, kind, date=d) for p, gu, kind, d in self.ROWS],
+                             convert)
+        self.assertIn('₩2,000', vals)
+        self.assertIn('₩6,900', vals)
+        self.assertEqual(S.PRICE_PERIOD['en'], 'August 10 to 14')
+
+    def test_old_names(self):
+        self.check(lambda i, r: r)
+
+    def test_new_names(self):
+        self.check(lambda i, r: renamed(r))
+
+    def test_new_names_with_a_compact_date(self):
+        self.check(lambda i, r: renamed(r, compact_date=True))
+
+    def test_a_page_mixing_both(self):
+        self.check(lambda i, r: renamed(r) if i % 2 else r)
+
+    def test_a_noted_price_is_left_out_under_the_new_names(self):
+        rows = [prow(CABBAGE, 3000, '노원구'), prow(CABBAGE, 3500, '광진구'),
+                prow(CABBAGE, 6900, '동작구'), prow(CABBAGE, 1000, '중구')]
+        rows[-1]['ADD_COL'] = '농식품부 할인지원'
+        vals = self.run_rows(rows, lambda i, r: renamed(r))
+        self.assertIn('₩6,900', vals)
+        self.assertNotIn('₩1,000', vals)
+
+
 # ---------------------------------------------------------------------------
 # WPOSInformationTime + KMA: one hour, and the Han must be in it
 # ---------------------------------------------------------------------------

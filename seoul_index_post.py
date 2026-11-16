@@ -4156,6 +4156,31 @@ PRICE_KIND = {'전통시장': ('a traditional market', '전통시장'),
 PRICE_PERIOD = {'en': None, 'ko': None}
 PRICE_LABEL = {'en': None, 'ko': None}
 
+# ⚠️ FIELD RENAMES, 30 November to 4 December 2026. The Open Data Plaza mailed
+# on 16 November 2026 that this service's output fields get new names (P_DATE
+# becomes CHCK_YMD, A_PRICE becomes PRC, and so on), rolled out gradually on
+# dates that may slip. Every row is put into the old names on arrival, so the
+# vein reads either, and the date is normalized to YYYY-MM-DD in case the new
+# field drops the hyphens. Once the new names are seen live, read them directly
+# and drop this table.
+PRICE_FIELD_RENAMES = {
+    'SN': 'P_SEQ', 'MRKT_MART_NM': 'M_NAME', 'ITEM_NAME': 'A_NAME',
+    'VRTY': 'SPCIES', 'QTY': 'QY', 'PRC': 'A_PRICE', 'RMRK': 'ADD_COL',
+    'MRKT_TYPE_SE_NM': 'M_TYPE_NAME', 'SGG_NM': 'M_GU_NAME', 'CHCK_YMD': 'P_DATE',
+}
+
+
+def _price_row_compat(r):
+    """One feed row in the old field names, whichever names it arrived in."""
+    out = dict(r)
+    for new, old in PRICE_FIELD_RENAMES.items():
+        if new in out and old not in out:
+            out[old] = out[new]
+    m = re.match(r'(\d{4})[-./]?(\d{2})[-./]?(\d{2})', str(out.get('P_DATE') or '').strip())
+    if m:
+        out['P_DATE'] = '-'.join(m.groups())
+    return out
+
 
 def _price_rows(api_key):
     """The newest survey round: every row dated within PRICE_WINDOW_DAYS of
@@ -4174,7 +4199,7 @@ def _price_rows(api_key):
         body = d.get(PRICE_SVC) or {}
         if ((body.get('RESULT') or {}).get('CODE') or '') != 'INFO-000':
             return []
-        got = body.get('row') or []
+        got = [_price_row_compat(r) for r in (body.get('row') or [])]
         if not got:
             return []
         if cutoff is None:
